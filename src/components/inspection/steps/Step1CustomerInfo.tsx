@@ -28,8 +28,8 @@ export default function Step1CustomerInfo({ data, onChange }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-white text-2xl font-semibold">Customer Info</h2>
-        <p className="text-gray-400 text-base mt-1">Enter the homeowner&apos;s contact details.</p>
+        <h2 className="text-text-primary text-2xl font-semibold">Customer Info</h2>
+        <p className="text-text-secondary text-base mt-1">Enter the homeowner&apos;s contact details.</p>
       </div>
 
       <div className="flex flex-col gap-4">
@@ -67,11 +67,11 @@ export default function Step1CustomerInfo({ data, onChange }: Props) {
         />
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-gray-300 text-sm font-medium">How did you hear about us?</label>
+          <label className="text-text-secondary text-sm font-medium">How did you hear about us?</label>
           <select
             value={heardAboutUs}
             onChange={(e) => handleHeardChange(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-white rounded-xl min-h-12 px-4 text-base focus:outline-none focus:border-blue-500"
+            className="bg-bg-input border border-border text-text-primary rounded-xl min-h-12 px-4 text-base focus:outline-none focus:border-text-accent focus:ring-1 focus:ring-text-accent/30 transition-colors"
           >
             <option value="">Select...</option>
             {HEARD_OPTIONS.map((opt) => (

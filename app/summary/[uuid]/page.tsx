@@ -5,6 +5,17 @@ import ReportSection from "@/src/components/report/ReportSection";
 import SectionTracker from "@/src/components/report/SectionTracker";
 import PhotoReveal from "@/src/components/inspection/PhotoReveal";
 
+function fmt(n: number) {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+function fmtLinear(decimal: number | null | undefined): string {
+  if (decimal == null) return "—";
+  const ft = Math.floor(decimal);
+  const ins = Math.round((decimal - ft) * 12);
+  return ins > 0 ? `${ft}' ${ins}"` : `${ft}'`;
+}
+
 export default async function SummaryPage({
   params,
 }: {
@@ -21,6 +32,7 @@ export default async function SummaryPage({
         orderBy: { order: "asc" },
       },
       photos: { orderBy: { photoNumber: "asc" } },
+      packages: { orderBy: { order: "asc" } },
       quote: true,
       reportVisits: true,
     },
@@ -28,13 +40,7 @@ export default async function SummaryPage({
 
   if (!inspection) notFound();
 
-  // Strip sensitive fields
-  const safeInspection = {
-    ...inspection,
-    // Remove internal fields
-  };
-
-  const findings = (safeInspection.findings as Record<string, boolean>) || {};
+  const findings = (inspection.findings as Record<string, boolean>) || {};
   const customerName = inspection.customer?.name || "";
   const address = inspection.customer?.address || "";
   const repName = inspection.repName || "TIMEPROOF";
@@ -44,25 +50,21 @@ export default async function SummaryPage({
     day: "numeric",
   });
 
-  function fmt(n: number) {
-    return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-  }
-
   const checkedFindings = Object.entries(findings).filter(([, v]) => v === true);
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-report-bg">
       <SectionTracker uuid={uuid}>
         <div className="max-w-3xl mx-auto px-4 py-8 flex flex-col gap-6">
 
           {/* Header */}
           <ReportSection sectionKey="header">
             <div className="flex items-center gap-4">
-              <div className="w-32 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: "#003087" }}>
-                <span className="text-white font-bold tracking-widest text-sm">TIMEPROOF</span>
+              <div className="w-32 h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white">
+                <img src="/logo.png" alt="TIMEPROOF" className="h-8 w-auto px-2" />
               </div>
               <div>
-                <h1 className="text-gray-900 font-semibold text-xl">Roof Inspection Report</h1>
+                <h1 className="text-report-text font-semibold text-xl">Roof Inspection Report</h1>
                 <p className="text-gray-500 text-sm">{date} · {repName}</p>
               </div>
             </div>
@@ -71,7 +73,7 @@ export default async function SummaryPage({
           {/* Customer Info */}
           <ReportSection sectionKey="customer-info" title="Customer Information">
             <div className="flex flex-col gap-1">
-              <p className="text-gray-900 font-semibold text-lg">{customerName}</p>
+              <p className="text-report-text font-semibold text-lg">{customerName}</p>
               <p className="text-gray-600">{address}</p>
             </div>
           </ReportSection>
@@ -90,7 +92,7 @@ export default async function SummaryPage({
                       <ul className="flex flex-col gap-1">
                         {groupItems.map((item) => (
                           <li key={item.key} className="flex items-center gap-2 text-gray-700">
-                            <span className="text-[#003087]">•</span>
+                            <span className="text-report-heading">•</span>
                             {item.label}
                           </li>
                         ))}
@@ -123,7 +125,7 @@ export default async function SummaryPage({
                 href={inspection.driveFolderUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[#003087] hover:underline flex items-center gap-2 font-medium"
+                className="text-report-heading hover:underline flex items-center gap-2 font-medium"
               >
                 📁 View All Photos
               </a>
@@ -136,24 +138,26 @@ export default async function SummaryPage({
               <div className="flex flex-col gap-6">
                 {inspection.structures.map((s) => (
                   <div key={s.id}>
-                    <h3 className="text-gray-800 font-semibold mb-2">{s.name}</h3>
+                    <h3 className="text-report-text font-semibold mb-2">{s.name}</h3>
                     <table className="w-full text-sm">
                       <tbody>
                         {[
-                          ["Sq Ft", s.sqft],
-                          ["Squares", s.squares],
+                          ["Sq Ft", s.sqft != null ? s.sqft.toLocaleString() : null],
+                          ["Squares", s.squares != null ? s.squares.toString() : null],
                           ["Pitch", s.pitch],
-                          ["Stories", s.stories],
-                          ["Ridge", s.ridge ? `${s.ridge} ft` : null],
-                          ["Hip", s.hip ? `${s.hip} ft` : null],
-                          ["Valley", s.valley ? `${s.valley} ft` : null],
+                          ["Stories", s.stories != null ? s.stories.toString() : null],
+                          ["Ridge", fmtLinear(s.ridge)],
+                          ["Hip", fmtLinear(s.hip)],
+                          ["Valley", fmtLinear(s.valley)],
+                          ["Rake", fmtLinear(s.rake)],
+                          ["Eave", fmtLinear(s.eave)],
                           ["Package", s.recommendedPackage],
                         ]
-                          .filter(([, v]) => v != null)
+                          .filter(([, v]) => v != null && v !== "—")
                           .map(([label, value], i) => (
-                            <tr key={String(label)} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
+                            <tr key={String(label)} className={i % 2 === 0 ? "bg-report-surface" : "bg-report-bg"}>
                               <td className="py-1.5 px-3 text-gray-500">{label}</td>
-                              <td className="py-1.5 px-3 text-gray-800 font-medium">{String(value)}</td>
+                              <td className="py-1.5 px-3 text-report-text font-medium">{String(value)}</td>
                             </tr>
                           ))}
                       </tbody>
@@ -164,46 +168,76 @@ export default async function SummaryPage({
             </ReportSection>
           )}
 
-          {/* Quote */}
-          {inspection.quote && (
-            <ReportSection sectionKey="quote" title="Investment Summary">
-              <div className="flex flex-col divide-y divide-gray-200">
-                {inspection.quote.basePrice && (
-                  <div className="flex justify-between py-2">
-                    <span className="text-gray-600">Base Price</span>
-                    <span className="text-gray-800 font-medium">{fmt(inspection.quote.basePrice)}</span>
-                  </div>
-                )}
-                {inspection.quote.nationalPromo && inspection.quote.basePrice && (
-                  <div className="flex justify-between py-2">
-                    <span className="text-gray-600">National Promotion (5%)</span>
-                    <span className="text-red-500">-{fmt(inspection.quote.basePrice * 0.05)}</span>
-                  </div>
-                )}
-                {inspection.quote.localPromo && inspection.quote.basePrice && (
-                  <div className="flex justify-between py-2">
-                    <span className="text-gray-600">Local Promotion (10%)</span>
-                    <span className="text-red-500">-{fmt(inspection.quote.basePrice * 0.1)}</span>
-                  </div>
-                )}
-                {inspection.quote.fsp && inspection.quote.basePrice && (
-                  <div className="flex justify-between py-2">
-                    <span className="text-gray-600">FSP (10%)</span>
-                    <span className="text-red-500">-{fmt(inspection.quote.basePrice * 0.1)}</span>
-                  </div>
-                )}
-                {inspection.quote.nisi && (
-                  <div className="flex justify-between py-3 font-semibold border-t-2 border-gray-300">
-                    <span className="text-gray-900">Total Investment</span>
-                    <span className="text-gray-900 text-lg">{fmt(inspection.quote.nisi)}</span>
-                  </div>
-                )}
-                {inspection.quote.estMonthly && (
-                  <div className="flex justify-between py-2">
-                    <span className="text-gray-600">Est. Monthly Payment</span>
-                    <span className="text-gray-800 font-medium">{fmt(inspection.quote.estMonthly)}/mo</span>
-                  </div>
-                )}
+          {/* Packages */}
+          {inspection.packages.length > 0 && (
+            <ReportSection sectionKey="packages" title="Investment Options">
+              <div className="flex flex-col gap-5">
+                {[...inspection.packages]
+                  .sort((a, b) => (a.recommended === b.recommended ? 0 : a.recommended ? -1 : 1))
+                  .map((p) => {
+                    const npDiscount = p.basePrice * (p.nationalPromo ? 0.05 : 0);
+                    const lpDiscount = (p.basePrice - npDiscount) * (p.localPromo ? 0.1 : 0);
+                    const fspDiscount = (p.basePrice - npDiscount - lpDiscount) * (p.fsp ? 0.1 : 0);
+                    return (
+                      <div
+                        key={p.id}
+                        className={`rounded-xl overflow-hidden border ${
+                          p.recommended
+                            ? "border-amber-400 shadow-md shadow-amber-100"
+                            : "border-report-border"
+                        }`}
+                      >
+                        {/* Card header */}
+                        <div className={`px-4 py-3 flex items-center justify-between ${
+                          p.recommended ? "bg-amber-400" : "bg-report-heading"
+                        }`}>
+                          <h3 className={`font-bold text-base ${p.recommended ? "text-amber-900" : "text-white"}`}>
+                            {p.name}
+                          </h3>
+                          {p.recommended && (
+                            <span className="text-amber-900 text-xs font-bold uppercase tracking-wider bg-amber-300 px-2.5 py-1 rounded-full">
+                              ⭐ Recommended
+                            </span>
+                          )}
+                        </div>
+                        {/* Line items */}
+                        <div className="divide-y divide-report-border">
+                          {p.basePrice > 0 && (
+                            <div className="flex justify-between px-4 py-2 bg-report-bg">
+                              <span className="text-gray-600 text-sm">Base Price</span>
+                              <span className="text-report-text text-sm font-medium">{fmt(p.basePrice)}</span>
+                            </div>
+                          )}
+                          {p.nationalPromo && (
+                            <div className="flex justify-between px-4 py-2 bg-report-bg">
+                              <span className="text-gray-600 text-sm">National Promotion (5%)</span>
+                              <span className="text-red-500 text-sm">−{fmt(npDiscount)}</span>
+                            </div>
+                          )}
+                          {p.localPromo && (
+                            <div className="flex justify-between px-4 py-2 bg-report-bg">
+                              <span className="text-gray-600 text-sm">Local Promotion (10%)</span>
+                              <span className="text-red-500 text-sm">−{fmt(lpDiscount)}</span>
+                            </div>
+                          )}
+                          {p.fsp && (
+                            <div className="flex justify-between px-4 py-2 bg-report-bg">
+                              <span className="text-gray-600 text-sm">FSP (10%)</span>
+                              <span className="text-red-500 text-sm">−{fmt(fspDiscount)}</span>
+                            </div>
+                          )}
+                          {p.nisi != null && (
+                            <div className={`flex justify-between px-4 py-3 ${p.recommended ? "bg-amber-50" : "bg-report-surface"}`}>
+                              <span className="text-report-text font-bold">Total Investment</span>
+                              <span className={`font-bold text-lg ${p.recommended ? "text-amber-700" : "text-report-heading"}`}>
+                                {fmt(p.nisi)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             </ReportSection>
           )}
@@ -215,31 +249,31 @@ export default async function SummaryPage({
                 {inspection.gateCode && (
                   <div className="flex gap-3">
                     <span className="text-gray-500 w-28">Gate Code</span>
-                    <span className="text-gray-800">{inspection.gateCode}</span>
+                    <span className="text-report-text">{inspection.gateCode}</span>
                   </div>
                 )}
                 {inspection.hasPets != null && (
                   <div className="flex gap-3">
                     <span className="text-gray-500 w-28">Pets on property</span>
-                    <span className="text-gray-800">{inspection.hasPets ? "Yes" : "No"}</span>
+                    <span className="text-report-text">{inspection.hasPets ? "Yes" : "No"}</span>
                   </div>
                 )}
                 {inspection.accessIssues && (
                   <div className="flex gap-3">
                     <span className="text-gray-500 w-28">Access Issues</span>
-                    <span className="text-gray-800">{inspection.accessIssues}</span>
+                    <span className="text-report-text">{inspection.accessIssues}</span>
                   </div>
                 )}
                 {inspection.colorSelected && (
                   <div className="flex gap-3">
                     <span className="text-gray-500 w-28">Color Selected</span>
-                    <span className="text-gray-800">{inspection.colorSelected}</span>
+                    <span className="text-report-text">{inspection.colorSelected}</span>
                   </div>
                 )}
                 {inspection.specialRequests && (
                   <div className="flex gap-3">
                     <span className="text-gray-500 w-28">Special Requests</span>
-                    <span className="text-gray-800">{inspection.specialRequests}</span>
+                    <span className="text-report-text">{inspection.specialRequests}</span>
                   </div>
                 )}
               </div>

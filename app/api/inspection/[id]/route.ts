@@ -9,6 +9,7 @@ async function getOwnedInspection(id: string, userId: string) {
       customer: true,
       structures: { orderBy: { order: "asc" } },
       photos: { orderBy: { photoNumber: "asc" } },
+      packages: { orderBy: { order: "asc" } },
       quote: true,
       reportVisits: { include: { sections: true } },
     },
@@ -94,45 +95,23 @@ export async function PATCH(
     delete inspectionData.heardAboutUs;
   }
 
-  // Upsert quote if provided
+  // Legacy quote upsert (kept for backwards compat)
   if (quoteData) {
-    const { basePrice, nationalPromo, localPromo, fsp, commissionRate, estMonthly } = quoteData;
+    const { basePrice, nationalPromo, localPromo, fsp, estMonthly } = quoteData;
     const bp = basePrice ?? existing.quote?.basePrice ?? 0;
     const np = nationalPromo ?? existing.quote?.nationalPromo ?? false;
     const lp = localPromo ?? existing.quote?.localPromo ?? false;
     const fspVal = fsp ?? existing.quote?.fsp ?? false;
-    const cr = commissionRate ?? existing.quote?.commissionRate ?? 0;
-
-    const discountMultiplier =
+    const nisi =
+      bp *
       (1 - (np ? 0.05 : 0)) *
       (1 - (lp ? 0.1 : 0)) *
       (1 - (fspVal ? 0.1 : 0));
-    const nisi = bp * discountMultiplier;
-    const commission = nisi * cr;
 
     await prisma.quote.upsert({
       where: { inspectionId: id },
-      create: {
-        inspectionId: id,
-        basePrice: bp,
-        nationalPromo: np,
-        localPromo: lp,
-        fsp: fspVal,
-        commissionRate: cr,
-        nisi,
-        commission,
-        estMonthly: estMonthly ?? null,
-      },
-      update: {
-        ...(basePrice !== undefined && { basePrice: bp }),
-        ...(nationalPromo !== undefined && { nationalPromo: np }),
-        ...(localPromo !== undefined && { localPromo: lp }),
-        ...(fsp !== undefined && { fsp: fspVal }),
-        ...(commissionRate !== undefined && { commissionRate: cr }),
-        nisi,
-        commission,
-        ...(estMonthly !== undefined && { estMonthly }),
-      },
+      create: { inspectionId: id, basePrice: bp, nationalPromo: np, localPromo: lp, fsp: fspVal, nisi, estMonthly: estMonthly ?? null },
+      update: { basePrice: bp, nationalPromo: np, localPromo: lp, fsp: fspVal, nisi, ...(estMonthly !== undefined && { estMonthly }) },
     });
   }
 
@@ -157,10 +136,30 @@ export async function PATCH(
       customer: true,
       structures: { orderBy: { order: "asc" } },
       photos: { orderBy: { photoNumber: "asc" } },
+      packages: { orderBy: { order: "asc" } },
       quote: true,
       reportVisits: { include: { sections: true } },
     },
   });
 
   return NextResponse.json(updated);
+}
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const existing = await prisma.inspection.findUnique({ where: { id } });
+  if (!existing || existing.userId !== session.user.id) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  await prisma.inspection.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
 }

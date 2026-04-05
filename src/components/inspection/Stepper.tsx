@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import StepIndicator from "./StepIndicator";
 import Step1CustomerInfo from "./steps/Step1CustomerInfo";
 import Step2Discovery from "./steps/Step2Discovery";
 import Step3Findings from "./steps/Step3Findings";
@@ -27,8 +26,8 @@ const STEP_FIELDS: Record<number, string[]> = {
   0: ["customerName", "address", "phone", "email", "heardAboutUs", "repName"],
   1: ["ownershipLength", "previousRoofWork", "previousRoofWhen", "activeLeaks", "leakLocation", "allDecisionMakers", "priorities"],
   2: ["findings", "findingsNotes"],
-  3: [], // Photos managed independently via API
-  4: [], // Structures managed independently via API
+  3: [],
+  4: [],
   5: ["quote"],
   6: ["productionNotes", "gateCode", "hasPets", "accessIssues", "hoaRestrictions", "hoaDetails", "colorSelected", "specialRequests", "followUpNotes"],
   7: ["status"],
@@ -43,7 +42,6 @@ interface StepperProps {
 export default function Stepper({ inspectionId, initialData }: StepperProps) {
   const router = useRouter();
 
-  // Initialize step data from initialData
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const buildInitialStepData = (): Record<number, Record<string, any>> => {
     if (!initialData) return {};
@@ -57,7 +55,6 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
           stepData[field] = initialData[field];
         }
       });
-      // Customer fields come from nested customer object
       if (Number(stepIndex) === 0 && initialData.customer) {
         stepData.customerName = initialData.customer.name;
         stepData.address = initialData.customer.address;
@@ -75,8 +72,8 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Mark steps with data as completed
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => {
     const initial = buildInitialStepData();
     return new Set(Object.keys(initial).map(Number).filter((k) => Object.keys(initial[k] || {}).length > 0));
@@ -120,9 +117,7 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
     }
   };
 
-  const handleBack = () => {
-    setCurrentStep((s) => s - 1);
-  };
+  const handleBack = () => setCurrentStep((s) => s - 1);
 
   const handleComplete = async () => {
     setSaving(true);
@@ -157,73 +152,132 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col">
-      {/* Save status — fixed top-right */}
-      <div className="fixed top-4 right-4 z-50 h-8 flex items-center">
-        {saving && (
-          <span className="text-gray-400 text-sm flex items-center gap-2">
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-            </svg>
-            Saving...
-          </span>
-        )}
-        {saved && !saving && (
-          <span className="text-green-400 text-sm">Saved ✓</span>
-        )}
-      </div>
+    <div className="h-screen bg-bg-base flex overflow-hidden">
 
-      {/* Header with step indicator */}
-      <div className="bg-gray-900 border-b border-gray-800 px-4 py-3">
-        <div className="max-w-3xl mx-auto">
-          <StepIndicator
-            steps={STEPS}
-            currentStep={currentStep}
-            completedSteps={completedSteps}
-            onStepClick={setCurrentStep}
-          />
-        </div>
-      </div>
-
-      {/* Step content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 py-6">
-          {stepComponents[currentStep]}
-        </div>
-      </div>
-
-      {/* Navigation */}
-      <div className="bg-gray-900 border-t border-gray-800 px-4 py-4">
-        <div className="max-w-3xl mx-auto flex gap-3">
-          {currentStep > 0 && (
-            <button
-              type="button"
-              onClick={handleBack}
-              className="flex-1 border border-gray-700 text-gray-300 hover:text-white rounded-xl min-h-14 text-base font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              ← Back
-            </button>
+      {/* ── Sidebar ── */}
+      <aside
+        className={`${sidebarOpen ? "w-56" : "w-16"} shrink-0 bg-bg-surface border-r border-border flex flex-col transition-all duration-200 ease-in-out`}
+      >
+        {/* Sidebar header / toggle */}
+        <div className="flex items-center justify-between h-16 px-3 border-b border-border shrink-0">
+          {sidebarOpen && (
+            <span className="text-text-secondary text-xs font-semibold uppercase tracking-wider pl-1">
+              Steps
+            </span>
           )}
-          {currentStep < STEPS.length - 1 ? (
-            <button
-              type="button"
-              onClick={handleNext}
-              disabled={saving}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl min-h-14 text-lg font-semibold transition-colors flex items-center justify-center gap-2"
-            >
-              {saving ? "Saving..." : "Next →"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleComplete}
-              disabled={saving}
-              className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-xl min-h-14 text-lg font-semibold transition-colors flex items-center justify-center gap-2"
-            >
-              {saving ? "Saving..." : "Complete Inspection ✓"}
-            </button>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((v) => !v)}
+            className="ml-auto w-9 h-9 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors"
+            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+          >
+            {sidebarOpen ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        {/* Step list */}
+        <nav className="flex flex-col gap-1 p-2 flex-1 overflow-y-auto">
+          {STEPS.map((step, i) => {
+            const isCompleted = completedSteps.has(i);
+            const isCurrent = i === currentStep;
+            const isClickable = isCompleted && !isCurrent;
+
+            return (
+              <button
+                key={step.id}
+                type="button"
+                disabled={!isClickable && !isCurrent}
+                onClick={() => isClickable && setCurrentStep(i)}
+                title={!sidebarOpen ? step.label : undefined}
+                className={`flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-sm font-medium transition-all min-h-11 w-full text-left ${
+                  isCurrent
+                    ? "bg-brand-blue text-text-primary shadow-md shadow-brand-navy/40"
+                    : isCompleted
+                    ? "bg-brand-navy/40 text-text-accent hover:bg-brand-navy/60 cursor-pointer"
+                    : "text-text-hint cursor-default"
+                }`}
+              >
+                <span className="text-base leading-none shrink-0 w-5 text-center">
+                  {isCompleted && !isCurrent ? "✓" : step.icon}
+                </span>
+                {sidebarOpen && (
+                  <span className="truncate">{step.label}</span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Save status at bottom of sidebar */}
+        <div className="p-3 border-t border-border shrink-0 min-h-12 flex items-center">
+          {saving && (
+            <span className="flex items-center gap-2 text-text-secondary text-xs">
+              <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              {sidebarOpen && "Saving…"}
+            </span>
           )}
+          {saved && !saving && (
+            <span className="flex items-center gap-2 text-success-text text-xs">
+              <span>✓</span>
+              {sidebarOpen && "Saved"}
+            </span>
+          )}
+        </div>
+      </aside>
+
+      {/* ── Main area ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+
+        {/* Step content — scrollable */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-2xl mx-auto px-6 py-10">
+            {stepComponents[currentStep]}
+          </div>
+        </div>
+
+        {/* Navigation footer */}
+        <div className="bg-bg-surface/80 backdrop-blur border-t border-border px-6 py-4 shrink-0">
+          <div className="max-w-2xl mx-auto flex gap-4">
+            {currentStep > 0 && (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="flex-1 border border-border text-text-secondary hover:text-text-primary hover:border-border-hover rounded-2xl min-h-14 text-base font-medium transition-all flex items-center justify-center gap-2"
+              >
+                ← Back
+              </button>
+            )}
+            {currentStep < STEPS.length - 1 ? (
+              <button
+                type="button"
+                onClick={handleNext}
+                disabled={saving}
+                className="flex-1 bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-text-primary rounded-2xl min-h-14 text-lg font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand-navy/30"
+              >
+                {saving ? "Saving…" : "Next →"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleComplete}
+                disabled={saving}
+                className="flex-1 bg-success hover:bg-success/80 disabled:opacity-50 text-text-primary rounded-2xl min-h-14 text-lg font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-success/30"
+              >
+                {saving ? "Saving..." : "Complete Inspection ✓"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

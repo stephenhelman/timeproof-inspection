@@ -118,7 +118,7 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
       <div className="fixed inset-0 z-50 bg-black">
         <button
           onClick={() => setMode("entry")}
-          className="fixed top-4 left-4 z-50 bg-gray-900 text-white px-4 py-2 rounded-xl border border-gray-700 text-sm"
+          className="fixed top-4 left-4 z-50 bg-bg-surface text-text-primary px-4 py-2 rounded-xl border border-border text-sm"
         >
           ← Back to Data Entry
         </button>
@@ -137,25 +137,23 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-white text-2xl font-semibold">Photos</h2>
-        <p className="text-gray-400 text-base mt-1">Capture roof damage documentation.</p>
+        <h2 className="text-text-primary text-2xl font-semibold">Photos</h2>
+        <p className="text-text-secondary text-base mt-1">Capture roof damage documentation.</p>
       </div>
 
       {/* Mode toggle */}
-      <div className="flex bg-gray-800 rounded-xl p-1 gap-1">
+      <div className="flex bg-bg-elevated rounded-xl p-1 gap-1">
         <button
           onClick={() => setMode("entry")}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${
-            mode === "entry" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors min-h-10 ${
+            mode === "entry" ? "bg-brand-blue text-text-primary" : "text-text-secondary hover:text-text-primary"
           }`}
         >
           📋 Data Entry
         </button>
         <button
           onClick={() => setMode("present")}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors min-h-[40px] ${
-            "text-gray-400 hover:text-white"
-          }`}
+          className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors min-h-10 text-text-secondary hover:text-text-primary"
         >
           🔍 Present to Customer
         </button>
@@ -175,14 +173,14 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
-          className="w-full bg-gray-800 border-2 border-dashed border-gray-600 hover:border-blue-500 text-gray-300 hover:text-white rounded-2xl min-h-16 text-base font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
+          className="w-full bg-bg-elevated border-2 border-dashed border-border hover:border-text-accent text-text-secondary hover:text-text-primary rounded-2xl min-h-16 text-base font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
         >
           📷 {uploading ? "Uploading..." : "Add Photo"}
         </button>
         {uploading && (
-          <div className="w-full bg-gray-800 rounded-full h-2">
+          <div className="w-full bg-bg-elevated rounded-full h-2">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              className="bg-brand-blue h-2 rounded-full transition-all duration-300"
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
@@ -194,7 +192,7 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
           href={driveFolderUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-2"
+          className="text-text-accent hover:text-text-primary text-sm flex items-center gap-2"
         >
           📁 View Drive Folder →
         </a>
@@ -203,10 +201,10 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
       {/* Photo list */}
       <div className="flex flex-col gap-4">
         {photos.map((photo) => (
-          <div key={photo.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col gap-4">
+          <div key={photo.id} className="bg-bg-surface border border-border rounded-2xl p-4 flex flex-col gap-4">
             <div className="flex gap-4">
               {/* Thumbnail */}
-              <div className="w-24 h-24 flex-shrink-0 rounded-xl overflow-hidden bg-gray-800">
+              <div className="w-24 h-24 shrink-0 rounded-xl overflow-hidden bg-bg-elevated">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={photo.driveUrl}
@@ -215,8 +213,8 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-white font-semibold text-base">Photo {photo.photoNumber}</p>
-                <p className="text-gray-400 text-sm mt-1">What does this photo show?</p>
+                <p className="text-text-primary font-semibold text-base">Photo {photo.photoNumber}</p>
+                <p className="text-text-secondary text-sm mt-1">What does this photo show?</p>
               </div>
             </div>
 
@@ -224,17 +222,17 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
             <div className="flex flex-col gap-3">
               {DAMAGE_GROUPS.map((group) => (
                 <div key={group.group}>
-                  <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">{group.group}</p>
+                  <p className="text-text-hint text-xs uppercase tracking-wider mb-1">{group.group}</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-0.5">
                     {group.items.map((item) => (
-                      <label key={item.key} className="flex items-center gap-2 min-h-[36px] cursor-pointer">
+                      <label key={item.key} className="flex items-center gap-2 min-h-9 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={photo.damageTags.includes(item.key)}
                           onChange={(e) => handleTagChange(photo.id, item.key, e.target.checked)}
-                          className="w-4 h-4 rounded accent-blue-600"
+                          className="w-4 h-4 rounded accent-brand-blue"
                         />
-                        <span className="text-gray-300 text-sm">{item.label}</span>
+                        <span className="text-text-secondary text-sm">{item.label}</span>
                       </label>
                     ))}
                   </div>
@@ -244,19 +242,19 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
 
             {/* Description */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-gray-400 text-sm">Description (auto-generated, editable)</label>
+              <label className="text-text-secondary text-sm">Description (auto-generated, editable)</label>
               <textarea
                 value={photo.description || ""}
                 onChange={(e) => handleDescriptionChange(photo.id, e.target.value)}
                 rows={2}
-                className="bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm placeholder:text-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+                className="bg-bg-input border border-border text-text-primary rounded-xl px-4 py-2.5 text-sm placeholder:text-text-hint focus:outline-none focus:border-text-accent focus:ring-1 focus:ring-text-accent/30 resize-none transition-colors"
               />
             </div>
 
             <button
               type="button"
               onClick={() => handleDelete(photo.id)}
-              className="self-start text-red-400 hover:text-red-300 text-sm flex items-center gap-1.5 min-h-[36px]"
+              className="self-start text-brand-red hover:text-accent-red-hover text-sm flex items-center gap-1.5 min-h-9"
             >
               🗑 Delete
             </button>
@@ -265,7 +263,7 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
       </div>
 
       {photos.length === 0 && !uploading && (
-        <p className="text-gray-500 text-center py-8">No photos yet. Tap &quot;Add Photo&quot; to get started.</p>
+        <p className="text-text-hint text-center py-8">No photos yet. Tap &quot;Add Photo&quot; to get started.</p>
       )}
     </div>
   );

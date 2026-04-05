@@ -4,6 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "TIMEPROOF Inspection Reports",
   description: "Roof inspection reporting for TIMEPROOFUSA sales reps.",
+  icons: { icon: "/logo.png" },
 };
 
 export default function RootLayout({

@@ -1,7 +1,19 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Toggle from "@/src/components/ui/Toggle";
+import PackageCard from "@/src/components/inspection/PackageCard";
+
+interface Package {
+  id: string;
+  name: string;
+  basePrice: number;
+  nationalPromo: boolean;
+  localPromo: boolean;
+  fsp: boolean;
+  nisi?: number | null;
+  recommended: boolean;
+  order: number;
+}
 
 interface Props {
   data: Record<string, unknown>;
@@ -10,173 +22,104 @@ interface Props {
   initialData?: Record<string, unknown>;
 }
 
-interface QuoteState {
-  basePrice: string;
-  nationalPromo: boolean;
-  localPromo: boolean;
-  fsp: boolean;
-  commissionRate: string;
-  estMonthly: string;
-}
+export default function Step6Quote({ inspectionId, initialData }: Props) {
+  const [packages, setPackages] = useState<Package[]>(
+    (initialData?.packages as Package[]) || []
+  );
+  const [adding, setAdding] = useState(false);
 
-function fmt(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
+  useEffect(() => {
+    fetch(`/api/inspection/${inspectionId}`)
+      .then((r) => r.json())
+      .then((d) => { if (d?.packages) setPackages(d.packages); })
+      .catch(() => {});
+  }, [inspectionId]);
 
-export default function Step6Quote({ onChange, initialData }: Props) {
-  const q = (initialData?.quote as Record<string, unknown>) || {};
-
-  const [state, setState] = useState<QuoteState>({
-    basePrice: q.basePrice?.toString() || "",
-    nationalPromo: !!(q.nationalPromo),
-    localPromo: !!(q.localPromo),
-    fsp: !!(q.fsp),
-    commissionRate: q.commissionRate?.toString() || "",
-    estMonthly: q.estMonthly?.toString() || "",
-  });
-
-  const update = (patch: Partial<QuoteState>) => {
-    const next = { ...state, ...patch };
-    setState(next);
-    onChange({
-      quote: {
-        basePrice: parseFloat(next.basePrice) || 0,
-        nationalPromo: next.nationalPromo,
-        localPromo: next.localPromo,
-        fsp: next.fsp,
-        commissionRate: parseFloat(next.commissionRate) || 0,
-        estMonthly: parseFloat(next.estMonthly) || 0,
-      },
-    });
+  const addPackage = async () => {
+    setAdding(true);
+    try {
+      const res = await fetch("/api/package", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inspectionId,
+          name: "Essentials",
+          order: packages.length,
+        }),
+      });
+      const pkg = await res.json();
+      setPackages((prev) => [...prev, pkg]);
+    } finally {
+      setAdding(false);
+    }
   };
 
-  const bp = parseFloat(state.basePrice) || 0;
-  const np = state.nationalPromo;
-  const lp = state.localPromo;
-  const fsp = state.fsp;
-  const cr = parseFloat(state.commissionRate) || 0;
+  const updatePackage = async (id: string, data: Partial<Package>) => {
+    setPackages((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
+    const res = await fetch(`/api/package/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const updated = await res.json();
+    setPackages((prev) => prev.map((p) => (p.id === id ? { ...p, nisi: updated.nisi } : p)));
+  };
 
-  const npDiscount = bp * (np ? 0.05 : 0);
-  const lpDiscount = (bp - npDiscount) * (lp ? 0.1 : 0);
-  const fspDiscount = (bp - npDiscount - lpDiscount) * (fsp ? 0.1 : 0);
-  const nisi = bp - npDiscount - lpDiscount - fspDiscount;
-  const commission = nisi * cr;
+  const handleMarkRecommended = (id: string, value: boolean) => {
+    // Clear recommended on all others in local state, then patch the target
+    setPackages((prev) =>
+      prev.map((p) => ({ ...p, recommended: p.id === id ? value : false }))
+    );
+    // If marking true, also clear siblings on server (the API handles this)
+    // If marking false, just update this one
+    fetch(`/api/package/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recommended: value }),
+    }).catch(() => {});
+  };
 
-  // Sync initial data to parent
-  useEffect(() => {
-    if (q.basePrice) {
-      onChange({
-        quote: {
-          basePrice: q.basePrice,
-          nationalPromo: q.nationalPromo,
-          localPromo: q.localPromo,
-          fsp: q.fsp,
-          commissionRate: q.commissionRate,
-          estMonthly: q.estMonthly,
-        },
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const deletePackage = async (id: string) => {
+    if (!confirm("Delete this package?")) return;
+    await fetch(`/api/package/${id}`, { method: "DELETE" });
+    setPackages((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  // Sort: recommended first
+  const sorted = [...packages].sort((a, b) =>
+    a.recommended === b.recommended ? 0 : a.recommended ? -1 : 1
+  );
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-white text-2xl font-semibold">Quote Builder</h2>
-        <p className="text-gray-400 text-base mt-1">Build the customer&apos;s quote with NISI math.</p>
+        <h2 className="text-text-primary text-2xl font-semibold">Packages</h2>
+        <p className="text-text-secondary text-base mt-1">
+          Build one or more pricing packages. Mark one as ⭐ Recommended to highlight it on the report.
+        </p>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {/* Base Price */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-gray-300 text-sm font-medium">Base Price ($)</label>
-          <input
-            type="number"
-            placeholder="0"
-            value={state.basePrice}
-            onChange={(e) => update({ basePrice: e.target.value })}
-            className="bg-gray-800 border border-gray-700 text-white rounded-xl min-h-12 px-4 text-base focus:outline-none focus:border-blue-500"
-          />
-        </div>
+      <button
+        type="button"
+        onClick={addPackage}
+        disabled={adding}
+        className="w-full bg-bg-elevated border-2 border-dashed border-border hover:border-text-accent text-text-secondary hover:text-text-primary rounded-2xl min-h-14 text-base font-medium transition-colors disabled:opacity-50"
+      >
+        {adding ? "Adding…" : "+ Add Package"}
+      </button>
 
-        {/* Discount toggles */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col gap-4">
-          <p className="text-gray-400 text-sm font-medium uppercase tracking-wider">Discounts</p>
-          <Toggle label="National Promo (5%)" value={np} onChange={(v) => update({ nationalPromo: v })} />
-          <Toggle label="Local Promo (10%)" value={lp} onChange={(v) => update({ localPromo: v })} />
-          <Toggle label="FSP (10%)" value={fsp} onChange={(v) => update({ fsp: v })} />
-        </div>
+      {sorted.map((pkg) => (
+        <PackageCard
+          key={pkg.id}
+          pkg={pkg}
+          onUpdate={updatePackage}
+          onDelete={deletePackage}
+          onMarkRecommended={handleMarkRecommended}
+        />
+      ))}
 
-        {/* Commission rate */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-gray-300 text-sm font-medium">Commission Rate (e.g. 0.08 = 8%)</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="1"
-            placeholder="0.08"
-            value={state.commissionRate}
-            onChange={(e) => update({ commissionRate: e.target.value })}
-            className="bg-gray-800 border border-gray-700 text-white rounded-xl min-h-12 px-4 text-base focus:outline-none focus:border-blue-500"
-          />
-        </div>
-
-        {/* Est monthly */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-gray-300 text-sm font-medium">Est. Monthly Payment ($)</label>
-          <input
-            type="number"
-            placeholder="0"
-            value={state.estMonthly}
-            onChange={(e) => update({ estMonthly: e.target.value })}
-            className="bg-gray-800 border border-gray-700 text-white rounded-xl min-h-12 px-4 text-base focus:outline-none focus:border-blue-500"
-          />
-        </div>
-      </div>
-
-      {/* Live calculation */}
-      {bp > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 font-mono text-sm">
-          <div className="flex justify-between py-1.5 border-b border-gray-800">
-            <span className="text-gray-400">Base Price</span>
-            <span className="text-white">{fmt(bp)}</span>
-          </div>
-          {np && (
-            <div className="flex justify-between py-1.5 border-b border-gray-800">
-              <span className="text-gray-400">National Promo (5%)</span>
-              <span className="text-red-400">-{fmt(npDiscount)}</span>
-            </div>
-          )}
-          {lp && (
-            <div className="flex justify-between py-1.5 border-b border-gray-800">
-              <span className="text-gray-400">Local Promo (10%)</span>
-              <span className="text-red-400">-{fmt(lpDiscount)}</span>
-            </div>
-          )}
-          {fsp && (
-            <div className="flex justify-between py-1.5 border-b border-gray-800">
-              <span className="text-gray-400">FSP (10%)</span>
-              <span className="text-red-400">-{fmt(fspDiscount)}</span>
-            </div>
-          )}
-          <div className="flex justify-between py-2 border-b-2 border-gray-700 mt-1">
-            <span className="text-white font-semibold">NISI</span>
-            <span className="text-white font-semibold text-base">{fmt(nisi)}</span>
-          </div>
-          {cr > 0 && (
-            <div className="flex justify-between py-1.5 border-b border-gray-800">
-              <span className="text-gray-400">Commission ({(cr * 100).toFixed(0)}%)</span>
-              <span className="text-yellow-400">{fmt(commission)}</span>
-            </div>
-          )}
-          {state.estMonthly && (
-            <div className="flex justify-between py-1.5">
-              <span className="text-gray-400">Est. Monthly</span>
-              <span className="text-green-400">{fmt(parseFloat(state.estMonthly))}/mo</span>
-            </div>
-          )}
-        </div>
+      {packages.length === 0 && (
+        <p className="text-text-hint text-center py-8">No packages yet. Tap &quot;Add Package&quot; to get started.</p>
       )}
     </div>
   );

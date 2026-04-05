@@ -20,7 +20,7 @@ export default function StepIndicator({
   onStepClick,
 }: StepIndicatorProps) {
   return (
-    <div className="flex items-center gap-1 w-full overflow-x-auto pb-1">
+    <div className="flex items-center gap-1.5 w-full overflow-x-auto pb-0.5 no-scrollbar">
       {steps.map((step, i) => {
         const isCompleted = completedSteps.has(i);
         const isCurrent = i === currentStep;
@@ -32,18 +32,18 @@ export default function StepIndicator({
             type="button"
             disabled={!isClickable && !isCurrent}
             onClick={() => isClickable && onStepClick(i)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors flex-shrink-0 min-h-[44px] ${
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all shrink-0 min-h-12 ${
               isCompleted
-                ? "bg-blue-900 text-blue-300 cursor-pointer"
+                ? "bg-brand-navy/60 text-text-accent border border-border cursor-pointer hover:bg-brand-navy"
                 : isCurrent
-                ? "bg-transparent border-2 border-blue-500 text-blue-400"
-                : "bg-gray-800 text-gray-500 cursor-default"
+                ? "bg-brand-blue text-text-primary shadow-lg shadow-brand-navy/40"
+                : "bg-bg-elevated/80 text-text-hint cursor-default border border-border"
             }`}
           >
-            <span className="text-base">
+            <span className="text-base leading-none">
               {isCompleted ? "✓" : step.icon}
             </span>
-            <span className={`hidden sm:inline ${isCurrent ? "inline" : ""}`}>
+            <span className={isCurrent ? "inline" : "hidden lg:inline"}>
               {step.label}
             </span>
           </button>

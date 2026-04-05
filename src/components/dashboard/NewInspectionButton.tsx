@@ -26,7 +26,7 @@ export default function NewInspectionButton() {
     <button
       onClick={handleClick}
       disabled={loading}
-      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-xl min-h-12 px-6 text-base transition-colors"
+      className="bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-text-primary font-semibold rounded-xl min-h-12 px-6 text-base transition-colors"
     >
       {loading ? "Creating..." : "+ New Inspection"}
     </button>

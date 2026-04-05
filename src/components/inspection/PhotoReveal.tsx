@@ -80,13 +80,13 @@ export default function PhotoReveal({
     if (current === 0) {
       return (
         <div className="flex flex-col items-center justify-center text-center gap-6 h-full px-8">
-          <div className={`w-full max-w-xs h-16 rounded-2xl flex items-center justify-center ${mode === "presentation" ? "bg-blue-600" : "bg-[#003087]"}`}>
-            <span className="text-white font-bold text-2xl tracking-widest">TIMEPROOF</span>
+          <div className="w-full max-w-xs h-16 rounded-2xl flex items-center justify-center overflow-hidden bg-white">
+            <img src="/logo.png" alt="TIMEPROOF" className="h-10 w-auto px-3" />
           </div>
-          <h1 className={`font-bold ${mode === "presentation" ? "text-white text-4xl" : "text-gray-900 text-3xl"}`}>
+          <h1 className={`font-bold ${mode === "presentation" ? "text-text-primary text-4xl" : "text-gray-900 text-3xl"}`}>
             Roof Inspection Report
           </h1>
-          <div className={mode === "presentation" ? "text-gray-300 text-xl" : "text-gray-600 text-lg"}>
+          <div className={mode === "presentation" ? "text-text-secondary text-xl" : "text-gray-600 text-lg"}>
             <p className="font-semibold">{customerName}</p>
             <p>{address}</p>
             <p className="mt-2 text-sm">{today}</p>
@@ -98,22 +98,22 @@ export default function PhotoReveal({
     // Summary slide
     if (current === totalSlides - 1) {
       return (
-        <div className={`flex flex-col gap-6 h-full overflow-y-auto px-4 py-6 ${mode === "presentation" ? "text-white" : "text-gray-800"}`}>
-          <p className={`text-xl leading-relaxed ${mode === "presentation" ? "text-white" : "text-gray-800"}`}>
+        <div className={`flex flex-col gap-6 h-full overflow-y-auto px-4 py-6 ${mode === "presentation" ? "text-text-primary" : "text-gray-800"}`}>
+          <p className={`text-xl leading-relaxed ${mode === "presentation" ? "text-text-primary" : "text-gray-800"}`}>
             {statement.opening}
           </p>
           {statement.items.length > 0 && (
             <ul className="flex flex-col gap-2">
               {statement.items.map((item) => (
-                <li key={item} className={`flex items-start gap-3 text-lg ${mode === "presentation" ? "text-gray-200" : "text-gray-700"}`}>
-                  <span className="text-blue-400 mt-0.5">•</span>
+                <li key={item} className={`flex items-start gap-3 text-lg ${mode === "presentation" ? "text-text-secondary" : "text-gray-700"}`}>
+                  <span className={`mt-0.5 ${mode === "presentation" ? "text-text-accent" : "text-[#1B3A7A]"}`}>•</span>
                   {item}
                 </li>
               ))}
             </ul>
           )}
           {statement.closing && (
-            <p className={`text-base leading-relaxed whitespace-pre-line mt-4 ${mode === "presentation" ? "text-gray-300" : "text-gray-600"}`}>
+            <p className={`text-base leading-relaxed whitespace-pre-line mt-4 ${mode === "presentation" ? "text-text-secondary" : "text-gray-600"}`}>
               {statement.closing}
             </p>
           )}
@@ -139,7 +139,7 @@ export default function PhotoReveal({
           />
         </div>
         {photo.description && (
-          <div className={`px-4 py-4 flex-shrink-0 ${mode === "presentation" ? "text-white" : "text-gray-800"}`}>
+          <div className={`px-4 py-4 shrink-0 ${mode === "presentation" ? "text-text-primary" : "text-gray-800"}`}>
             <p className={mode === "presentation" ? "text-xl leading-relaxed" : "text-base leading-relaxed"}>
               {photo.description}
             </p>
@@ -153,7 +153,7 @@ export default function PhotoReveal({
 
   return (
     <div
-      className={`flex flex-col ${isPresentation ? "h-screen bg-black" : "min-h-[500px] bg-white rounded-2xl border border-gray-200 overflow-hidden"}`}
+      className={`flex flex-col ${isPresentation ? "h-screen bg-bg-base" : "min-h-125 bg-white rounded-2xl border border-gray-200 overflow-hidden"}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -165,21 +165,21 @@ export default function PhotoReveal({
       </div>
 
       {/* Navigation bar */}
-      <div className={`flex items-center justify-between px-4 py-3 flex-shrink-0 ${isPresentation ? "bg-black/80" : "bg-gray-50 border-t border-gray-200"}`}>
+      <div className={`flex items-center justify-between px-4 py-3 shrink-0 ${isPresentation ? "bg-bg-surface/80" : "bg-gray-50 border-t border-gray-200"}`}>
         <button
           onClick={goPrev}
           disabled={current === 0}
-          className={`min-h-[48px] min-w-[48px] rounded-xl flex items-center justify-center text-2xl transition-opacity disabled:opacity-30 ${isPresentation ? "text-white" : "text-gray-700"}`}
+          className={`min-h-12 min-w-12 rounded-xl flex items-center justify-center text-2xl transition-opacity disabled:opacity-30 ${isPresentation ? "text-text-primary" : "text-gray-700"}`}
         >
           ←
         </button>
-        <span className={`text-sm ${isPresentation ? "text-gray-400" : "text-gray-500"}`}>
+        <span className={`text-sm ${isPresentation ? "text-text-hint" : "text-gray-500"}`}>
           Slide {current + 1} of {totalSlides}
         </span>
         <button
           onClick={goNext}
           disabled={current === totalSlides - 1}
-          className={`min-h-[48px] min-w-[48px] rounded-xl flex items-center justify-center text-2xl transition-opacity disabled:opacity-30 ${isPresentation ? "text-white" : "text-gray-700"}`}
+          className={`min-h-12 min-w-12 rounded-xl flex items-center justify-center text-2xl transition-opacity disabled:opacity-30 ${isPresentation ? "text-text-primary" : "text-gray-700"}`}
         >
           →
         </button>

@@ -86,15 +86,15 @@ export default function Step5Structures({ inspectionId, initialData }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-white text-2xl font-semibold">Structures</h2>
-        <p className="text-gray-400 text-base mt-1">Document each structure on the property.</p>
+        <h2 className="text-text-primary text-2xl font-semibold">Structures</h2>
+        <p className="text-text-secondary text-base mt-1">Document each structure on the property.</p>
       </div>
 
       <button
         type="button"
         onClick={addStructure}
         disabled={adding}
-        className="w-full bg-gray-800 border-2 border-dashed border-gray-600 hover:border-blue-500 text-gray-300 hover:text-white rounded-2xl min-h-14 text-base font-medium transition-colors disabled:opacity-50"
+        className="w-full bg-bg-elevated border-2 border-dashed border-border hover:border-text-accent text-text-secondary hover:text-text-primary rounded-2xl min-h-14 text-base font-medium transition-colors disabled:opacity-50"
       >
         + Add Structure
       </button>
@@ -109,7 +109,7 @@ export default function Step5Structures({ inspectionId, initialData }: Props) {
       ))}
 
       {structures.length === 0 && (
-        <p className="text-gray-500 text-center py-8">No structures added yet.</p>
+        <p className="text-text-hint text-center py-8">No structures added yet.</p>
       )}
     </div>
   );

@@ -34,10 +34,12 @@ export default async function DashboardPage() {
   const avgViews = inspections.length > 0 ? totalViews / inspections.length : 0;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-6">
-      {/* Top bar */}
+    <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col gap-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-white text-2xl font-bold">Dashboard</h1>
+        <div>
+          <h1 className="text-text-primary text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-text-secondary text-base mt-1">Manage your roof inspections</p>
+        </div>
         <NewInspectionButton />
       </div>
 
@@ -49,10 +51,13 @@ export default async function DashboardPage() {
       />
 
       <div className="flex flex-col gap-4">
+        <h2 className="text-text-secondary text-sm font-semibold uppercase tracking-wider">
+          Inspections
+        </h2>
         {inspections.length === 0 ? (
-          <div className="text-center py-16 text-gray-500">
-            <p className="text-lg">No inspections yet.</p>
-            <p className="text-sm mt-1">Tap &quot;+ New Inspection&quot; to get started.</p>
+          <div className="text-center py-20 bg-bg-surface border border-border rounded-2xl">
+            <p className="text-text-secondary text-xl font-medium">No inspections yet</p>
+            <p className="text-text-hint text-base mt-2">Tap &quot;+ New Inspection&quot; to get started.</p>
           </div>
         ) : (
           inspections.map((inspection) => (

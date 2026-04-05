@@ -4,13 +4,16 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id          String       @id @default(cuid())
-  email       String       @unique
-  name        String?
-  createdAt   DateTime     @default(now())
+  id            String       @id @default(cuid())
+  email         String       @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  createdAt     DateTime     @default(now())
   inspections Inspection[]
   sessions    Session[]
   accounts    Account[]
@@ -100,6 +103,7 @@ model Inspection {
 
   structures        Structure[]
   photos            Photo[]
+  packages          Package[]
   quote             Quote?
   reportVisits      ReportVisit[]
 
@@ -153,6 +157,22 @@ model Photo {
   damageTags    String[]
   description   String?
   createdAt     DateTime   @default(now())
+}
+
+model Package {
+  id            String     @id @default(cuid())
+  inspectionId  String
+  inspection    Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  name          String
+  basePrice     Float      @default(0)
+  nationalPromo Boolean    @default(false)
+  localPromo    Boolean    @default(false)
+  fsp           Boolean    @default(false)
+  nisi          Float?
+  recommended   Boolean    @default(false)
+  order         Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 }
 
 model Quote {
