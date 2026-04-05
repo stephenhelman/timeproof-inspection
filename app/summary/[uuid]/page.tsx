@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/src/lib/prisma";
 import { DAMAGE_GROUPS } from "@/src/lib/findings";
+import { detectPackageId } from "@/src/lib/packages";
 import ReportSection from "@/src/components/report/ReportSection";
 import SectionTracker from "@/src/components/report/SectionTracker";
 import PhotoReveal from "@/src/components/inspection/PhotoReveal";
+import PackageCard from "@/src/components/report/PackageCard";
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -241,6 +243,18 @@ export default async function SummaryPage({
               </div>
             </ReportSection>
           )}
+
+          {/* Package details */}
+          {(() => {
+            const recommended = inspection.packages.find((p) => p.recommended);
+            const configId = recommended ? detectPackageId(recommended.name) : null;
+            if (!configId) return null;
+            return (
+              <ReportSection sectionKey="package-details" title="Your Package">
+                <PackageCard packageId={configId} isRecommended={true} />
+              </ReportSection>
+            );
+          })()}
 
           {/* Production notes (visible items only) */}
           {(inspection.gateCode || inspection.hasPets || inspection.accessIssues || inspection.colorSelected || inspection.specialRequests) && (

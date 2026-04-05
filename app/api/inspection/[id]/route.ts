@@ -118,7 +118,9 @@ export async function PATCH(
   // Update inspection fields
   const allowedFields = [
     "repName", "status", "ownershipLength", "previousRoofWork", "previousRoofWhen",
-    "activeLeaks", "leakLocation", "allDecisionMakers", "priorities", "findings",
+    "previousRoofWhy", "previousRoofNotes", "previousWork",
+    "activeLeaks", "leakLocation", "issues", "thingsToKnow",
+    "allDecisionMakers", "priorities", "findings",
     "findingsNotes", "driveFolderId", "driveFolderUrl", "productionNotes", "gateCode",
     "hasPets", "accessIssues", "hoaRestrictions", "hoaDetails", "colorSelected",
     "specialRequests", "followUpNotes", "customerId",

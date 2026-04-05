@@ -1,15 +1,38 @@
 "use client";
 
-import Input from "@/src/components/ui/Input";
+import { useState, useEffect } from "react";
 import Toggle from "@/src/components/ui/Toggle";
+import Input from "@/src/components/ui/Input";
+import { getColorsForPackage, detectPackageId } from "@/src/lib/packages";
 
 interface Props {
   data: Record<string, unknown>;
   onChange: (updates: Record<string, unknown>) => void;
   inspectionId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  initialData?: Record<string, any>;
 }
 
-export default function Step7ProductionNotes({ data, onChange }: Props) {
+export default function Step7ProductionNotes({ data, onChange, inspectionId, initialData }: Props) {
+  // Fetch live packages so we always reflect the latest Step 6 state
+  const [packages, setPackages] = useState<Array<{ name: string; recommended: boolean }>>(
+    (initialData?.packages as Array<{ name: string; recommended: boolean }>) || []
+  );
+
+  useEffect(() => {
+    fetch(`/api/inspection/${inspectionId}`)
+      .then((r) => r.json())
+      .then((d) => { if (d?.packages) setPackages(d.packages); })
+      .catch(() => {});
+  }, [inspectionId]);
+
+  const recommendedPkg = packages.find((p) => p.recommended);
+  const configPackageId = recommendedPkg ? detectPackageId(recommendedPkg.name) : null;
+  const colors = configPackageId ? getColorsForPackage(configPackageId) : [];
+  const isStorm = configPackageId === "storm";
+
+  const selectedColor = (data.colorSelected as string) || "";
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -64,12 +87,72 @@ export default function Step7ProductionNotes({ data, onChange }: Props) {
           )}
         </div>
 
-        <Input
-          label="Color Selected"
-          placeholder="e.g. Charcoal"
-          value={(data.colorSelected as string) || ""}
-          onChange={(e) => onChange({ colorSelected: e.target.value })}
-        />
+        {/* Color picker */}
+        <div className="bg-bg-surface border border-border rounded-2xl p-5 flex flex-col gap-3">
+          <label className="text-text-secondary text-sm font-medium">Color Selected</label>
+
+          {!configPackageId && (
+            <p className="text-text-hint text-sm">
+              Select a package in Step 6 to see available colors.
+            </p>
+          )}
+
+          {configPackageId && !isStorm && colors.length > 0 && (
+            <>
+              <p className="text-text-hint text-xs uppercase tracking-wider">
+                Available Colors — {recommendedPkg?.name}
+              </p>
+              <div className="grid grid-cols-4 gap-3">
+                {(colors as Array<{ name: string; hex: string }>).map((color) => {
+                  const isSelected = selectedColor === color.name;
+                  return (
+                    <button
+                      key={color.name}
+                      type="button"
+                      onClick={() => onChange({ colorSelected: color.name })}
+                      className="flex flex-col items-center gap-1.5"
+                    >
+                      <span
+                        className={`w-10 h-10 rounded-full border-2 transition-all ${
+                          isSelected
+                            ? "ring-2 ring-white ring-offset-2 ring-offset-bg-surface border-text-accent scale-110"
+                            : "border-border hover:border-border-hover"
+                        }`}
+                        style={{ backgroundColor: color.hex }}
+                      />
+                      <span
+                        className={`text-xs text-center leading-tight ${
+                          isSelected ? "text-text-primary font-medium" : "text-text-hint"
+                        }`}
+                      >
+                        {color.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedColor && (
+                <p className="text-text-secondary text-sm">
+                  Selected: <span className="text-text-primary font-medium">{selectedColor}</span>
+                </p>
+              )}
+            </>
+          )}
+
+          {isStorm && (
+            <>
+              <p className="text-text-hint text-sm">
+                Storm package colors depend on the associated package. Please note the color below.
+              </p>
+              <Input
+                label=""
+                placeholder="e.g. Charcoal"
+                value={selectedColor}
+                onChange={(e) => onChange({ colorSelected: e.target.value })}
+              />
+            </>
+          )}
+        </div>
 
         <div className="flex flex-col gap-1.5">
           <label className="text-text-secondary text-sm font-medium">Special Requests</label>

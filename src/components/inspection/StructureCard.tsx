@@ -8,7 +8,6 @@ interface Structure {
   name: string;
   inScope: boolean;
   sqft?: number | null;
-  squares?: number | null;
   pitch?: string | null;
   stories?: number | null;
   ridge?: number | null;
@@ -26,7 +25,6 @@ interface Structure {
   layers?: number | null;
   gutterType?: string | null;
   gutterColor?: string | null;
-  recommendedPackage?: string | null;
 }
 
 interface StructureCardProps {
@@ -35,8 +33,11 @@ interface StructureCardProps {
   onDelete: (id: string) => void;
 }
 
-const PITCH_OPTIONS = ["4/12", "5/12", "6/12", "7/12", "8/12", "9/12", "10/12", "12/12"];
-const PACKAGE_OPTIONS = ["Good", "Better", "Best", "Platinum"];
+const PITCH_OPTIONS = [
+  "0/12 — Flat", "1/12", "2/12", "3/12", "4/12", "5/12", "6/12",
+  "7/12", "8/12", "9/12", "10/12", "11/12", "12/12",
+  "13/12", "14/12", "15/12", "16/12+",
+];
 
 // ── Helpers ──────────────────────────────────────────────
 function decimalToFtIn(decimal: number | null | undefined) {
@@ -157,11 +158,13 @@ export default function StructureCard({ structure, onUpdate, onDelete }: Structu
           {/* Measurements */}
           <div>
             <p className="text-text-hint text-xs uppercase tracking-wider mb-3">Measurements</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <NumberInput label="Sq Ft" value={structure.sqft} onBlur={(v) => patch({ sqft: v })} />
-              <NumberInput label="Squares" value={structure.squares} onBlur={(v) => patch({ squares: v })} />
+            <div className="grid grid-cols-3 gap-3">
+              <NumberInput label="Total Sq Ft" value={structure.sqft} onBlur={(v) => patch({ sqft: v })} />
+              {/* Pitch dropdown */}
               <div className="flex flex-col gap-1">
-                <label className="text-text-hint text-xs">Pitch</label>
+                <label className="text-text-hint text-xs">
+                  Pitch <span className="normal-case">(0/12 = flat)</span>
+                </label>
                 <select
                   defaultValue={structure.pitch ?? ""}
                   onBlur={(e) => patch({ pitch: e.target.value || null })}
@@ -179,19 +182,19 @@ export default function StructureCard({ structure, onUpdate, onDelete }: Structu
           {/* Linear measurements in ft + in */}
           <div>
             <p className="text-text-hint text-xs uppercase tracking-wider mb-3">Linear Measurements</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <FeetInchesInput label="Ridge" value={structure.ridge} onBlur={(v) => patch({ ridge: v })} />
-              <FeetInchesInput label="Hip" value={structure.hip} onBlur={(v) => patch({ hip: v })} />
-              <FeetInchesInput label="Valley" value={structure.valley} onBlur={(v) => patch({ valley: v })} />
-              <FeetInchesInput label="Rake" value={structure.rake} onBlur={(v) => patch({ rake: v })} />
-              <FeetInchesInput label="Eave" value={structure.eave} onBlur={(v) => patch({ eave: v })} />
+            <div className="grid grid-cols-3 gap-3">
+              <FeetInchesInput label="Ridge (lf)" value={structure.ridge} onBlur={(v) => patch({ ridge: v })} />
+              <FeetInchesInput label="Hip (lf)" value={structure.hip} onBlur={(v) => patch({ hip: v })} />
+              <FeetInchesInput label="Valley (lf)" value={structure.valley} onBlur={(v) => patch({ valley: v })} />
+              <FeetInchesInput label="Rake (lf)" value={structure.rake} onBlur={(v) => patch({ rake: v })} />
+              <FeetInchesInput label="Eave (lf)" value={structure.eave} onBlur={(v) => patch({ eave: v })} />
             </div>
           </div>
 
           {/* Penetrations */}
           <div>
             <p className="text-text-hint text-xs uppercase tracking-wider mb-3">Penetrations</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <NumberInput label="Pipe Boots" value={structure.pipeBoots} onBlur={(v) => patch({ pipeBoots: v })} />
               <NumberInput label="Skylights" value={structure.skylights} onBlur={(v) => patch({ skylights: v })} />
               <NumberInput label="Chimneys" value={structure.chimneys} onBlur={(v) => patch({ chimneys: v })} />
@@ -223,27 +226,6 @@ export default function StructureCard({ structure, onUpdate, onDelete }: Structu
                     className="bg-bg-input border border-border text-text-primary rounded-lg min-h-10 px-3 text-sm focus:outline-none focus:border-text-accent"
                   />
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Package */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-text-hint text-xs uppercase tracking-wider">Recommended Package</label>
-            <div className="flex gap-2 flex-wrap">
-              {PACKAGE_OPTIONS.map((pkg) => (
-                <button
-                  key={pkg}
-                  type="button"
-                  onClick={() => patch({ recommendedPackage: pkg })}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors min-h-11 ${
-                    structure.recommendedPackage === pkg
-                      ? "bg-brand-blue text-text-primary"
-                      : "bg-bg-elevated border border-border text-text-secondary hover:border-border-hover"
-                  }`}
-                >
-                  {pkg}
-                </button>
               ))}
             </div>
           </div>

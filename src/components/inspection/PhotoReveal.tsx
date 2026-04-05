@@ -98,22 +98,22 @@ export default function PhotoReveal({
     // Summary slide
     if (current === totalSlides - 1) {
       return (
-        <div className={`flex flex-col gap-6 h-full overflow-y-auto px-4 py-6 ${mode === "presentation" ? "text-text-primary" : "text-gray-800"}`}>
-          <p className={`text-xl leading-relaxed ${mode === "presentation" ? "text-text-primary" : "text-gray-800"}`}>
+        <div className={`flex flex-col h-full overflow-y-auto px-8 md:px-16 py-8 ${mode === "presentation" ? "text-text-primary" : "text-gray-800"}`}>
+          <p className={`font-semibold leading-relaxed mb-6 ${mode === "presentation" ? "text-text-primary text-2xl" : "text-gray-800 text-xl"}`}>
             {statement.opening}
           </p>
           {statement.items.length > 0 && (
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-2 mb-6">
               {statement.items.map((item) => (
-                <li key={item} className={`flex items-start gap-3 text-lg ${mode === "presentation" ? "text-text-secondary" : "text-gray-700"}`}>
-                  <span className={`mt-0.5 ${mode === "presentation" ? "text-text-accent" : "text-[#1B3A7A]"}`}>•</span>
+                <li key={item} className={`flex items-start gap-3 mb-2 ${mode === "presentation" ? "text-text-secondary text-lg" : "text-gray-700 text-base"}`}>
+                  <span className={`mt-0.5 shrink-0 ${mode === "presentation" ? "text-text-accent" : "text-[#1B3A7A]"}`}>•</span>
                   {item}
                 </li>
               ))}
             </ul>
           )}
           {statement.closing && (
-            <p className={`text-base leading-relaxed whitespace-pre-line mt-4 ${mode === "presentation" ? "text-text-secondary" : "text-gray-600"}`}>
+            <p className={`leading-relaxed whitespace-pre-line mt-8 ${mode === "presentation" ? "text-text-secondary text-base" : "text-gray-400 text-base"}`}>
               {statement.closing}
             </p>
           )}
@@ -126,8 +126,8 @@ export default function PhotoReveal({
     if (!photo) return null;
     return (
       <div className="flex flex-col h-full">
-        <div className="relative flex-1 min-h-0">
-          {/* Photo number badge */}
+        {/* Photo — capped at 60vh in presentation mode so description has room */}
+        <div className="relative shrink-0">
           <div className="absolute top-3 right-3 z-10 bg-black/60 text-white text-sm px-3 py-1 rounded-full">
             {current} of {photos.length}
           </div>
@@ -135,11 +135,11 @@ export default function PhotoReveal({
           <img
             src={photo.driveUrl}
             alt={`Photo ${photo.photoNumber}`}
-            className="w-full h-full object-contain"
+            className={`w-full object-contain ${isPresentation ? "max-h-[60vh]" : "max-h-96"}`}
           />
         </div>
         {photo.description && (
-          <div className={`px-4 py-4 shrink-0 ${mode === "presentation" ? "text-text-primary" : "text-gray-800"}`}>
+          <div className={`px-8 md:px-16 py-4 mt-4 shrink-0 text-center ${mode === "presentation" ? "text-text-primary" : "text-gray-800"}`}>
             <p className={mode === "presentation" ? "text-xl leading-relaxed" : "text-base leading-relaxed"}>
               {photo.description}
             </p>

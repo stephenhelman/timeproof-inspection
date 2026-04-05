@@ -77,8 +77,13 @@ model Inspection {
   ownershipLength   String?
   previousRoofWork  Boolean?
   previousRoofWhen  String?
+  previousRoofWhy   String?
+  previousRoofNotes String?
+  previousWork      Json?
   activeLeaks       Boolean?
   leakLocation      String?
+  issues            Json?
+  thingsToKnow      String?
   allDecisionMakers Boolean?
   priorities        String[]
 

@@ -7,6 +7,7 @@ import {
   pdf,
 } from "@react-pdf/renderer";
 import React from "react";
+import { getPackageById, getWarrantySummary, detectPackageId } from "./packages";
 
 const BLUE = "#003087";
 const GRAY_BG = "#f5f5f5";
@@ -75,6 +76,48 @@ const styles = StyleSheet.create({
   },
   checklistLabel: { fontSize: 10, color: "#374151" },
   pageNumber: { position: "absolute", bottom: 20, right: 40, fontSize: 9, color: "#9ca3af" },
+  packageTitle: {
+    fontSize: 14,
+    fontFamily: "Helvetica-Bold",
+    color: "#1B3A7A",
+    marginBottom: 2,
+  },
+  packageTagline: {
+    fontSize: 10,
+    color: "#6B7280",
+    marginBottom: 8,
+  },
+  subheading: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    color: "#9CA3AF",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  productRow: {
+    flexDirection: "row" as const,
+    paddingVertical: 3,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#E5E7EB",
+  },
+  productCategory: {
+    fontSize: 9,
+    color: "#6B7280",
+    width: "45%",
+  },
+  productName: {
+    fontSize: 9,
+    color: "#111827",
+    fontFamily: "Helvetica-Bold",
+    width: "55%",
+  },
+  warrantyLine: {
+    fontSize: 9,
+    color: "#374151",
+    marginBottom: 3,
+  },
 });
 
 function fmt(n: number) {
@@ -100,6 +143,13 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
   const npDiscount = bp * (quote.nationalPromo ? 0.05 : 0);
   const lpDiscount = (bp - npDiscount) * (quote.localPromo ? 0.1 : 0);
   const fspDiscount = (bp - npDiscount - lpDiscount) * (quote.fsp ? 0.1 : 0);
+
+  const packages = inspection.packages || [];
+  const recommendedPkg = packages.find((p: { recommended: boolean }) => p.recommended);
+  const configPackageId = recommendedPkg ? detectPackageId(recommendedPkg.name) : null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const configPkg = configPackageId ? (getPackageById(configPackageId) as any) : null;
+  const warrantyLines = configPackageId ? (getWarrantySummary(configPackageId) as string[] | null) : null;
 
   const doc = (
     <Document>
@@ -145,6 +195,36 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
                 <Text key={key} style={styles.findingItem}>{key.replace(/-/g, " ")}</Text>
               ))}
             </View>
+          </View>
+        )}
+
+        {/* Package summary */}
+        {configPkg && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Your Package</Text>
+            <Text style={styles.packageTitle}>{configPkg.label} Package</Text>
+            <Text style={styles.packageTagline}>{configPkg.tagline}</Text>
+
+            {configPkg.products.length > 0 && (
+              <>
+                <Text style={styles.subheading}>{"What's Included"}</Text>
+                {configPkg.products.map((product: { category: string; name: string }) => (
+                  <View key={product.category} style={styles.productRow}>
+                    <Text style={styles.productCategory}>{product.category}</Text>
+                    <Text style={styles.productName}>{product.name}</Text>
+                  </View>
+                ))}
+              </>
+            )}
+
+            {warrantyLines && warrantyLines.length > 0 && (
+              <>
+                <Text style={styles.subheading}>Warranty Coverage</Text>
+                {warrantyLines.map((line, i) => (
+                  <Text key={i} style={styles.warrantyLine}>{line}</Text>
+                ))}
+              </>
+            )}
           </View>
         )}
 

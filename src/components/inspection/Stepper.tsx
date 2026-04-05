@@ -216,23 +216,50 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
           })}
         </nav>
 
-        {/* Save status at bottom of sidebar */}
-        <div className="p-3 border-t border-border shrink-0 min-h-12 flex items-center">
-          {saving && (
-            <span className="flex items-center gap-2 text-text-secondary text-xs">
-              <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-              </svg>
-              {sidebarOpen && "Saving…"}
-            </span>
-          )}
-          {saved && !saving && (
-            <span className="flex items-center gap-2 text-success-text text-xs">
-              <span>✓</span>
-              {sidebarOpen && "Saved"}
-            </span>
-          )}
+        {/* Save status + Save and Exit */}
+        <div className="p-3 border-t border-border shrink-0 flex flex-col gap-2">
+          {/* Save status */}
+          <div className="min-h-5 flex items-center">
+            {saving && (
+              <span className="flex items-center gap-2 text-text-secondary text-xs">
+                <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+                {sidebarOpen && "Saving…"}
+              </span>
+            )}
+            {saved && !saving && (
+              <span className="flex items-center gap-2 text-success-text text-xs">
+                <span>✓</span>
+                {sidebarOpen && "Saved"}
+              </span>
+            )}
+          </div>
+
+          {/* Save and Exit button */}
+          <button
+            type="button"
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await handleSave();
+              } finally {
+                setSaving(false);
+                router.push("/dashboard");
+              }
+            }}
+            title={!sidebarOpen ? "Save and Exit" : undefined}
+            className={`flex items-center justify-center gap-2 rounded-xl min-h-10 text-sm font-medium transition-colors disabled:opacity-50 border border-border text-text-secondary hover:text-text-primary hover:border-border-hover ${
+              sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+            }`}
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            {sidebarOpen && "Save & Exit"}
+          </button>
         </div>
       </aside>
 
