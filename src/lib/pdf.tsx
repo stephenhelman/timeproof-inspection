@@ -1,0 +1,299 @@
+import {
+  Document,
+  Page,
+  Text,
+  View,
+  StyleSheet,
+  pdf,
+} from "@react-pdf/renderer";
+import React from "react";
+
+const BLUE = "#003087";
+const GRAY_BG = "#f5f5f5";
+
+const styles = StyleSheet.create({
+  page: { fontFamily: "Helvetica", padding: 40, backgroundColor: "#ffffff" },
+  headerBar: {
+    backgroundColor: BLUE,
+    padding: 16,
+    marginBottom: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerLogo: { color: "#ffffff", fontSize: 18, fontFamily: "Helvetica-Bold", letterSpacing: 2 },
+  headerTitle: { color: "#ffffff", fontSize: 13 },
+  section: { marginBottom: 20 },
+  sectionTitle: {
+    fontSize: 12,
+    fontFamily: "Helvetica-Bold",
+    color: BLUE,
+    marginBottom: 8,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#d1d5db",
+  },
+  row2col: { flexDirection: "row", gap: 20 },
+  label: { fontSize: 9, color: "#6b7280" },
+  value: { fontSize: 11, color: "#111827", marginTop: 2 },
+  tableRow: { flexDirection: "row", padding: "6 8" },
+  tableCell: { flex: 1, fontSize: 10, color: "#374151" },
+  tableCellBold: { flex: 1, fontSize: 10, color: "#111827", fontFamily: "Helvetica-Bold" },
+  findingsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  findingItem: {
+    fontSize: 9,
+    color: "#374151",
+    backgroundColor: "#f3f4f6",
+    padding: "3 6",
+    borderRadius: 4,
+  },
+  photoEntry: { marginBottom: 8 },
+  photoNum: { fontSize: 10, fontFamily: "Helvetica-Bold", color: "#374151" },
+  photoDesc: { fontSize: 9, color: "#6b7280", marginTop: 2 },
+  photoUrl: { fontSize: 8, color: BLUE, marginTop: 1 },
+  quoteRow: { flexDirection: "row", justifyContent: "space-between", padding: "5 0" },
+  quoteLabel: { fontSize: 10, color: "#374151" },
+  quoteValue: { fontSize: 10, color: "#111827", fontFamily: "Helvetica-Bold" },
+  quoteDiscount: { fontSize: 10, color: "#dc2626" },
+  quoteTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: "7 0",
+    borderTopWidth: 1.5,
+    borderTopColor: "#374151",
+    marginTop: 4,
+  },
+  quoteTotalLabel: { fontSize: 12, fontFamily: "Helvetica-Bold", color: "#111827" },
+  quoteTotalValue: { fontSize: 12, fontFamily: "Helvetica-Bold", color: "#111827" },
+  checklistItem: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  checkbox: {
+    width: 14,
+    height: 14,
+    borderWidth: 1.5,
+    borderColor: "#374151",
+    borderRadius: 2,
+  },
+  checklistLabel: { fontSize: 10, color: "#374151" },
+  pageNumber: { position: "absolute", bottom: 20, right: 40, fontSize: 9, color: "#9ca3af" },
+});
+
+function fmt(n: number) {
+  return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
+  const customer = inspection.customer || {};
+  const quote = inspection.quote || {};
+  const structures = (inspection.structures || []).filter((s: { inScope: boolean }) => s.inScope);
+  const photos = inspection.photos || [];
+  const findings = (inspection.findings as Record<string, boolean>) || {};
+  const checkedFindings = Object.entries(findings).filter(([, v]) => v === true).map(([k]) => k);
+
+  const date = new Date(inspection.date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const bp = quote.basePrice || 0;
+  const npDiscount = bp * (quote.nationalPromo ? 0.05 : 0);
+  const lpDiscount = (bp - npDiscount) * (quote.localPromo ? 0.1 : 0);
+  const fspDiscount = (bp - npDiscount - lpDiscount) * (quote.fsp ? 0.1 : 0);
+
+  const doc = (
+    <Document>
+      {/* Page 1 — Customer Facing */}
+      <Page size="LETTER" style={styles.page}>
+        {/* Header */}
+        <View style={styles.headerBar}>
+          <Text style={styles.headerLogo}>TIMEPROOF</Text>
+          <Text style={styles.headerTitle}>Roof Inspection Report</Text>
+        </View>
+
+        {/* Customer info */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Customer Information</Text>
+          <View style={styles.row2col}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Name</Text>
+              <Text style={styles.value}>{customer.name || "—"}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Address</Text>
+              <Text style={styles.value}>{customer.address || "—"}</Text>
+            </View>
+          </View>
+          <View style={[styles.row2col, { marginTop: 10 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Date</Text>
+              <Text style={styles.value}>{date}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Rep</Text>
+              <Text style={styles.value}>{inspection.repName || "—"}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Findings */}
+        {checkedFindings.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Inspection Findings ({checkedFindings.length})</Text>
+            <View style={styles.findingsGrid}>
+              {checkedFindings.map((key) => (
+                <Text key={key} style={styles.findingItem}>{key.replace(/-/g, " ")}</Text>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Photo log */}
+        {photos.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Photo Documentation</Text>
+            {photos.map((p: { photoNumber: number; description?: string | null; driveUrl: string }) => (
+              <View key={p.photoNumber} style={styles.photoEntry}>
+                <Text style={styles.photoNum}>Photo {p.photoNumber}</Text>
+                {p.description && <Text style={styles.photoDesc}>{p.description}</Text>}
+                <Text style={styles.photoUrl}>{p.driveUrl}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Drive folder */}
+        {inspection.driveFolderUrl && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>All Photos</Text>
+            <Text style={styles.photoUrl}>View all photos: {inspection.driveFolderUrl}</Text>
+          </View>
+        )}
+
+        <Text style={styles.pageNumber} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} fixed />
+      </Page>
+
+      {/* Page 2 — Internal */}
+      <Page size="LETTER" style={styles.page}>
+        <View style={styles.headerBar}>
+          <Text style={styles.headerLogo}>TIMEPROOF</Text>
+          <Text style={styles.headerTitle}>Internal — Rep Copy</Text>
+        </View>
+
+        {/* Structures */}
+        {structures.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Structures</Text>
+            {structures.map((s: Record<string, unknown>, si: number) => (
+              <View key={String(s.id)} style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 11, fontFamily: "Helvetica-Bold", color: "#374151", marginBottom: 4 }}>{String(s.name)}</Text>
+                {[
+                  ["Sq Ft", s.sqft], ["Squares", s.squares], ["Pitch", s.pitch],
+                  ["Stories", s.stories], ["Ridge", s.ridge ? `${s.ridge} ft` : null],
+                  ["Package", s.recommendedPackage],
+                ].filter(([, v]) => v != null).map(([label, value], i) => (
+                  <View key={String(label)} style={[styles.tableRow, { backgroundColor: i % 2 === 0 ? GRAY_BG : "#ffffff" }]}>
+                    <Text style={styles.tableCell}>{String(label)}</Text>
+                    <Text style={styles.tableCellBold}>{String(value)}</Text>
+                  </View>
+                ))}
+                {si < structures.length - 1 && <View style={{ height: 1, backgroundColor: "#e5e7eb", marginTop: 8 }} />}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Quote */}
+        {bp > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Quote</Text>
+            <View style={styles.quoteRow}>
+              <Text style={styles.quoteLabel}>Base Price</Text>
+              <Text style={styles.quoteValue}>{fmt(bp)}</Text>
+            </View>
+            {quote.nationalPromo && (
+              <View style={styles.quoteRow}>
+                <Text style={styles.quoteLabel}>National Promotion (5%)</Text>
+                <Text style={styles.quoteDiscount}>-{fmt(npDiscount)}</Text>
+              </View>
+            )}
+            {quote.localPromo && (
+              <View style={styles.quoteRow}>
+                <Text style={styles.quoteLabel}>Local Promotion (10%)</Text>
+                <Text style={styles.quoteDiscount}>-{fmt(lpDiscount)}</Text>
+              </View>
+            )}
+            {quote.fsp && (
+              <View style={styles.quoteRow}>
+                <Text style={styles.quoteLabel}>FSP (10%)</Text>
+                <Text style={styles.quoteDiscount}>-{fmt(fspDiscount)}</Text>
+              </View>
+            )}
+            <View style={styles.quoteTotalRow}>
+              <Text style={styles.quoteTotalLabel}>NISI</Text>
+              <Text style={styles.quoteTotalValue}>{fmt(quote.nisi || 0)}</Text>
+            </View>
+            {quote.commissionRate > 0 && (
+              <View style={styles.quoteRow}>
+                <Text style={styles.quoteLabel}>Commission ({((quote.commissionRate || 0) * 100).toFixed(0)}%)</Text>
+                <Text style={styles.quoteValue}>{fmt(quote.commission || 0)}</Text>
+              </View>
+            )}
+            {quote.estMonthly && (
+              <View style={styles.quoteRow}>
+                <Text style={styles.quoteLabel}>Est. Monthly Payment</Text>
+                <Text style={styles.quoteValue}>{fmt(quote.estMonthly)}/mo</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Production notes */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Production Notes</Text>
+          {[
+            ["Gate Code", inspection.gateCode],
+            ["Pets", inspection.hasPets ? "Yes" : inspection.hasPets === false ? "No" : null],
+            ["Access Issues", inspection.accessIssues],
+            ["HOA", inspection.hoaDetails || (inspection.hoaRestrictions ? "Yes" : null)],
+            ["Color Selected", inspection.colorSelected],
+            ["Special Requests", inspection.specialRequests],
+            ["Follow-up Notes", inspection.followUpNotes],
+          ].filter(([, v]) => v).map(([label, value], i) => (
+            <View key={String(label)} style={[styles.tableRow, { backgroundColor: i % 2 === 0 ? GRAY_BG : "#ffffff" }]}>
+              <Text style={styles.tableCell}>{String(label)}</Text>
+              <Text style={styles.tableCellBold}>{String(value)}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Follow-up checklist */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Follow-up Checklist</Text>
+          {[
+            "ServiceTitan updated",
+            "Thank you text sent",
+            "Contract sent",
+            "5-star review requested",
+            "Referral asked",
+          ].map((item) => (
+            <View key={item} style={styles.checklistItem}>
+              <View style={styles.checkbox} />
+              <Text style={styles.checklistLabel}>{item}</Text>
+            </View>
+          ))}
+          <View style={styles.checklistItem}>
+            <View style={styles.checkbox} />
+            <Text style={styles.checklistLabel}>Follow-up scheduled: ___________________________</Text>
+          </View>
+        </View>
+
+        <Text style={styles.pageNumber} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} fixed />
+      </Page>
+    </Document>
+  );
+
+  const blob = await pdf(doc).toBlob();
+  const arrayBuffer = await blob.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}

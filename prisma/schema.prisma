@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String?
+  createdAt   DateTime     @default(now())
+  inspections Inspection[]
+  sessions    Session[]
+  accounts    Account[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+}
+
+model Customer {
+  id           String       @id @default(cuid())
+  name         String
+  address      String
+  phone        String?
+  email        String?
+  heardAboutUs String?
+  createdAt    DateTime     @default(now())
+  inspections  Inspection[]
+}
+
+model Inspection {
+  id                String        @id @default(cuid())
+  reportUuid        String        @unique @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  customerId        String?
+  customer          Customer?     @relation(fields: [customerId], references: [id])
+  repName           String?
+  date              DateTime      @default(now())
+  status            String        @default("draft")
+
+  // Discovery
+  ownershipLength   String?
+  previousRoofWork  Boolean?
+  previousRoofWhen  String?
+  activeLeaks       Boolean?
+  leakLocation      String?
+  allDecisionMakers Boolean?
+  priorities        String[]
+
+  // Findings — auto-populated from photo damage tags
+  findings          Json?
+  findingsNotes     String?
+
+  // Drive
+  driveFolderId     String?
+  driveFolderUrl    String?
+
+  // Production
+  productionNotes   String?
+  gateCode          String?
+  hasPets           Boolean?
+  accessIssues      String?
+  hoaRestrictions   Boolean?
+  hoaDetails        String?
+  colorSelected     String?
+  specialRequests   String?
+  followUpNotes     String?
+
+  structures        Structure[]
+  photos            Photo[]
+  quote             Quote?
+  reportVisits      ReportVisit[]
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model Structure {
+  id                 String     @id @default(cuid())
+  inspectionId       String
+  inspection         Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  name               String
+  inScope            Boolean    @default(true)
+  order              Int        @default(0)
+
+  // Measurements
+  sqft               Float?
+  squares            Float?
+  pitch              String?
+  stories            Int?
+  ridge              Float?
+  hip                Float?
+  valley             Float?
+  rake               Float?
+  eave               Float?
+
+  // Penetrations
+  pipeBoots          Int?
+  skylights          Int?
+  chimneys           Int?
+  boxVents           Int?
+  turbines           Int?
+  atticFans          Int?
+
+  // Existing materials
+  shingleType        String?
+  layers             Int?
+  gutterType         String?
+  gutterColor        String?
+
+  recommendedPackage String?
+}
+
+model Photo {
+  id            String     @id @default(cuid())
+  inspectionId  String
+  inspection    Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  photoNumber   Int
+  driveFileId   String
+  driveUrl      String
+  damageTags    String[]
+  description   String?
+  createdAt     DateTime   @default(now())
+}
+
+model Quote {
+  id             String     @id @default(cuid())
+  inspectionId   String     @unique
+  inspection     Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  basePrice      Float?
+  nationalPromo  Boolean    @default(false)
+  localPromo     Boolean    @default(false)
+  fsp            Boolean    @default(false)
+  nisi           Float?
+  commissionRate Float?
+  commission     Float?
+  estMonthly     Float?
+}
+
+model ReportVisit {
+  id           String        @id @default(cuid())
+  inspectionId String
+  inspection   Inspection    @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  visitedAt    DateTime      @default(now())
+  device       String?
+  userAgent    String?
+  visitNumber  Int
+  sections     SectionView[]
+}
+
+model SectionView {
+  id            String      @id @default(cuid())
+  visitId       String
+  visit         ReportVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  sectionKey    String
+  secondsViewed Int         @default(0)
+}
