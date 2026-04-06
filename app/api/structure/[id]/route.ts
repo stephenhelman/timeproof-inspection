@@ -5,7 +5,10 @@ import { prisma } from "@/src/lib/prisma";
 async function getOwnedStructure(id: string, userId: string) {
   const structure = await prisma.structure.findUnique({
     where: { id },
-    include: { inspection: true },
+    include: {
+      inspection: true,
+      facets: { orderBy: { order: "asc" } },
+    },
   });
   if (!structure || structure.inspection.userId !== userId) return null;
   return structure;

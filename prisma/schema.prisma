@@ -114,39 +114,58 @@ model Inspection {
 }
 
 model Structure {
-  id                 String     @id @default(cuid())
-  inspectionId       String
-  inspection         Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  name               String
-  inScope            Boolean    @default(true)
-  order              Int        @default(0)
+  id            String     @id @default(cuid())
+  inspectionId  String
+  inspection    Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  name          String
+  inScope       Boolean    @default(true)
+  order         Int        @default(0)
 
-  // Measurements
-  sqft               Float?
-  squares            Float?
-  pitch              String?
-  stories            Int?
-  ridge              Float?
-  hip                Float?
-  valley             Float?
-  rake               Float?
-  eave               Float?
+  // UI preference: "simple" = manual totals, "advanced" = auto-summed from facets
+  entryMode     String     @default("simple")
 
-  // Penetrations
-  pipeBoots          Int?
-  skylights          Int?
-  chimneys           Int?
-  boxVents           Int?
-  turbines           Int?
-  atticFans          Int?
+  // Measurement totals (entered directly in simple mode; auto-summed in advanced)
+  pitch         String?
+  sqft          Float?
+  ridge         Float?
+  hip           Float?
+  valley        Float?
+  rake          Float?
+  eave          Float?
+  flashing      Float?
+  stepFlashing  Float?
+  parapets      Float?
+  other         Float?
 
-  // Existing materials
-  shingleType        String?
-  layers             Int?
-  gutterType         String?
-  gutterColor        String?
+  // Penetration counts — always structure-level
+  pipeBoots     Int?
+  skylights     Int?
+  chimneys      Int?
+  boxVents      Int?
+  turbines      Int?
+  atticFans     Int?
 
-  recommendedPackage String?
+  facets        Facet[]
+}
+
+model Facet {
+  id          String    @id @default(cuid())
+  structureId String
+  structure   Structure @relation(fields: [structureId], references: [id], onDelete: Cascade)
+  order       Int       @default(0)
+  name        String    @default("Facet")
+
+  pitch        String?
+  sqft         Float?
+  ridge        Float?
+  hip          Float?
+  valley       Float?
+  rake         Float?
+  eave         Float?
+  flashing     Float?
+  stepFlashing Float?
+  parapets     Float?
+  other        Float?
 }
 
 model Photo {

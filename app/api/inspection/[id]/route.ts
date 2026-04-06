@@ -7,7 +7,10 @@ async function getOwnedInspection(id: string, userId: string) {
     where: { id },
     include: {
       customer: true,
-      structures: { orderBy: { order: "asc" } },
+      structures: {
+        include: { facets: { orderBy: { order: "asc" } } },
+        orderBy: { order: "asc" },
+      },
       photos: { orderBy: { photoNumber: "asc" } },
       packages: { orderBy: { order: "asc" } },
       quote: true,
@@ -136,7 +139,10 @@ export async function PATCH(
     data: updateData,
     include: {
       customer: true,
-      structures: { orderBy: { order: "asc" } },
+      structures: {
+        include: { facets: { orderBy: { order: "asc" } } },
+        orderBy: { order: "asc" },
+      },
       photos: { orderBy: { photoNumber: "asc" } },
       packages: { orderBy: { order: "asc" } },
       quote: true,

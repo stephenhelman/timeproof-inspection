@@ -1,33 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import StructureCard from "@/src/components/inspection/StructureCard";
-
-interface Structure {
-  id: string;
-  name: string;
-  inScope: boolean;
-  sqft?: number | null;
-  squares?: number | null;
-  pitch?: string | null;
-  stories?: number | null;
-  ridge?: number | null;
-  hip?: number | null;
-  valley?: number | null;
-  rake?: number | null;
-  eave?: number | null;
-  pipeBoots?: number | null;
-  skylights?: number | null;
-  chimneys?: number | null;
-  boxVents?: number | null;
-  turbines?: number | null;
-  atticFans?: number | null;
-  shingleType?: string | null;
-  layers?: number | null;
-  gutterType?: string | null;
-  gutterColor?: string | null;
-  recommendedPackage?: string | null;
-}
+import StructureCard, { type Structure } from "@/src/components/inspection/StructureCard";
 
 interface Props {
   data: Record<string, unknown>;
@@ -45,36 +19,48 @@ export default function Step5Structures({ inspectionId, initialData }: Props) {
   useEffect(() => {
     fetch(`/api/inspection/${inspectionId}`)
       .then((r) => r.json())
-      .then((d) => { if (d?.structures) setStructures(d.structures); })
+      .then((d) => {
+        if (d?.structures) setStructures(d.structures);
+      })
       .catch(() => {});
   }, [inspectionId]);
 
   const addStructure = async () => {
     setAdding(true);
     try {
+      const isFirst = structures.length === 0;
       const res = await fetch("/api/structure", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           inspectionId,
-          name: `Structure ${structures.length + 1}`,
+          name: isFirst ? "Main House" : `Structure ${structures.length + 1}`,
           order: structures.length,
         }),
       });
-      const s = await res.json();
-      setStructures((prev) => [...prev, s]);
+      const { structure } = await res.json();
+      setStructures((prev) => [...prev, structure]);
     } finally {
       setAdding(false);
     }
   };
 
   const updateStructure = async (id: string, data: Partial<Structure>) => {
-    setStructures((prev) => prev.map((s) => (s.id === id ? { ...s, ...data } : s)));
+    // Optimistic update — preserve existing facets
+    setStructures((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...data } : s))
+    );
     await fetch(`/api/structure/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
+  };
+
+  const handleStructureUpdate = (updated: Structure) => {
+    setStructures((prev) =>
+      prev.map((s) => (s.id === updated.id ? updated : s))
+    );
   };
 
   const deleteStructure = async (id: string) => {
@@ -87,7 +73,9 @@ export default function Step5Structures({ inspectionId, initialData }: Props) {
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-text-primary text-2xl font-semibold">Structures</h2>
-        <p className="text-text-secondary text-base mt-1">Document each structure on the property.</p>
+        <p className="text-text-secondary text-base mt-1">
+          Document each structure on the property.
+        </p>
       </div>
 
       <button
@@ -104,6 +92,7 @@ export default function Step5Structures({ inspectionId, initialData }: Props) {
           key={structure.id}
           structure={structure}
           onUpdate={updateStructure}
+          onStructureUpdate={handleStructureUpdate}
           onDelete={deleteStructure}
         />
       ))}

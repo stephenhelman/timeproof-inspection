@@ -17,7 +17,8 @@ export async function POST(req: Request) {
 
   const structure = await prisma.structure.create({
     data: { inspectionId, name, order: order ?? 0 },
+    include: { facets: { orderBy: { order: "asc" } } },
   });
 
-  return NextResponse.json(structure, { status: 201 });
+  return NextResponse.json({ structure }, { status: 201 });
 }
