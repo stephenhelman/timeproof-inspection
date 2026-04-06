@@ -131,15 +131,16 @@ export default async function SummaryPage({
                       <tbody>
                         {[
                           ["Sq Ft", s.sqft != null ? s.sqft.toLocaleString() : null],
-                          ["Squares", s.squares != null ? s.squares.toString() : null],
                           ["Pitch", s.pitch],
-                          ["Stories", s.stories != null ? s.stories.toString() : null],
                           ["Ridge", fmtLinear(s.ridge)],
                           ["Hip", fmtLinear(s.hip)],
                           ["Valley", fmtLinear(s.valley)],
                           ["Rake", fmtLinear(s.rake)],
                           ["Eave", fmtLinear(s.eave)],
-                          ["Package", s.recommendedPackage],
+                          ["Flashing", fmtLinear(s.flashing)],
+                          ["Step Flashing", fmtLinear(s.stepFlashing)],
+                          ["Parapets", fmtLinear(s.parapets)],
+                          ["Other", fmtLinear(s.other)],
                         ]
                           .filter(([, v]) => v != null && v !== "—")
                           .map(([label, value], i) => (
@@ -150,6 +151,31 @@ export default async function SummaryPage({
                           ))}
                       </tbody>
                     </table>
+                    {/* Penetrations */}
+                    {(s.pipeBoots || s.skylights || s.chimneys || s.boxVents || s.turbines || s.atticFans) && (
+                      <div className="mt-3">
+                        <p className="text-gray-400 text-xs uppercase tracking-wider mb-1.5">Penetrations</p>
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {[
+                              ["Pipe Boots", s.pipeBoots],
+                              ["Skylights", s.skylights],
+                              ["Chimneys", s.chimneys],
+                              ["Box Vents", s.boxVents],
+                              ["Turbines", s.turbines],
+                              ["Attic Fans", s.atticFans],
+                            ]
+                              .filter(([, v]) => v != null && Number(v) > 0)
+                              .map(([label, value], i) => (
+                                <tr key={String(label)} className={i % 2 === 0 ? "bg-report-surface" : "bg-report-bg"}>
+                                  <td className="py-1.5 px-3 text-gray-500">{label}</td>
+                                  <td className="py-1.5 px-3 text-report-text font-medium">{String(value)}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

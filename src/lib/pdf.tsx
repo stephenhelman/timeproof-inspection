@@ -12,6 +12,12 @@ import { getPackageById, getWarrantySummary, detectPackageId } from "./packages"
 const BLUE = "#003087";
 const GRAY_BG = "#f5f5f5";
 
+function fmtLinearPdf(decimal: number): string {
+  const ft = Math.floor(decimal);
+  const ins = Math.round((decimal - ft) * 12);
+  return ins > 0 ? `${ft}' ${ins}"` : `${ft}'`;
+}
+
 const styles = StyleSheet.create({
   page: { fontFamily: "Helvetica", padding: 40, backgroundColor: "#ffffff" },
   headerBar: {
@@ -262,10 +268,23 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
               <View key={String(s.id)} style={{ marginBottom: 12 }}>
                 <Text style={{ fontSize: 11, fontFamily: "Helvetica-Bold", color: "#374151", marginBottom: 4 }}>{String(s.name)}</Text>
                 {[
-                  ["Sq Ft", s.sqft], ["Squares", s.squares], ["Pitch", s.pitch],
-                  ["Stories", s.stories], ["Ridge", s.ridge ? `${s.ridge} ft` : null],
-                  ["Package", s.recommendedPackage],
-                ].filter(([, v]) => v != null).map(([label, value], i) => (
+                  ["Sq Ft", s.sqft], ["Pitch", s.pitch],
+                  ["Ridge", s.ridge ? fmtLinearPdf(s.ridge as number) : null],
+                  ["Hip", s.hip ? fmtLinearPdf(s.hip as number) : null],
+                  ["Valley", s.valley ? fmtLinearPdf(s.valley as number) : null],
+                  ["Rake", s.rake ? fmtLinearPdf(s.rake as number) : null],
+                  ["Eave", s.eave ? fmtLinearPdf(s.eave as number) : null],
+                  ["Flashing", s.flashing ? fmtLinearPdf(s.flashing as number) : null],
+                  ["Step Flashing", s.stepFlashing ? fmtLinearPdf(s.stepFlashing as number) : null],
+                  ["Parapets", s.parapets ? fmtLinearPdf(s.parapets as number) : null],
+                  ["Other", s.other ? fmtLinearPdf(s.other as number) : null],
+                  ["Pipe Boots", s.pipeBoots],
+                  ["Skylights", s.skylights],
+                  ["Chimneys", s.chimneys],
+                  ["Box Vents", s.boxVents],
+                  ["Turbines", s.turbines],
+                  ["Attic Fans", s.atticFans],
+                ].filter(([, v]) => v != null && v !== 0).map(([label, value], i) => (
                   <View key={String(label)} style={[styles.tableRow, { backgroundColor: i % 2 === 0 ? GRAY_BG : "#ffffff" }]}>
                     <Text style={styles.tableCell}>{String(label)}</Text>
                     <Text style={styles.tableCellBold}>{String(value)}</Text>

@@ -152,7 +152,7 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
   ];
 
   return (
-    <div className="h-screen bg-bg-base flex overflow-hidden">
+    <div className="h-dvh bg-bg-base flex overflow-hidden">
 
       {/* ── Sidebar ── */}
       <aside
@@ -267,7 +267,7 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* Step content — scrollable */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overscroll-none">
           <div className="max-w-2xl mx-auto px-6 py-10">
             {stepComponents[currentStep]}
           </div>
