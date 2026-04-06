@@ -7,6 +7,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await auth();
   if (!session?.user) redirect("/login");
 
+  const initials =
+    session.user.name
+      ?.split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) ?? "??";
+
   return (
     <div className="min-h-screen bg-bg-base">
       <nav className="bg-bg-surface/80 backdrop-blur border-b border-border px-6 py-0 sticky top-0 z-40">
@@ -14,8 +22,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <a href="/dashboard" className="flex items-center gap-3">
             <Logo height={24} />
           </a>
-          <div className="flex items-center gap-5">
-            <span className="text-text-secondary text-sm hidden md:block">{session.user.email}</span>
+          <div className="flex items-center gap-4">
+            <span className="text-text-secondary text-sm hidden md:block">
+              {session.user.email}
+            </span>
+            <a
+              href="/settings"
+              className="w-9 h-9 rounded-full bg-brand-blue flex items-center justify-center text-white text-sm font-bold hover:bg-accent-blue-hover transition-colors shrink-0"
+              title="Account settings"
+            >
+              {initials}
+            </a>
             <form
               action={async () => {
                 "use server";

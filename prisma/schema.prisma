@@ -8,16 +8,17 @@ datasource db {
 }
 
 model User {
-  id            String       @id @default(cuid())
-  email         String       @unique
-  emailVerified DateTime?
-  name          String?
-  image         String?
-  password      String?      // bcrypt hashed — set via scripts/seed-user.js
-  createdAt     DateTime     @default(now())
-  inspections Inspection[]
-  sessions    Session[]
-  accounts    Account[]
+  id             String          @id @default(cuid())
+  email          String          @unique
+  emailVerified  DateTime?
+  name           String?
+  image          String?
+  password       String?         // bcrypt hashed — set via scripts/seed-user.js
+  createdAt      DateTime        @default(now())
+  inspections    Inspection[]
+  sessions       Session[]
+  accounts       Account[]
+  trustedDevices TrustedDevice[]
 }
 
 model Account {
@@ -227,4 +228,32 @@ model SectionView {
   visit         ReportVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
   sectionKey    String
   secondsViewed Int         @default(0)
+}
+
+model RegistrationCode {
+  id        String   @id @default(cuid())
+  email     String
+  codeHash  String   // bcrypt hashed 6-digit code — never store plaintext
+  expiresAt DateTime // 30 minutes from creation
+  used      Boolean  @default(false)
+  attempts  Int      @default(0)
+  purpose   String   @default("registration") // registration | forgot-password | 2fa | email-change
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([email, purpose])
+}
+
+model TrustedDevice {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceToken String   @unique
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @default(now())
+  expiresAt   DateTime // 30 days from creation
+
+  @@index([userId])
+  @@index([deviceToken])
 }
