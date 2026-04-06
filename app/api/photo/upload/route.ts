@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
-import { createInspectionFolder, uploadFileToDrive } from "@/src/lib/drive";
+import { uploadFileToR2, generatePhotoKey } from "@/src/lib/r2";
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -9,63 +9,59 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const formData = await req.formData();
-  const file = formData.get("file") as File | null;
-  const inspectionId = formData.get("inspectionId") as string | null;
+  try {
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
+    const inspectionId = formData.get("inspectionId") as string | null;
 
-  if (!file || !inspectionId) {
-    return NextResponse.json({ error: "Missing file or inspectionId" }, { status: 400 });
-  }
+    if (!file || !inspectionId) {
+      return NextResponse.json({ error: "Missing file or inspectionId" }, { status: 400 });
+    }
 
-  const inspection = await prisma.inspection.findUnique({
-    where: { id: inspectionId },
-    include: { customer: true },
-  });
-
-  if (!inspection || inspection.userId !== session.user.id) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  // Create Drive folder if this is the first photo
-  let folderId = inspection.driveFolderId;
-  let folderUrl = inspection.driveFolderUrl;
-
-  if (!folderId) {
-    const customerName = inspection.customer?.name ?? "Unknown";
-    const address = inspection.customer?.address ?? "Unknown";
-    const date = new Date(inspection.date).toISOString().split("T")[0];
-
-    const folder = await createInspectionFolder(customerName, address, date);
-    folderId = folder.folderId;
-    folderUrl = folder.folderUrl;
-
-    await prisma.inspection.update({
+    // Verify ownership
+    const inspection = await prisma.inspection.findUnique({
       where: { id: inspectionId },
-      data: { driveFolderId: folderId, driveFolderUrl: folderUrl },
+      include: {
+        photos: { select: { id: true } },
+      },
     });
+
+    if (!inspection) {
+      return NextResponse.json({ error: "Inspection not found" }, { status: 404 });
+    }
+
+    if (inspection.userId !== session.user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // Generate photo number and R2 key
+    const photoNumber = inspection.photos.length + 1;
+    const mimeType = file.type || "image/jpeg";
+
+    const r2Key = generatePhotoKey({ inspectionId, photoNumber, mimeType });
+
+    // Convert to buffer and upload
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const { url: r2Url } = await uploadFileToR2({ buffer, key: r2Key, mimeType });
+
+    // Save photo record
+    const photo = await prisma.photo.create({
+      data: {
+        inspectionId,
+        photoNumber,
+        r2Key,
+        r2Url,
+        damageTags: [],
+        description: "",
+      },
+    });
+
+    return NextResponse.json({ ...photo }, { status: 201 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("Photo upload error:", message);
+    return NextResponse.json({ error: "Upload failed", detail: message }, { status: 500 });
   }
-
-  // Upload to Drive
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const filename = file.name || `photo-${Date.now()}.jpg`;
-  const mimeType = file.type || "image/jpeg";
-
-  const { fileId, fileUrl } = await uploadFileToDrive(buffer, filename, mimeType, folderId);
-
-  // Get next photo number
-  const count = await prisma.photo.count({ where: { inspectionId } });
-  const photoNumber = count + 1;
-
-  const photo = await prisma.photo.create({
-    data: {
-      inspectionId,
-      photoNumber,
-      driveFileId: fileId,
-      driveUrl: fileUrl,
-      damageTags: [],
-    },
-  });
-
-  return NextResponse.json({ ...photo, driveFolderUrl: folderUrl }, { status: 201 });
 }

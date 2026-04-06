@@ -5,7 +5,7 @@ import { generateRevealStatement } from "@/src/lib/findings";
 
 interface Photo {
   id: string;
-  driveUrl: string;
+  r2Url: string;
   photoNumber: number;
   description?: string | null;
 }
@@ -133,7 +133,7 @@ export default function PhotoReveal({
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={photo.driveUrl}
+            src={photo.r2Url}
             alt={`Photo ${photo.photoNumber}`}
             className={`w-full object-contain ${isPresentation ? "max-h-[60vh]" : "max-h-96"}`}
           />

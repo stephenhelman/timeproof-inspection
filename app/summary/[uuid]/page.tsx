@@ -120,20 +120,6 @@ export default async function SummaryPage({
             </ReportSection>
           )}
 
-          {/* Drive folder */}
-          {inspection.driveFolderUrl && (
-            <ReportSection sectionKey="drive-folder">
-              <a
-                href={inspection.driveFolderUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-report-heading hover:underline flex items-center gap-2 font-medium"
-              >
-                📁 View All Photos
-              </a>
-            </ReportSection>
-          )}
-
           {/* Structures */}
           {inspection.structures.length > 0 && (
             <ReportSection sectionKey="structures" title="Roof Structures">

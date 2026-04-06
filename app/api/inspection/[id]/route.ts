@@ -121,7 +121,7 @@ export async function PATCH(
     "previousRoofWhy", "previousRoofNotes", "previousWork",
     "activeLeaks", "leakLocation", "issues", "thingsToKnow",
     "allDecisionMakers", "priorities", "findings",
-    "findingsNotes", "driveFolderId", "driveFolderUrl", "productionNotes", "gateCode",
+    "findingsNotes", "productionNotes", "gateCode",
     "hasPets", "accessIssues", "hoaRestrictions", "hoaDetails", "colorSelected",
     "specialRequests", "followUpNotes", "customerId",
   ];

@@ -26,8 +26,6 @@ export default function Step8Review({ inspectionId, initialData, reportUuid }: P
   const packages = (initialData?.packages as Package[]) || [];
   const findings = initialData?.findings as Record<string, boolean> | undefined;
   const findingCount = findings ? Object.values(findings).filter(Boolean).length : 0;
-  const driveFolderUrl = initialData?.driveFolderUrl as string | undefined;
-
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
   const reportUrl = reportUuid ? `${appUrl}/summary/${reportUuid}` : "";
 
@@ -61,11 +59,6 @@ export default function Step8Review({ inspectionId, initialData, reportUuid }: P
           <p className="text-text-hint text-xs uppercase tracking-wider">Photos</p>
           <div className="flex items-center gap-3">
             <p className="text-text-primary font-semibold">{photos.length}</p>
-            {driveFolderUrl && (
-              <a href={driveFolderUrl} target="_blank" rel="noopener noreferrer" className="text-text-accent text-sm">
-                📁 Drive
-              </a>
-            )}
           </div>
         </div>
 

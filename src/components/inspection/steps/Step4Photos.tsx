@@ -7,8 +7,8 @@ import PhotoReveal from "@/src/components/inspection/PhotoReveal";
 interface Photo {
   id: string;
   photoNumber: number;
-  driveUrl: string;
-  driveFileId: string;
+  r2Url: string;
+  r2Key: string;
   damageTags: string[];
   description?: string | null;
 }
@@ -27,9 +27,6 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
   );
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [driveFolderUrl, setDriveFolderUrl] = useState<string>(
-    (initialData?.driveFolderUrl as string) || ""
-  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch latest photos on mount
@@ -38,7 +35,6 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
       .then((r) => r.json())
       .then((inspection) => {
         if (inspection?.photos) setPhotos(inspection.photos);
-        if (inspection?.driveFolderUrl) setDriveFolderUrl(inspection.driveFolderUrl);
       })
       .catch(() => {});
   }, [inspectionId]);
@@ -58,7 +54,6 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
       const res = await fetch("/api/photo/upload", { method: "POST", body: formData });
       setUploadProgress(80);
       const photo = await res.json();
-      if (photo.driveFolderUrl) setDriveFolderUrl(photo.driveFolderUrl);
       setPhotos((prev) => [...prev, photo]);
       setUploadProgress(100);
     } catch {
@@ -187,17 +182,6 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
         )}
       </div>
 
-      {driveFolderUrl && (
-        <a
-          href={driveFolderUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-text-accent hover:text-text-primary text-sm flex items-center gap-2"
-        >
-          📁 View Drive Folder →
-        </a>
-      )}
-
       {/* Photo list */}
       <div className="flex flex-col gap-4">
         {photos.map((photo) => (
@@ -207,7 +191,7 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
               <div className="w-24 h-24 shrink-0 rounded-xl overflow-hidden bg-bg-elevated">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={photo.driveUrl}
+                  src={photo.r2Url}
                   alt={`Photo ${photo.photoNumber}`}
                   className="w-full h-full object-cover"
                 />

@@ -232,23 +232,17 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
         {photos.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Photo Documentation</Text>
-            {photos.map((p: { photoNumber: number; description?: string | null; driveUrl: string }) => (
+            {photos.map((p: { photoNumber: number; description?: string | null; r2Url: string }) => (
               <View key={p.photoNumber} style={styles.photoEntry}>
                 <Text style={styles.photoNum}>Photo {p.photoNumber}</Text>
                 {p.description && <Text style={styles.photoDesc}>{p.description}</Text>}
-                <Text style={styles.photoUrl}>{p.driveUrl}</Text>
+                <Text style={styles.photoUrl}>{p.r2Url}</Text>
               </View>
             ))}
           </View>
         )}
 
-        {/* Drive folder */}
-        {inspection.driveFolderUrl && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>All Photos</Text>
-            <Text style={styles.photoUrl}>View all photos: {inspection.driveFolderUrl}</Text>
-          </View>
-        )}
+
 
         <Text style={styles.pageNumber} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} fixed />
       </Page>

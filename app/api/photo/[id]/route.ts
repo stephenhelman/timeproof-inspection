@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
-import { deleteFileFromDrive } from "@/src/lib/drive";
+import { deleteFileFromR2 } from "@/src/lib/r2";
 import { generatePhotoDescription } from "@/src/lib/findings";
 
 async function getOwnedPhoto(id: string, userId: string) {
@@ -78,11 +78,11 @@ export async function DELETE(
   const photo = await getOwnedPhoto(id, session.user.id);
   if (!photo) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Delete from Drive
+  // Delete from R2
   try {
-    await deleteFileFromDrive(photo.driveFileId);
+    await deleteFileFromR2(photo.r2Key);
   } catch {
-    // Continue even if Drive delete fails (file may already be gone)
+    // Continue even if R2 delete fails (file may already be gone)
   }
 
   const inspectionId = photo.inspectionId;

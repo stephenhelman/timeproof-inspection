@@ -92,10 +92,6 @@ model Inspection {
   findings          Json?
   findingsNotes     String?
 
-  // Drive
-  driveFolderId     String?
-  driveFolderUrl    String?
-
   // Production
   productionNotes   String?
   gateCode          String?
@@ -158,8 +154,8 @@ model Photo {
   inspectionId  String
   inspection    Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
   photoNumber   Int
-  driveFileId   String
-  driveUrl      String
+  r2Key         String
+  r2Url         String
   damageTags    String[]
   description   String?
   createdAt     DateTime   @default(now())
