@@ -13,6 +13,7 @@ model User {
   emailVerified DateTime?
   name          String?
   image         String?
+  password      String?      // bcrypt hashed — set via scripts/seed-user.js
   createdAt     DateTime     @default(now())
   inspections Inspection[]
   sessions    Session[]

@@ -6,13 +6,15 @@
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed:user": "node --env-file=.env.local scripts/seed-user.js"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
     "@prisma/client": "^6.19.3",
     "@react-pdf/renderer": "^4.3.3",
     "@tailwindcss/postcss": "^4.2.2",
+    "bcryptjs": "^3.0.3",
     "googleapis": "^171.4.0",
     "next": "14.2.35",
     "next-auth": "^5.0.0-beta.30",
@@ -23,6 +25,7 @@
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.19.39",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18",
