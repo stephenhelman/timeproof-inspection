@@ -36,6 +36,7 @@ export async function POST(req: Request) {
       customer: true,
       structures: true,
       photos: true,
+      packages: { orderBy: { order: "asc" } },
       quote: true,
     },
   });

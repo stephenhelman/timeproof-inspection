@@ -18,6 +18,7 @@ export default async function DashboardPage() {
       include: {
         customer: true,
         structures: true,
+        packages: { orderBy: { order: "asc" } },
         quote: true,
         reportVisits: { orderBy: { visitedAt: "asc" } },
       },

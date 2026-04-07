@@ -56,7 +56,11 @@ function timeAgo(dateStr: string): string {
 }
 
 function fmt(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
 }
 
 export default function InspectionCard({ inspection }: InspectionCardProps) {
@@ -64,7 +68,8 @@ export default function InspectionCard({ inspection }: InspectionCardProps) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
   const reportUrl = `${appUrl}/summary/${inspection.reportUuid}`;
   const visitCount = inspection.reportVisits?.length || 0;
-  const lastVisit = inspection.reportVisits?.[inspection.reportVisits.length - 1];
+  const lastVisit =
+    inspection.reportVisits?.[inspection.reportVisits.length - 1];
   const recentlyViewed = lastVisit
     ? Date.now() - new Date(lastVisit.visitedAt).getTime() < 86400000
     : false;
@@ -74,7 +79,12 @@ export default function InspectionCard({ inspection }: InspectionCardProps) {
   const copyLink = () => navigator.clipboard.writeText(reportUrl);
 
   const handleDelete = async () => {
-    if (!confirm(`Delete inspection for "${inspection.customer?.name || "this customer"}"? This cannot be undone.`)) return;
+    if (
+      !confirm(
+        `Delete inspection for "${inspection.customer?.name || "this customer"}"? This cannot be undone.`,
+      )
+    )
+      return;
     setDeleting(true);
     try {
       await fetch(`/api/inspection/${inspection.id}`, { method: "DELETE" });
@@ -101,7 +111,11 @@ export default function InspectionCard({ inspection }: InspectionCardProps) {
           )}
         </div>
         <span className="text-text-hint text-sm shrink-0 pt-0.5">
-          {new Date(inspection.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          {new Date(inspection.date).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
         </span>
       </div>
 
@@ -111,14 +125,19 @@ export default function InspectionCard({ inspection }: InspectionCardProps) {
           {inspection.customer?.name || "Unnamed Inspection"}
         </p>
         {inspection.customer?.address && (
-          <p className="text-text-secondary text-base">{inspection.customer.address}</p>
+          <p className="text-text-secondary text-base">
+            {inspection.customer.address}
+          </p>
         )}
       </div>
 
       {/* Meta pills */}
       <div className="flex items-center gap-2 flex-wrap">
         {packagePills.map((p) => (
-          <span key={p.id} className="text-text-accent text-sm font-medium bg-brand-navy/40 border border-border px-3 py-1 rounded-full">
+          <span
+            key={p.id}
+            className="text-text-accent text-sm font-medium bg-brand-navy/40 border border-border px-3 py-1 rounded-full"
+          >
             {p.name} · {fmt(p.nisi!)}
           </span>
         ))}
@@ -140,7 +159,7 @@ export default function InspectionCard({ inspection }: InspectionCardProps) {
       </div>
 
       {/* Actions */}
-      <div className="flex flex-wrap gap-3 pt-1 border-t border-border">
+      <div className="flex flex-wrap gap-3 pt-1 border-t border-border pt-6">
         <a
           href={`/inspection/${inspection.id}`}
           className="px-5 py-2.5 bg-brand-blue hover:bg-accent-blue-hover text-text-primary rounded-xl text-sm font-semibold min-h-11 flex items-center transition-colors"
