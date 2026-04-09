@@ -15,11 +15,13 @@ export const authConfig: NextAuthConfig = {
       const requires2FA = !!(auth as any)?.requires2FA;
       const pathname = nextUrl.pathname;
 
-      // Always allow: NextAuth internals, public report, report API
+      // Always allow: NextAuth internals, public report, report API, business card
       if (
         pathname.startsWith("/api/auth") ||
         pathname.startsWith("/summary") ||
-        pathname.startsWith("/api/report")
+        pathname.startsWith("/api/report") ||
+        pathname.startsWith("/card") ||
+        (pathname.startsWith("/api/user/") && pathname.endsWith("/card"))
       ) {
         return true;
       }

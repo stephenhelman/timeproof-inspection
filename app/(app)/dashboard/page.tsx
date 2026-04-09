@@ -51,6 +51,30 @@ export default async function DashboardPage() {
         avgViews={avgViews}
       />
 
+      {/* Business card entry point */}
+      <div className="bg-bg-surface border border-border rounded-2xl p-6 flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <p className="text-text-primary font-semibold text-base">Your business card</p>
+          <p className="text-text-secondary text-sm">Customize and share your digital card with homeowners.</p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <a
+            href="/dashboard/profile"
+            className="px-5 py-2.5 border border-border text-text-secondary hover:text-text-primary hover:border-border-hover rounded-xl text-sm font-medium min-h-11 flex items-center transition-colors"
+          >
+            Edit card
+          </a>
+          <a
+            href={`${process.env.NEXT_PUBLIC_APP_URL}/card/${userId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-5 py-2.5 bg-brand-blue hover:bg-accent-blue-hover text-text-primary rounded-xl text-sm font-semibold min-h-11 flex items-center transition-colors"
+          >
+            View card ↗
+          </a>
+        </div>
+      </div>
+
       <div className="flex flex-col gap-4">
         <h2 className="text-text-secondary text-sm font-semibold uppercase tracking-wider">
           Inspections
@@ -62,7 +86,7 @@ export default async function DashboardPage() {
           </div>
         ) : (
           inspections.map((inspection) => (
-            <InspectionCard key={inspection.id} inspection={inspection} />
+            <InspectionCard key={inspection.id} inspection={inspection} repId={userId} />
           ))
         )}
       </div>

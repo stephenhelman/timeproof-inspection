@@ -8,13 +8,25 @@ datasource db {
 }
 
 model User {
-  id             String          @id @default(cuid())
-  email          String          @unique
-  emailVerified  DateTime?
-  name           String?
-  image          String?
-  password       String?         // bcrypt hashed — set via scripts/seed-user.js
-  createdAt      DateTime        @default(now())
+  id                  String          @id @default(cuid())
+  email               String          @unique
+  emailVerified       DateTime?
+  name                String?
+  image               String?
+  password            String?         // bcrypt hashed — set via scripts/seed-user.js
+  createdAt           DateTime        @default(now())
+
+  // Business card fields
+  phone               String?
+  area                String?         // city/region the rep services
+  profileImageUrl     String?         // R2 object URL for card profile photo
+  cardShowPhone       Boolean         @default(true)
+  cardShowEmail       Boolean         @default(true)
+  cardShowArea        Boolean         @default(true)
+  cardShowReportLink  Boolean         @default(true)
+  cardShowQr          Boolean         @default(true)
+  cardShowProfileImage Boolean        @default(true)
+
   inspections    Inspection[]
   sessions       Session[]
   accounts       Account[]

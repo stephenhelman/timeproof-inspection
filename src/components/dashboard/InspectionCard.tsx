@@ -43,6 +43,7 @@ interface Inspection {
 
 interface InspectionCardProps {
   inspection: Inspection;
+  repId: string;
 }
 
 function timeAgo(dateStr: string): string {
@@ -63,10 +64,11 @@ function fmt(n: number) {
   });
 }
 
-export default function InspectionCard({ inspection }: InspectionCardProps) {
+export default function InspectionCard({ inspection, repId }: InspectionCardProps) {
   const router = useRouter();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
   const reportUrl = `${appUrl}/summary/${inspection.reportUuid}`;
+  const cardUrl = `${appUrl}/card/${repId}?report=${inspection.reportUuid}`;
   const visitCount = inspection.reportVisits?.length || 0;
   const lastVisit =
     inspection.reportVisits?.[inspection.reportVisits.length - 1];
@@ -75,8 +77,25 @@ export default function InspectionCard({ inspection }: InspectionCardProps) {
     : false;
 
   const [deleting, setDeleting] = useState(false);
+  const [shareLabel, setShareLabel] = useState("Share card");
 
   const copyLink = () => navigator.clipboard.writeText(reportUrl);
+
+  const shareCard = async () => {
+    if (typeof navigator !== "undefined" && "share" in navigator) {
+      try {
+        await navigator.share({ title: "My business card", url: cardUrl });
+        setShareLabel("Shared!");
+        setTimeout(() => setShareLabel("Share card"), 3000);
+        return;
+      } catch {
+        // cancelled — fall through to clipboard
+      }
+    }
+    await navigator.clipboard.writeText(cardUrl);
+    setShareLabel("Copied!");
+    setTimeout(() => setShareLabel("Share card"), 3000);
+  };
 
   const handleDelete = async () => {
     if (
@@ -186,6 +205,12 @@ export default function InspectionCard({ inspection }: InspectionCardProps) {
         >
           PDF
         </a>
+        <button
+          onClick={shareCard}
+          className="px-5 py-2.5 border border-border text-text-secondary hover:text-text-primary hover:border-border-hover rounded-xl text-sm font-medium min-h-11 transition-colors"
+        >
+          {shareLabel}
+        </button>
         <button
           onClick={handleDelete}
           disabled={deleting}

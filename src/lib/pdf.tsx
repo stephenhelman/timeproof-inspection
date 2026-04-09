@@ -3,13 +3,17 @@ import {
   Page,
   Text,
   View,
+  Image,
   StyleSheet,
   pdf,
 } from "@react-pdf/renderer";
 import React from "react";
+import path from "path";
+
+const LOGO_PATH = path.join(process.cwd(), "public", "logo-long.png");
 import { getPackageById, getWarrantySummary, detectPackageId } from "./packages";
 
-const BLUE = "#003087";
+const BLUE = "#1b3a7a"; // brand-blue
 const GRAY_BG = "#f5f5f5";
 
 function fmtLinearPdf(decimal: number): string {
@@ -28,7 +32,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  headerLogo: { color: "#ffffff", fontSize: 18, fontFamily: "Helvetica-Bold", letterSpacing: 2 },
+  headerLogoContainer: {
+    backgroundColor: "#ffffff",
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  headerLogoImage: { height: 24, width: "auto" },
   headerTitle: { color: "#ffffff", fontSize: 13 },
   section: { marginBottom: 20 },
   sectionTitle: {
@@ -61,7 +71,7 @@ const styles = StyleSheet.create({
   quoteRow: { flexDirection: "row", justifyContent: "space-between", padding: "5 0" },
   quoteLabel: { fontSize: 10, color: "#374151" },
   quoteValue: { fontSize: 10, color: "#111827", fontFamily: "Helvetica-Bold" },
-  quoteDiscount: { fontSize: 10, color: "#dc2626" },
+  quoteDiscount: { fontSize: 10, color: "#c0272d" }, // brand-red
   quoteTotalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -85,7 +95,7 @@ const styles = StyleSheet.create({
   packageTitle: {
     fontSize: 14,
     fontFamily: "Helvetica-Bold",
-    color: "#1B3A7A",
+    color: BLUE,
     marginBottom: 2,
   },
   packageTagline: {
@@ -163,7 +173,9 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
       <Page size="LETTER" style={styles.page}>
         {/* Header */}
         <View style={styles.headerBar}>
-          <Text style={styles.headerLogo}>TIMEPROOF</Text>
+          <View style={styles.headerLogoContainer}>
+            <Image src={LOGO_PATH} style={styles.headerLogoImage} />
+          </View>
           <Text style={styles.headerTitle}>Roof Inspection Report</Text>
         </View>
 
@@ -256,7 +268,9 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
       {/* Page 2 — Internal */}
       <Page size="LETTER" style={styles.page}>
         <View style={styles.headerBar}>
-          <Text style={styles.headerLogo}>TIMEPROOF</Text>
+          <View style={styles.headerLogoContainer}>
+            <Image src={LOGO_PATH} style={styles.headerLogoImage} />
+          </View>
           <Text style={styles.headerTitle}>Internal — Rep Copy</Text>
         </View>
 
