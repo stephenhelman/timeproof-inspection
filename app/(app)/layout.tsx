@@ -1,7 +1,9 @@
 import { auth } from "@/src/lib/auth";
 import { redirect } from "next/navigation";
 import { signOut } from "@/src/lib/auth";
+import { prisma } from "@/src/lib/prisma";
 import Logo from "@/src/components/ui/Logo";
+import Image from "next/image";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -14,6 +16,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .join("")
       .toUpperCase()
       .slice(0, 2) ?? "??";
+
+  const { profileImageUrl } = await prisma.user.findUniqueOrThrow({
+    where: { id: session.user.id },
+    select: { profileImageUrl: true },
+  });
 
   return (
     <div className="min-h-screen bg-bg-base">
@@ -28,10 +35,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </span>
             <a
               href="/settings"
-              className="w-9 h-9 rounded-full bg-brand-blue flex items-center justify-center text-white text-sm font-bold hover:bg-accent-blue-hover transition-colors shrink-0"
+              className="w-9 h-9 rounded-full bg-brand-blue flex items-center justify-center text-white text-sm font-bold hover:bg-accent-blue-hover transition-colors shrink-0 overflow-hidden"
               title="Account settings"
             >
-              {initials}
+              {profileImageUrl ? (
+                <Image
+                  src={profileImageUrl}
+                  alt={initials}
+                  width={36}
+                  height={36}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                initials
+              )}
             </a>
             <form
               action={async () => {

@@ -108,7 +108,7 @@ export default async function BusinessCardPage({
                 alt={user.name ?? ""}
                 width={112}
                 height={112}
-                className="w-28 h-28 rounded-full object-cover ring-4 ring-gray-100 shadow-md"
+                className="w-28 h-28 rounded-full object-cover ring-4 ring-brand-blue shadow-md"
               />
             ) : user.cardShowProfileImage ? (
               <div className="w-28 h-28 rounded-full bg-brand-blue flex items-center justify-center text-white text-4xl font-bold shadow-md">

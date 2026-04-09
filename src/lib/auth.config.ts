@@ -9,6 +9,15 @@ export const authConfig: NextAuthConfig = {
     signIn: "/login",
   },
   callbacks: {
+    // Edge-safe: reads from the decoded JWT only — no DB access.
+    // Without this, NextAuth v5 only maps standard OIDC claims to the session
+    // object, so custom claims like requires2FA are invisible to the middleware
+    // and the authorized() callback below always sees it as undefined/false.
+    session({ session, token }) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (session as any).requires2FA = (token as any).requires2FA ?? false;
+      return session;
+    },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,8 +46,10 @@ export const authConfig: NextAuthConfig = {
 
       // Logged in with 2FA still required
       if (requires2FA) {
-        if (pathname.startsWith("/login/verify")) return true;
-        // Redirect everything else (app routes, other auth pages) to verify
+        // Allow /login so the user can re-authenticate if the code expired
+        // or if they arrived with a stale requires2FA JWT from a previous session
+        if (pathname.startsWith("/login")) return true;
+        // Block all app routes until 2FA is completed
         return Response.redirect(new URL("/login/verify", nextUrl));
       }
 
