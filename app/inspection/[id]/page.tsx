@@ -21,11 +21,26 @@ export default async function InspectionPage({
       photos: { orderBy: { photoNumber: "asc" } },
       quote: true,
       reportVisits: { include: { sections: true } },
+      lead: { select: { id: true, customerName: true } },
     },
   });
 
   if (!inspection || inspection.userId !== session.user.id) redirect("/dashboard");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return <Stepper inspectionId={id} initialData={inspection as any} />;
+  return (
+    <>
+      {inspection.lead && (
+        <div className="sticky top-16 z-30 bg-bg-surface/90 backdrop-blur border-b border-border px-6 py-2">
+          <a
+            href={`/leads/${inspection.lead.id}`}
+            className="text-text-secondary hover:text-text-primary text-sm transition-colors"
+          >
+            ← Lead: {inspection.lead.customerName}
+          </a>
+        </div>
+      )}
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      <Stepper inspectionId={id} initialData={inspection as any} />
+    </>
+  );
 }

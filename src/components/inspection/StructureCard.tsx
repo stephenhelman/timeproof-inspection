@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Toggle from "@/src/components/ui/Toggle";
 
 // ── Types ─────────────────────────────────────────────────
@@ -52,6 +52,89 @@ interface StructureCardProps {
   onUpdate: (id: string, data: Partial<Structure>) => Promise<void>;
   onStructureUpdate: (updated: Structure) => void;
   onDelete: (id: string) => void;
+}
+
+// ── Measurement system types ───────────────────────────────
+type MeasurementField =
+  | "sqft"
+  | "ridge"
+  | "hip"
+  | "valley"
+  | "rake"
+  | "eave"
+  | "flashing"
+  | "stepFlashing"
+  | "parapets"
+  | "other";
+
+interface MeasurementEntry {
+  id: string;
+  type: MeasurementField;
+  label: string;
+  value: number;
+}
+
+const MEASUREMENT_TYPE_LABELS: Record<MeasurementField, string> = {
+  sqft: "Sq Ft",
+  ridge: "Ridge",
+  hip: "Hip",
+  valley: "Valley",
+  rake: "Rake",
+  eave: "Eave",
+  flashing: "Flashing",
+  stepFlashing: "Step Flashing",
+  parapets: "Parapets",
+  other: "Other",
+};
+
+const MEASUREMENT_UNIT: Record<MeasurementField, string> = {
+  sqft: "sq ft",
+  ridge: "lf",
+  hip: "lf",
+  valley: "lf",
+  rake: "lf",
+  eave: "lf",
+  flashing: "lf",
+  stepFlashing: "lf",
+  parapets: "lf",
+  other: "lf",
+};
+
+const ALL_MEASUREMENT_FIELDS: MeasurementField[] = [
+  "sqft",
+  "ridge",
+  "hip",
+  "valley",
+  "rake",
+  "eave",
+  "flashing",
+  "stepFlashing",
+  "parapets",
+  "other",
+];
+
+/** Build initial entries from existing flat facet values (one entry per non-null field). */
+function initEntries(facet: Facet): MeasurementEntry[] {
+  const entries: MeasurementEntry[] = [];
+  for (const field of ALL_MEASUREMENT_FIELDS) {
+    const val = facet[field];
+    if (val != null && val !== 0) {
+      entries.push({ id: crypto.randomUUID(), type: field, label: "", value: val });
+    }
+  }
+  return entries;
+}
+
+/** Re-sum entries by type and produce Facet patch payload. */
+function sumEntries(entries: MeasurementEntry[]): Partial<Facet> {
+  const result: Partial<Record<MeasurementField, number | null>> = {};
+  for (const field of ALL_MEASUREMENT_FIELDS) {
+    const total = entries
+      .filter((e) => e.type === field)
+      .reduce((acc, e) => acc + e.value, 0);
+    result[field] = total > 0 ? total : null;
+  }
+  return result as Partial<Facet>;
 }
 
 const PITCH_OPTIONS = [
@@ -154,6 +237,133 @@ function TotalField({ label, value }: { label: string; value: number | null | un
   );
 }
 
+// ── AddMeasurementModal ───────────────────────────────────
+function AddMeasurementModal({
+  isFlat,
+  onAdd,
+  onClose,
+}: {
+  isFlat: boolean;
+  onAdd: (type: MeasurementField, value: number, label: string) => void;
+  onClose: () => void;
+}) {
+  const availableTypes = ALL_MEASUREMENT_FIELDS.filter(
+    (t) => t !== "parapets" || isFlat
+  );
+  const [type, setType] = useState<MeasurementField>(availableTypes[0]);
+  const [value, setValue] = useState("");
+  const [label, setLabel] = useState("");
+
+  // Escape to close
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const parsedValue = parseFloat(value);
+  const canAdd = !isNaN(parsedValue) && parsedValue > 0;
+
+  const handleAdd = () => {
+    if (!canAdd) return;
+    onAdd(type, parsedValue, label.trim());
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add Measurement"
+    >
+      <div className="bg-bg-elevated border border-border rounded-2xl p-5 w-full max-w-sm mx-4 mb-4 sm:mb-0 flex flex-col gap-4">
+        <h2 className="text-text-primary text-base font-semibold">Add Measurement</h2>
+
+        {/* Type */}
+        <div className="flex flex-col gap-1">
+          <label className="text-text-hint text-xs">Type</label>
+          <select
+            // eslint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus
+            value={type}
+            onChange={(e) => setType(e.target.value as MeasurementField)}
+            className="bg-bg-input border border-border text-text-primary rounded-lg min-h-12 px-3 text-sm focus:outline-none focus:border-text-accent"
+          >
+            {availableTypes.map((t) => (
+              <option key={t} value={t}>
+                {MEASUREMENT_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Value */}
+        <div className="flex flex-col gap-1">
+          <label className="text-text-hint text-xs">
+            Value&nbsp;
+            <span className="opacity-60">
+              ({type === "sqft" ? "sq ft" : "linear feet, decimal — e.g. 12.5"})
+            </span>
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+            }}
+            placeholder="0"
+            className="bg-bg-input border border-border text-text-primary rounded-lg min-h-12 px-3 text-sm focus:outline-none focus:border-text-accent"
+          />
+        </div>
+
+        {/* Label */}
+        <div className="flex flex-col gap-1">
+          <label className="text-text-hint text-xs">
+            Label&nbsp;<span className="opacity-60">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+            }}
+            placeholder="e.g. front eave, left rake"
+            className="bg-bg-input border border-border text-text-primary rounded-lg min-h-12 px-3 text-sm focus:outline-none focus:border-text-accent"
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 bg-bg-elevated border border-border text-text-secondary rounded-lg min-h-12 px-4 text-sm font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={!canAdd}
+            className="flex-1 bg-text-accent text-white rounded-lg min-h-12 px-4 text-sm font-medium disabled:opacity-40"
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── FacetCard ─────────────────────────────────────────────
 function FacetCard({
   facet,
@@ -167,80 +377,151 @@ function FacetCard({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(facet.name);
   const [localPitch, setLocalPitch] = useState(facet.pitch ?? "");
+  const [entries, setEntries] = useState<MeasurementEntry[]>(() => initEntries(facet));
+  const [showModal, setShowModal] = useState(false);
   const isFlat = localPitch.startsWith("0/12");
 
   const patch = (data: Partial<Facet>) => onUpdate(facet.id, data);
 
+  const applyEntries = (newEntries: MeasurementEntry[]) => {
+    setEntries(newEntries);
+    onUpdate(facet.id, sumEntries(newEntries));
+  };
+
+  const handleAddEntry = (type: MeasurementField, value: number, label: string) => {
+    applyEntries([...entries, { id: crypto.randomUUID(), type, label, value }]);
+    setShowModal(false);
+  };
+
+  const handleDeleteEntry = (id: string) => {
+    applyEntries(entries.filter((e) => e.id !== id));
+  };
+
   return (
-    <div className="bg-bg-elevated border border-border rounded-xl overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="flex-1 flex items-center gap-2 text-left"
-        >
-          <span className="text-text-hint text-xs">{open ? "▼" : "▶"}</span>
-          <span className="text-text-primary text-sm font-medium">{name || "Facet"}</span>
-          {localPitch && (
-            <span className="text-text-hint text-xs ml-1">{localPitch}</span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => onDelete(facet.id)}
-          className="text-brand-red text-xs px-2 py-1 hover:opacity-75"
-        >
-          ✕
-        </button>
+    <>
+      <div className="bg-bg-elevated border border-border rounded-xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="flex-1 flex items-center gap-2 text-left min-h-10"
+          >
+            <span className="text-text-hint text-xs">{open ? "▼" : "▶"}</span>
+            <span className="text-text-primary text-sm font-medium">{name || "Facet"}</span>
+            {localPitch && (
+              <span className="text-text-hint text-xs ml-1">{localPitch}</span>
+            )}
+            {entries.length > 0 && (
+              <span className="text-text-hint text-xs ml-auto mr-1">
+                {entries.length}&nbsp;{entries.length === 1 ? "entry" : "entries"}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(facet.id)}
+            className="text-brand-red text-xs min-w-8 min-h-10 flex items-center justify-center hover:opacity-75"
+            aria-label="Delete facet"
+          >
+            ✕
+          </button>
+        </div>
+
+        {open && (
+          <div className="px-3 pb-3 flex flex-col gap-3 border-t border-border">
+            {/* Name + Pitch */}
+            <div className="grid grid-cols-2 gap-3 pt-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-text-hint text-xs">Facet Name</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={() => patch({ name })}
+                  className="bg-bg-input border border-border text-text-primary rounded-lg min-h-10 px-3 text-sm focus:outline-none focus:border-text-accent"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-text-hint text-xs">Pitch</label>
+                <select
+                  value={localPitch}
+                  onChange={(e) => {
+                    setLocalPitch(e.target.value);
+                    patch({ pitch: e.target.value || null });
+                  }}
+                  className="bg-bg-input border border-border text-text-primary rounded-lg min-h-10 px-3 text-sm focus:outline-none focus:border-text-accent"
+                >
+                  <option value="">—</option>
+                  {PITCH_OPTIONS.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Measurement entries */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-text-hint text-xs uppercase tracking-wider">
+                  Measurements
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowModal(true)}
+                  className="text-text-accent text-xs px-2 py-1 min-h-8 hover:underline"
+                >
+                  + Add Measurement
+                </button>
+              </div>
+
+              {entries.length === 0 ? (
+                <p className="text-text-hint text-xs text-center py-3">
+                  No measurements yet — tap Add Measurement.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {entries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex items-center gap-2 bg-bg-input border border-border rounded-lg px-3 py-2"
+                    >
+                      <span className="text-text-primary text-sm font-medium shrink-0">
+                        {MEASUREMENT_TYPE_LABELS[entry.type]}
+                      </span>
+                      {entry.label && (
+                        <span className="text-text-secondary text-xs shrink-0">
+                          · {entry.label}
+                        </span>
+                      )}
+                      <span className="text-text-hint text-xs ml-auto shrink-0">
+                        {entry.value % 1 === 0 ? entry.value : entry.value.toFixed(2)}&nbsp;
+                        {MEASUREMENT_UNIT[entry.type]}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteEntry(entry.id)}
+                        aria-label={`Delete ${MEASUREMENT_TYPE_LABELS[entry.type]}${entry.label ? ` (${entry.label})` : ""} entry`}
+                        className="text-brand-red text-xs min-w-8 min-h-8 flex items-center justify-center rounded hover:opacity-75 shrink-0"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {open && (
-        <div className="px-3 pb-3 flex flex-col gap-3 border-t border-border">
-          <div className="grid grid-cols-2 gap-3 pt-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-text-hint text-xs">Facet Name</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={() => patch({ name })}
-                className="bg-bg-input border border-border text-text-primary rounded-lg min-h-10 px-3 text-sm focus:outline-none focus:border-text-accent"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-text-hint text-xs">Pitch</label>
-              <select
-                value={localPitch}
-                onChange={(e) => {
-                  setLocalPitch(e.target.value);
-                  patch({ pitch: e.target.value || null });
-                }}
-                className="bg-bg-input border border-border text-text-primary rounded-lg min-h-10 px-3 text-sm focus:outline-none focus:border-text-accent"
-              >
-                <option value="">—</option>
-                {PITCH_OPTIONS.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <NumberInput label="Sq Ft" value={facet.sqft} onBlur={(v) => patch({ sqft: v })} />
-            <FeetInchesInput label="Ridge (lf)" value={facet.ridge} onBlur={(v) => patch({ ridge: v })} />
-            <FeetInchesInput label="Hip (lf)" value={facet.hip} onBlur={(v) => patch({ hip: v })} />
-            <FeetInchesInput label="Valley (lf)" value={facet.valley} onBlur={(v) => patch({ valley: v })} />
-            <FeetInchesInput label="Rake (lf)" value={facet.rake} onBlur={(v) => patch({ rake: v })} />
-            <FeetInchesInput label="Eave (lf)" value={facet.eave} onBlur={(v) => patch({ eave: v })} />
-            <FeetInchesInput label="Flashing (lf)" value={facet.flashing} onBlur={(v) => patch({ flashing: v })} />
-            <FeetInchesInput label="Step Flashing (lf)" value={facet.stepFlashing} onBlur={(v) => patch({ stepFlashing: v })} />
-            {isFlat && (
-              <FeetInchesInput label="Parapets (lf)" value={facet.parapets} onBlur={(v) => patch({ parapets: v })} />
-            )}
-            <FeetInchesInput label="Other (lf)" value={facet.other} onBlur={(v) => patch({ other: v })} />
-          </div>
-        </div>
+      {showModal && (
+        <AddMeasurementModal
+          isFlat={isFlat}
+          onAdd={handleAddEntry}
+          onClose={() => setShowModal(false)}
+        />
       )}
-    </div>
+    </>
   );
 }
 

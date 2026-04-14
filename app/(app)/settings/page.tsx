@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { isWorkEmail, ALLOWED_EMAIL_DOMAIN } from "@/src/lib/auth-constants";
 import { validatePassword } from "@/src/lib/password";
+import { CreditCard, ExternalLink, Pencil } from "lucide-react";
 
 // ── Shared: section card ──────────────────────────────────
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
@@ -395,6 +396,42 @@ function PasswordSection() {
   );
 }
 
+// ── Section: Business Card ────────────────────────────────
+function BusinessCardSection() {
+  const { data: session } = useSession();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  const userId = (session?.user as { id?: string })?.id ?? "";
+  const cardUrl = `${appUrl}/card/${userId}`;
+
+  return (
+    <Card title="Business Card">
+      <p className="text-text-secondary text-sm">
+        Your digital business card is shareable with homeowners. Customize what information appears and preview the live card.
+      </p>
+      <div className="flex gap-3 flex-wrap">
+        <a
+          href="/dashboard/profile"
+          className="flex items-center gap-2 bg-brand-blue hover:bg-accent-blue-hover text-white font-semibold rounded-xl min-h-10 px-5 text-sm transition-colors"
+        >
+          <Pencil size={13} strokeWidth={2} />
+          Edit Card
+        </a>
+        {userId && (
+          <a
+            href={cardUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 border border-border hover:border-border-hover text-text-secondary hover:text-text-primary font-semibold rounded-xl min-h-10 px-5 text-sm transition-colors"
+          >
+            <ExternalLink size={13} strokeWidth={2} />
+            View Live Card
+          </a>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ── Root ──────────────────────────────────────────────────
 export default function SettingsPage() {
   return (
@@ -403,6 +440,7 @@ export default function SettingsPage() {
         <h1 className="text-text-primary text-2xl font-bold">Account Settings</h1>
         <p className="text-text-secondary text-base mt-1">Manage your profile and security settings.</p>
       </div>
+      <BusinessCardSection />
       <ProfileSection />
       <EmailSection />
       <PasswordSection />

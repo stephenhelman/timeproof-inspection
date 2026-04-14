@@ -7,6 +7,40 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum LeadStatus {
+  NEW
+  INSPECTION_SCHEDULED
+  INSPECTION_COMPLETE
+  QUOTED
+  SOLD
+  DENIED
+  NO_SHOW
+  DEMO_NOT_SOLD
+  REVIVAL_PENDING
+  REVIVAL_RECOVERED
+  DEAD
+}
+
+enum RevivalStatus {
+  PENDING
+  ATTEMPTED
+  CONNECTED
+  NOT_INTERESTED
+  NO_ANSWER
+}
+
+enum RevivalOutcome {
+  RECOVERED
+  REVIEW_REQUESTED
+  REFERRAL_GIVEN
+  DEAD
+}
+
+enum UserRole {
+  ADMIN
+  REP
+}
+
 model User {
   id                  String          @id @default(cuid())
   email               String          @unique
@@ -27,10 +61,13 @@ model User {
   cardShowQr          Boolean         @default(true)
   cardShowProfileImage Boolean        @default(true)
 
+  role           UserRole        @default(ADMIN)
+
   inspections    Inspection[]
   sessions       Session[]
   accounts       Account[]
   trustedDevices TrustedDevice[]
+  leads          Lead[]
 }
 
 model Account {
@@ -76,6 +113,48 @@ model Customer {
   inspections  Inspection[]
 }
 
+model Lead {
+  id                   String          @id @default(cuid())
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  customerName         String
+  address              String
+  phone                String?
+  email                String?
+  assignedTech         String?
+  createdBy            String?
+  source               String          @default("manual")
+  externalId           String?
+  highestEstimateValue Float?
+  priorQuoteUrl        String?
+  eagleViewUrl         String?
+  status               LeadStatus      @default(NEW)
+  revivalStatus        RevivalStatus?
+  revivalOutcome       RevivalOutcome?
+  revivalNotes         String?
+  revivalCalledAt      DateTime?
+  revivalCalledBy      String?
+  appointmentDate      DateTime?
+  jobCompletionDate    DateTime?
+  assignedUserId       String?
+  assignedUser         User?           @relation(fields: [assignedUserId], references: [id])
+  inspections          Inspection[]
+  notes                LeadNote[]
+}
+
+model LeadNote {
+  id         String   @id @default(cuid())
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  content    String   @db.Text
+  phase      String?  // "opener" | "phase_1" | "phase_2" | "phase_3" | "phase_4" | "phase_5" | "general"
+  authorName String?
+  authorId   String?
+  createdAt  DateTime @default(now())
+
+  @@index([leadId])
+}
+
 model Inspection {
   id                String        @id @default(cuid())
   reportUuid        String        @unique @default(cuid())
@@ -83,6 +162,8 @@ model Inspection {
   user              User          @relation(fields: [userId], references: [id])
   customerId        String?
   customer          Customer?     @relation(fields: [customerId], references: [id])
+  leadId            String?
+  lead              Lead?         @relation(fields: [leadId], references: [id])
   repName           String?
   date              DateTime      @default(now())
   status            String        @default("draft")
