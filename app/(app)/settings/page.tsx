@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { isWorkEmail, ALLOWED_EMAIL_DOMAIN } from "@/src/lib/auth-constants";
-import { validatePassword } from "@/src/lib/password";
 import { CreditCard, ExternalLink, Pencil } from "lucide-react";
 
 // ── Shared: section card ──────────────────────────────────
@@ -51,24 +50,6 @@ function InputField({
         )}
       </div>
     </div>
-  );
-}
-
-function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) {
-  return (
-    <button type="button" onClick={onToggle} tabIndex={-1}
-      className="text-text-hint hover:text-text-secondary transition-colors">
-      {show ? (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-        </svg>
-      ) : (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-        </svg>
-      )}
-    </button>
   );
 }
 
@@ -296,106 +277,6 @@ function EmailSection() {
   );
 }
 
-// ── Section 3: Change Password ────────────────────────────
-function PasswordSection() {
-  const [current, setCurrent] = useState("");
-  const [newPw, setNewPw] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState("");
-
-  const requirements = [
-    { text: "At least 8 characters", met: newPw.length >= 8 },
-    { text: "One uppercase letter", met: /[A-Z]/.test(newPw) },
-    { text: "One number", met: /[0-9]/.test(newPw) },
-    { text: "One special character", met: /[^A-Za-z0-9]/.test(newPw) },
-  ];
-
-  const { valid: passwordValid } = validatePassword(newPw);
-  const passwordsMatch = newPw === confirm && confirm !== "";
-  const canSubmit = current !== "" && passwordValid && passwordsMatch && !loading;
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canSubmit) return;
-    setLoading(true); setError(""); setSuccess(false);
-    try {
-      const res = await fetch("/api/user/password", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword: current, newPassword: newPw, confirmPassword: confirm }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || "Failed to update password"); return; }
-      setCurrent(""); setNewPw(""); setConfirm("");
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
-    } catch {
-      setError("Something went wrong.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <Card title="Change Password">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <InputField
-          label="Current Password" type={showCurrent ? "text" : "password"}
-          value={current} onChange={setCurrent}
-          placeholder="••••••••" autoComplete="current-password"
-          rightElement={<EyeToggle show={showCurrent} onToggle={() => setShowCurrent((v) => !v)} />}
-        />
-
-        <div className="flex flex-col gap-2">
-          <InputField
-            label="New Password" type={showNew ? "text" : "password"}
-            value={newPw} onChange={setNewPw}
-            placeholder="••••••••" autoComplete="new-password"
-            rightElement={<EyeToggle show={showNew} onToggle={() => setShowNew((v) => !v)} />}
-          />
-          {newPw.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              {requirements.map((req) => (
-                <div key={req.text} className="flex items-center gap-2 text-sm">
-                  <span className={req.met ? "text-green-400" : "text-text-hint"}>{req.met ? "●" : "○"}</span>
-                  <span className={req.met ? "text-green-400" : "text-text-hint"}>{req.text}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <InputField
-            label="Confirm New Password" type={showConfirm ? "text" : "password"}
-            value={confirm} onChange={setConfirm}
-            placeholder="••••••••" autoComplete="new-password"
-            rightElement={<EyeToggle show={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />}
-          />
-          {confirm.length > 0 && !passwordsMatch && (
-            <p className="text-brand-red text-sm">Passwords do not match</p>
-          )}
-        </div>
-
-        {error && <p className="text-brand-red text-sm">{error}</p>}
-        {success && <p className="text-green-400 text-sm">Password updated ✓</p>}
-
-        <button
-          type="submit" disabled={!canSubmit}
-          className="self-start bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-white font-semibold rounded-xl min-h-10 px-5 text-sm transition-colors"
-        >
-          {loading ? "Updating…" : "Update Password"}
-        </button>
-      </form>
-    </Card>
-  );
-}
-
 // ── Section: Business Card ────────────────────────────────
 function BusinessCardSection() {
   const { data: session } = useSession();
@@ -443,7 +324,6 @@ export default function SettingsPage() {
       <BusinessCardSection />
       <ProfileSection />
       <EmailSection />
-      <PasswordSection />
     </div>
   );
 }

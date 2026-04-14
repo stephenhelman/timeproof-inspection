@@ -5,13 +5,14 @@ import { isWorkEmail } from "./auth-constants";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-export type CodePurpose = "registration" | "forgot-password" | "2fa" | "email-change";
+export type CodePurpose = "registration" | "forgot-password" | "2fa" | "email-change" | "magic-login";
 
 const PURPOSE_SUBJECTS: Record<CodePurpose, string> = {
   registration: "Your TIMEPROOF verification code",
   "forgot-password": "Reset your TIMEPROOF password",
   "2fa": "Your TIMEPROOF login code",
   "email-change": "Confirm your new TIMEPROOF email",
+  "magic-login": "Your TIMEPROOF sign-in code",
 };
 
 const PURPOSE_MESSAGES: Record<CodePurpose, string> = {
@@ -19,6 +20,7 @@ const PURPOSE_MESSAGES: Record<CodePurpose, string> = {
   "forgot-password": "Use this code to reset your password.",
   "2fa": "Use this code to complete your sign in.",
   "email-change": "Use this code to confirm your new email address.",
+  "magic-login": "Use this code to sign in to your TIMEPROOF account.",
 };
 
 export async function sendVerificationCode(
