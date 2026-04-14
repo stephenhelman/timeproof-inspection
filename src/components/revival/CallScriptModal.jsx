@@ -175,6 +175,98 @@ function fmtNoteDate(val) {
   });
 }
 
+// ── Objection Card (used inline in Phase 3) ───────────────
+function ObjectionCard({ obj, idx, isOpen, onToggle, leadId }) {
+  const [noteContent, setNoteContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const handleSaveNote = async (e) => {
+    e.preventDefault();
+    if (!noteContent.trim() || !leadId) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/lead/${leadId}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: noteContent.trim(), phase: "phase_3" }),
+      });
+      if (!res.ok) throw new Error();
+      setNoteContent("");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-bg-surface border border-border rounded-xl overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-4 py-3 text-left min-h-13"
+      >
+        <span className="text-text-primary text-sm font-medium">
+          When they say:{" "}
+          <span className="text-text-secondary font-normal">
+            &ldquo;{obj.trigger}&rdquo;
+          </span>
+        </span>
+        {isOpen
+          ? <ChevronUp size={15} className="text-text-secondary shrink-0 ml-2" />
+          : <ChevronDown size={15} className="text-text-secondary shrink-0 ml-2" />
+        }
+      </button>
+
+      {isOpen && (
+        <div className="px-4 pb-4 space-y-3 border-t border-border">
+          <p
+            className="text-text-primary text-base leading-relaxed pt-3"
+            style={{ fontFamily: "Georgia, serif" }}
+          >
+            {obj.response}
+          </p>
+          {obj.tone && (
+            <p className="text-text-secondary text-sm italic">{obj.tone}</p>
+          )}
+          {obj.followup && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+              <p className="text-amber-400 text-sm">{obj.followup}</p>
+            </div>
+          )}
+
+          {/* Inline note input */}
+          {leadId && (
+            <form onSubmit={handleSaveNote} className="pt-1 space-y-1.5">
+              <div className="relative">
+                <textarea
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                  rows={2}
+                  placeholder="Note what happened with this objection…"
+                  className="w-full bg-bg-elevated border border-border text-text-primary rounded-xl px-4 py-2.5 pr-12 text-sm placeholder:text-text-secondary/50 focus:outline-none focus:border-blue-500 transition-colors resize-none"
+                />
+                <button
+                  type="submit"
+                  disabled={!noteContent.trim() || saving}
+                  className="absolute right-3 bottom-2.5 w-7 h-7 rounded-lg bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-40 flex items-center justify-center transition-colors"
+                >
+                  <Send size={11} strokeWidth={2} className="text-white" />
+                </button>
+              </div>
+              {saved && (
+                <p className="text-green-400 text-xs">Note saved ✓</p>
+              )}
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Notes Tab ─────────────────────────────────────────────
 function NotesTab({ leadId, activePhaseId }) {
   const [notes, setNotes] = useState([]);
@@ -367,8 +459,7 @@ export default function CallScriptModal({ isOpen, onClose, customerName, leadId 
 
   const TABS = [
     { id: "script", label: "Script" },
-    { id: "notes", label: leadId ? "Notes" : "Notes" },
-    { id: "objections", label: "Objections" },
+    { id: "notes", label: "Notes" },
     { id: "framework", label: "Framework" },
   ];
 
@@ -457,13 +548,23 @@ export default function CallScriptModal({ isOpen, onClose, customerName, leadId 
                     )}
                   </div>
 
-                  {activePhase.steps && activePhase.steps.length === 0 && (
-                    <p className="text-text-secondary text-sm italic">
-                      This phase is handled dynamically based on objections raised by the homeowner. See the Objections tab for response guides.
-                    </p>
+                  {/* Phase 3 — objections rendered inline */}
+                  {activePhaseId === 3 && (
+                    <div className="space-y-3">
+                      {script.objections.map((obj, idx) => (
+                        <ObjectionCard
+                          key={idx}
+                          obj={obj}
+                          idx={idx}
+                          isOpen={!!openObjections[idx]}
+                          onToggle={() => toggleObjection(idx)}
+                          leadId={leadId}
+                        />
+                      ))}
+                    </div>
                   )}
 
-                  {activePhase.steps?.map((step, idx) => (
+                  {activePhaseId !== 3 && activePhase.steps?.map((step, idx) => (
                     <div
                       key={idx}
                       className="bg-bg-surface border border-border rounded-xl p-4 space-y-3"
@@ -495,52 +596,6 @@ export default function CallScriptModal({ isOpen, onClose, customerName, leadId 
           {/* NOTES TAB */}
           {activeTab === "notes" && (
             <NotesTab leadId={leadId} activePhaseId={activePhaseId} />
-          )}
-
-          {/* OBJECTIONS TAB */}
-          {activeTab === "objections" && (
-            <div className="px-6 py-5 space-y-3">
-              {script.objections.map((obj, idx) => (
-                <div
-                  key={idx}
-                  className="bg-bg-surface border border-border rounded-xl overflow-hidden"
-                >
-                  <button
-                    onClick={() => toggleObjection(idx)}
-                    className="w-full flex items-center justify-between px-4 py-3 text-left min-h-[52px]"
-                  >
-                    <span className="text-text-primary text-sm font-medium">
-                      When they say:{" "}
-                      <span className="text-text-secondary font-normal">
-                        &ldquo;{obj.trigger}&rdquo;
-                      </span>
-                    </span>
-                    {openObjections[idx]
-                      ? <ChevronUp size={15} className="text-text-secondary shrink-0 ml-2" />
-                      : <ChevronDown size={15} className="text-text-secondary shrink-0 ml-2" />
-                    }
-                  </button>
-                  {openObjections[idx] && (
-                    <div className="px-4 pb-4 space-y-3 border-t border-border">
-                      <p
-                        className="text-text-primary text-base leading-relaxed pt-3"
-                        style={{ fontFamily: "Georgia, serif" }}
-                      >
-                        {obj.response}
-                      </p>
-                      {obj.tone && (
-                        <p className="text-text-secondary text-sm italic">{obj.tone}</p>
-                      )}
-                      {obj.followup && (
-                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
-                          <p className="text-amber-400 text-sm">{obj.followup}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
           )}
 
           {/* FRAMEWORK TAB */}
