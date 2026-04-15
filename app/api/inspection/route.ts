@@ -18,7 +18,6 @@ export async function GET(req: Request) {
     },
     orderBy: { updatedAt: "desc" },
     include: {
-      customer: true,
       quote: true,
       _count: { select: { reportVisits: true } },
     },
@@ -34,31 +33,14 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { customerName, address, phone, email, heardAboutUs, repName } = body;
-
-  let customerId: string | undefined;
-
-  if (customerName || address) {
-    const customer = await prisma.customer.create({
-      data: {
-        name: customerName || "",
-        address: address || "",
-        phone: phone || null,
-        email: email || null,
-        heardAboutUs: heardAboutUs || null,
-      },
-    });
-    customerId = customer.id;
-  }
+  const { repName } = body;
 
   const inspection = await prisma.inspection.create({
     data: {
       userId: session.user.id,
-      customerId: customerId || null,
       repName: repName || null,
     },
     include: {
-      customer: true,
       structures: true,
       photos: true,
       packages: { orderBy: { order: "asc" } },

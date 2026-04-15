@@ -142,7 +142,7 @@ function fmt(n: number) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
-  const customer = inspection.customer || {};
+  const customer = { name: inspection.customerName, address: inspection.address };
   const quote = inspection.quote || {};
   const structures = (inspection.structures || []).filter((s: { inScope: boolean }) => s.inScope);
   const photos = inspection.photos || [];

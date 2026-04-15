@@ -4,7 +4,7 @@ import { prisma } from "@/src/lib/prisma";
 
 function clean(val: unknown): string {
   if (val === null || val === undefined) return "";
-  return String(val).replace(/^'/, "").replace(/\r\n/g, " ").trim();
+  return String(val).replace(/^'/, "").trim();
 }
 
 function parseDate(val: unknown): Date | null {
@@ -26,6 +26,55 @@ function mapStatus(val: unknown): string {
   return "REVIVAL_PENDING";
 }
 
+function parseAddress(val: unknown): {
+  streetAddress: string;
+  city: string;
+  state: string;
+  zip: string;
+} {
+  const raw = String(val ?? "").replace(/^'/, "").trim();
+
+  // Split on literal \r\n (CSV escape sequence) or actual CRLF/LF
+  const lines = raw.split(/\\r\\n|\r\n|\n/);
+
+  if (lines.length >= 2) {
+    const streetAddress = lines[0].trim();
+    const cityStateZip = lines[1].trim(); // e.g. "EL PASO, TX 79912 USA"
+
+    const lastComma = cityStateZip.lastIndexOf(",");
+    if (lastComma !== -1) {
+      const city = cityStateZip.slice(0, lastComma).trim();
+      const stateZipCountry = cityStateZip.slice(lastComma + 1).trim(); // "TX 79912 USA"
+      const zipMatch = stateZipCountry.match(/\b(\d{5})\b/);
+      const stateMatch = stateZipCountry.match(/^([A-Z]{2})\b/);
+      return {
+        streetAddress,
+        city,
+        state: stateMatch ? stateMatch[1] : "",
+        zip: zipMatch ? zipMatch[1] : "",
+      };
+    }
+    return { streetAddress, city: cityStateZip, state: "", zip: "" };
+  }
+
+  // No newline — try splitting on last comma as fallback
+  const lastComma = raw.lastIndexOf(",");
+  if (lastComma !== -1) {
+    const streetCity = raw.slice(0, lastComma).trim();
+    const stateZipCountry = raw.slice(lastComma + 1).trim();
+    const zipMatch = stateZipCountry.match(/\b(\d{5})\b/);
+    const stateMatch = stateZipCountry.match(/^([A-Z]{2})\b/);
+    return {
+      streetAddress: streetCity,
+      city: "",
+      state: stateMatch ? stateMatch[1] : "",
+      zip: zipMatch ? zipMatch[1] : "",
+    };
+  }
+
+  return { streetAddress: raw, city: "", state: "", zip: "" };
+}
+
 export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -39,22 +88,25 @@ export async function POST(req: Request) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows: any[] = body;
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any[] = [];
   let revivalFlagged = 0;
 
   for (const row of rows) {
     const customerName = clean(row["Customer"]);
-    const address = clean(row["Location Address"]);
-    if (!customerName && !address) continue;
+    const rawAddress = row["Location Address"];
+    if (!customerName && !rawAddress) continue;
 
+    const { streetAddress, city, state, zip } = parseAddress(rawAddress);
     const status = mapStatus(row["Opportunity Status"]);
     if (status === "REVIVAL_PENDING") revivalFlagged++;
 
     data.push({
       customerName: customerName || "(Unknown)",
-      address: address || "",
+      streetAddress: streetAddress || "",
+      city: city || "",
+      state: state || "",
+      zip: zip || "",
       phone: clean(row["Phone"]) || null,
       assignedTech: clean(row["Technician"]) || null,
       createdBy: clean(row["Created By"]) || null,

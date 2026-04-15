@@ -6,7 +6,6 @@ async function getOwnedInspection(id: string, userId: string) {
   const inspection = await prisma.inspection.findUnique({
     where: { id },
     include: {
-      customer: true,
       structures: {
         include: { facets: { orderBy: { order: "asc" } } },
         orderBy: { order: "asc" },
@@ -57,48 +56,7 @@ export async function PATCH(
   const body = await req.json().catch(() => ({}));
   const { quote: quoteData, ...inspectionData } = body;
 
-  // Update customer fields if present
-  const customerFields = ["customerName", "address", "phone", "email", "heardAboutUs"];
-  const hasCustomerData = customerFields.some((f) => f in inspectionData);
-
-  if (hasCustomerData && existing.customerId) {
-    const { customerName, address, phone, email, heardAboutUs, ...rest } = inspectionData;
-    await prisma.customer.update({
-      where: { id: existing.customerId },
-      data: {
-        ...(customerName !== undefined && { name: customerName }),
-        ...(address !== undefined && { address }),
-        ...(phone !== undefined && { phone }),
-        ...(email !== undefined && { email }),
-        ...(heardAboutUs !== undefined && { heardAboutUs }),
-      },
-    });
-    Object.assign(inspectionData, rest);
-    delete inspectionData.customerName;
-    delete inspectionData.address;
-    delete inspectionData.phone;
-    delete inspectionData.email;
-    delete inspectionData.heardAboutUs;
-  } else if (hasCustomerData && !existing.customerId) {
-    const { customerName, address, phone, email, heardAboutUs } = inspectionData;
-    const customer = await prisma.customer.create({
-      data: {
-        name: customerName || "",
-        address: address || "",
-        phone: phone || null,
-        email: email || null,
-        heardAboutUs: heardAboutUs || null,
-      },
-    });
-    inspectionData.customerId = customer.id;
-    delete inspectionData.customerName;
-    delete inspectionData.address;
-    delete inspectionData.phone;
-    delete inspectionData.email;
-    delete inspectionData.heardAboutUs;
-  }
-
-  // Legacy quote upsert (kept for backwards compat)
+  // Legacy quote upsert
   if (quoteData) {
     const { basePrice, nationalPromo, localPromo, fsp, estMonthly } = quoteData;
     const bp = basePrice ?? existing.quote?.basePrice ?? 0;
@@ -118,15 +76,16 @@ export async function PATCH(
     });
   }
 
-  // Update inspection fields
   const allowedFields = [
-    "repName", "status", "ownershipLength", "previousRoofWork", "previousRoofWhen",
+    "customerName", "address", "phone", "email", "heardAboutUs",
+    "repName", "status",
+    "ownershipLength", "previousRoofWork", "previousRoofWhen",
     "previousRoofWhy", "previousRoofNotes", "previousWork",
     "activeLeaks", "leakLocation", "issues", "thingsToKnow",
     "allDecisionMakers", "priorities", "findings",
     "findingsNotes", "productionNotes", "gateCode",
     "hasPets", "accessIssues", "hoaRestrictions", "hoaDetails", "colorSelected",
-    "specialRequests", "followUpNotes", "customerId",
+    "specialRequests", "followUpNotes",
   ];
 
   const updateData: Record<string, unknown> = {};
@@ -138,7 +97,6 @@ export async function PATCH(
     where: { id },
     data: updateData,
     include: {
-      customer: true,
       structures: {
         include: { facets: { orderBy: { order: "asc" } } },
         orderBy: { order: "asc" },
@@ -149,6 +107,19 @@ export async function PATCH(
       reportVisits: { include: { sections: true } },
     },
   });
+
+  // When inspection is marked complete, advance lead status
+  if (updateData.status === "complete" && existing.leadId) {
+    const lead = await prisma.lead.findUnique({ where: { id: existing.leadId }, select: { status: true } });
+    if (lead && ["NEW", "INSPECTION_SCHEDULED", "REVIVAL_PENDING"].includes(lead.status)) {
+      await prisma.lead.update({ where: { id: existing.leadId }, data: { status: "INSPECTION_COMPLETE" } });
+    }
+  }
+
+  // When inspection is marked sold, update lead to SOLD
+  if (updateData.status === "sold" && existing.leadId) {
+    await prisma.lead.update({ where: { id: existing.leadId }, data: { status: "SOLD" } });
+  }
 
   return NextResponse.json(updated);
 }

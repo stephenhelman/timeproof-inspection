@@ -157,7 +157,10 @@ function LeadCard({ lead, onUpdate }) {
             >
               {lead.customerName}
             </a>
-            <p className="text-text-secondary text-sm mt-0.5">{lead.address}</p>
+            <p className="text-text-secondary text-sm mt-0.5">
+            {[lead.streetAddress, lead.city].filter(Boolean).join(", ")}
+            {lead.zip ? ` · ${lead.zip}` : ""}
+          </p>
           </div>
           {lead.highestEstimateValue && (
             <span className="text-emerald-400 font-semibold text-sm whitespace-nowrap shrink-0">
@@ -215,19 +218,29 @@ function LeadCard({ lead, onUpdate }) {
 export default function RevivalPage() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [zips, setZips] = useState([]);
+  const [filterZip, setFilterZip] = useState("");
+
+  useEffect(() => {
+    fetch("/api/lead/meta")
+      .then((r) => r.json())
+      .then((d) => setZips(d.zips || []))
+      .catch(() => {});
+  }, []);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/lead?status=REVIVAL_PENDING");
+    const params = new URLSearchParams({ status: "REVIVAL_PENDING" });
+    if (filterZip) params.set("zip", filterZip);
+    const res = await fetch(`/api/lead?${params.toString()}`);
     const data = await res.json();
     setLeads(Array.isArray(data) ? data : []);
     setLoading(false);
-  }, []);
+  }, [filterZip]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
   const handleCardUpdate = useCallback((leadId) => {
-    // Remove card from the queue after a Dead/Recovered action
     setLeads((prev) => prev.filter((l) => l.id !== leadId));
   }, []);
 
@@ -252,21 +265,46 @@ export default function RevivalPage() {
           </a>
         </div>
 
+        {/* Zip filter */}
+        {zips.length > 0 && (
+          <select
+            value={filterZip}
+            onChange={(e) => setFilterZip(e.target.value)}
+            className="bg-bg-surface border border-border text-text-primary rounded-xl min-h-[44px] px-3 text-sm focus:outline-none focus:border-blue-500 transition-colors w-48"
+          >
+            <option value="">All Zips</option>
+            {zips.map((z) => (
+              <option key={z} value={z}>{z}</option>
+            ))}
+          </select>
+        )}
+
         {/* Cards */}
         {loading ? (
           <div className="py-16 text-center text-text-secondary">Loading…</div>
         ) : leads.length === 0 ? (
           <div className="bg-bg-surface border border-border rounded-2xl p-12 text-center space-y-3">
-            <p className="text-text-primary font-semibold text-lg">Queue is clear</p>
-            <p className="text-text-secondary text-sm">
-              No leads pending revival right now.
+            <p className="text-text-primary font-semibold text-lg">
+              {filterZip ? `No revival leads in ${filterZip}` : "Queue is clear"}
             </p>
-            <a
-              href="/leads"
-              className="inline-block mt-2 text-blue-400 hover:text-blue-300 text-sm underline underline-offset-2 transition-colors"
-            >
-              View all leads
-            </a>
+            <p className="text-text-secondary text-sm">
+              {filterZip ? "Try a different zip or clear the filter." : "No leads pending revival right now."}
+            </p>
+            {filterZip ? (
+              <button
+                onClick={() => setFilterZip("")}
+                className="inline-block mt-2 text-blue-400 hover:text-blue-300 text-sm underline underline-offset-2 transition-colors"
+              >
+                Clear filter
+              </button>
+            ) : (
+              <a
+                href="/leads"
+                className="inline-block mt-2 text-blue-400 hover:text-blue-300 text-sm underline underline-offset-2 transition-colors"
+              >
+                View all leads
+              </a>
+            )}
           </div>
         ) : (
           <div className="space-y-4">

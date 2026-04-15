@@ -20,7 +20,8 @@ function fmt(n: number) {
 }
 
 export default function Step8Review({ inspectionId, initialData, reportUuid }: Props) {
-  const customer = initialData?.customer as Record<string, string> | undefined;
+  const customerName = (initialData?.customerName as string) || "";
+  const address = (initialData?.address as string) || "";
   const structures = (initialData?.structures as Array<Record<string, unknown>>) || [];
   const photos = (initialData?.photos as Array<Record<string, unknown>>) || [];
   const packages = (initialData?.packages as Package[]) || [];
@@ -44,8 +45,8 @@ export default function Step8Review({ inspectionId, initialData, reportUuid }: P
         {/* Customer */}
         <div className="bg-bg-surface border border-border rounded-2xl p-4">
           <p className="text-text-hint text-xs uppercase tracking-wider mb-2">Customer</p>
-          <p className="text-text-primary text-base font-semibold">{customer?.name || "—"}</p>
-          <p className="text-text-secondary text-sm">{customer?.address || "—"}</p>
+          <p className="text-text-primary text-base font-semibold">{customerName || "—"}</p>
+          <p className="text-text-secondary text-sm">{address || "—"}</p>
         </div>
 
         {/* Findings */}

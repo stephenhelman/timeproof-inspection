@@ -54,7 +54,10 @@ function fmtDate(val) {
 function AddLeadModal({ onClose, onCreated }) {
   const [form, setForm] = useState({
     customerName: "",
-    address: "",
+    streetAddress: "",
+    city: "",
+    state: "",
+    zip: "",
     phone: "",
     email: "",
     assignedTech: "",
@@ -71,8 +74,8 @@ function AddLeadModal({ onClose, onCreated }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.customerName.trim() || !form.address.trim()) {
-      setError("Customer name and address are required.");
+    if (!form.customerName.trim() || !form.streetAddress.trim()) {
+      setError("Customer name and street address are required.");
       return;
     }
     setSaving(true);
@@ -154,7 +157,14 @@ function AddLeadModal({ onClose, onCreated }) {
             </div>
           )}
           <Field label="Customer Name *" value={form.customerName} onChange={(v) => set("customerName", v)} placeholder="Jane Smith" />
-          <Field label="Address *" value={form.address} onChange={(v) => set("address", v)} placeholder="123 Main St, City, ST 12345" />
+          <Field label="Street Address *" value={form.streetAddress} onChange={(v) => set("streetAddress", v)} placeholder="123 Main St" />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="City" value={form.city} onChange={(v) => set("city", v)} placeholder="El Paso" />
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="State" value={form.state} onChange={(v) => set("state", v)} placeholder="TX" />
+              <Field label="Zip" value={form.zip} onChange={(v) => set("zip", v)} placeholder="79912" />
+            </div>
+          </div>
           <Field label="Phone" type="tel" value={form.phone} onChange={(v) => set("phone", v)} placeholder="(555) 000-0000" />
           <Field label="Email" type="email" value={form.email} onChange={(v) => set("email", v)} placeholder="jane@example.com" />
           <Field label="Assigned Tech" value={form.assignedTech} onChange={(v) => set("assignedTech", v)} placeholder="Technician name" />
@@ -357,18 +367,35 @@ export default function LeadsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
+  // Filter options from meta endpoint
+  const [zips, setZips] = useState([]);
+  const [techs, setTechs] = useState([]);
+
   // Filters
   const [filterStatus, setFilterStatus] = useState("");
   const [filterTech, setFilterTech] = useState("");
+  const [filterZip, setFilterZip] = useState("");
   const [filterSource, setFilterSource] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+
+  // Load filter options once
+  useEffect(() => {
+    fetch("/api/lead/meta")
+      .then((r) => r.json())
+      .then((d) => {
+        setZips(d.zips || []);
+        setTechs(d.techs || []);
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (filterStatus) params.set("status", filterStatus);
     if (filterTech) params.set("assignedTech", filterTech);
+    if (filterZip) params.set("zip", filterZip);
     if (filterSource) params.set("source", filterSource);
     if (filterFrom) params.set("dateFrom", filterFrom);
     if (filterTo) params.set("dateTo", filterTo);
@@ -376,7 +403,7 @@ export default function LeadsPage() {
     const data = await res.json();
     setLeads(Array.isArray(data) ? data : []);
     setLoading(false);
-  }, [filterStatus, filterTech, filterSource, filterFrom, filterTo]);
+  }, [filterStatus, filterTech, filterZip, filterSource, filterFrom, filterTo]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
@@ -428,7 +455,7 @@ export default function LeadsPage() {
         </div>
 
         {/* Filters */}
-        <div className="bg-[#111827] border border-[#2a3a5c] rounded-2xl p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="bg-[#111827] border border-[#2a3a5c] rounded-2xl p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
@@ -439,20 +466,39 @@ export default function LeadsPage() {
               <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
             ))}
           </select>
-          <input
-            type="text"
-            placeholder="Assigned tech"
+
+          <select
+            value={filterZip}
+            onChange={(e) => setFilterZip(e.target.value)}
+            className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[44px] px-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+          >
+            <option value="">All Zips</option>
+            {zips.map((z) => (
+              <option key={z} value={z}>{z}</option>
+            ))}
+          </select>
+
+          <select
             value={filterTech}
             onChange={(e) => setFilterTech(e.target.value)}
-            className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[44px] px-3 text-sm placeholder:text-[#8fa3c8]/50 focus:outline-none focus:border-blue-500 transition-colors"
-          />
-          <input
-            type="text"
-            placeholder="Source"
+            className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[44px] px-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+          >
+            <option value="">All Techs</option>
+            {techs.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+
+          <select
             value={filterSource}
             onChange={(e) => setFilterSource(e.target.value)}
-            className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[44px] px-3 text-sm placeholder:text-[#8fa3c8]/50 focus:outline-none focus:border-blue-500 transition-colors"
-          />
+            className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[44px] px-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+          >
+            <option value="">All Sources</option>
+            <option value="manual">Manual</option>
+            <option value="servicetitan_import">ServiceTitan Import</option>
+          </select>
+
           <input
             type="date"
             value={filterFrom}
@@ -494,7 +540,7 @@ export default function LeadsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#2a3a5c]">
-                    {["Customer", "Address", "Phone", "Tech", "Status", "Est. Value", "Reports", "Last Activity"].map((h) => (
+                    {["Customer", "Address", "Zip", "Phone", "Tech", "Status", "Est. Value", "Reports", "Last Activity"].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[#8fa3c8] font-medium whitespace-nowrap">
                         {h}
                       </th>
@@ -511,8 +557,11 @@ export default function LeadsPage() {
                       <td className="px-4 py-3 text-[#f0f4ff] font-medium whitespace-nowrap">
                         {lead.customerName}
                       </td>
-                      <td className="px-4 py-3 text-[#8fa3c8] max-w-[200px] truncate">
-                        {lead.address}
+                      <td className="px-4 py-3 text-[#8fa3c8] max-w-[180px] truncate">
+                        {[lead.streetAddress, lead.city].filter(Boolean).join(", ")}
+                      </td>
+                      <td className="px-4 py-3 text-[#8fa3c8] whitespace-nowrap">
+                        {lead.zip || "—"}
                       </td>
                       <td className="px-4 py-3 text-[#8fa3c8] whitespace-nowrap">
                         {lead.phone || "—"}

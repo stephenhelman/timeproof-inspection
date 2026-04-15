@@ -28,7 +28,6 @@ export default async function SummaryPage({
   const inspection = await prisma.inspection.findUnique({
     where: { reportUuid: uuid },
     include: {
-      customer: true,
       structures: {
         where: { inScope: true },
         orderBy: { order: "asc" },
@@ -43,8 +42,8 @@ export default async function SummaryPage({
   if (!inspection) notFound();
 
   const findings = (inspection.findings as Record<string, boolean>) || {};
-  const customerName = inspection.customer?.name || "";
-  const address = inspection.customer?.address || "";
+  const customerName = inspection.customerName || "";
+  const address = inspection.address || "";
   const repName = inspection.repName || "TIMEPROOF";
   const date = new Date(inspection.date).toLocaleDateString("en-US", {
     year: "numeric",

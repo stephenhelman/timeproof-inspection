@@ -55,13 +55,7 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
           stepData[field] = initialData[field];
         }
       });
-      if (Number(stepIndex) === 0 && initialData.customer) {
-        stepData.customerName = initialData.customer.name;
-        stepData.address = initialData.customer.address;
-        stepData.phone = initialData.customer.phone ?? "";
-        stepData.email = initialData.customer.email ?? "";
-        stepData.heardAboutUs = initialData.customer.heardAboutUs ?? "";
-      }
+      // Customer fields are now flat on inspection — already handled by STEP_FIELDS above
       if (Object.keys(stepData).length > 0) data[Number(stepIndex)] = stepData;
     });
     return data;

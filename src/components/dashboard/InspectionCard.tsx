@@ -23,18 +23,14 @@ interface Structure {
   inScope: boolean;
 }
 
-interface Customer {
-  name: string;
-  address: string;
-}
-
 interface Inspection {
   id: string;
   reportUuid: string;
   status: string;
   repName?: string | null;
   date: string | Date;
-  customer?: Customer | null;
+  customerName?: string | null;
+  address?: string | null;
   quote?: Quote | null;
   packages?: Package[];
   structures?: Structure[];
@@ -100,7 +96,7 @@ export default function InspectionCard({ inspection, repId }: InspectionCardProp
   const handleDelete = async () => {
     if (
       !confirm(
-        `Delete inspection for "${inspection.customer?.name || "this customer"}"? This cannot be undone.`,
+        `Delete inspection for "${inspection.customerName || "this inspection"}"? This cannot be undone.`,
       )
     )
       return;
@@ -141,11 +137,11 @@ export default function InspectionCard({ inspection, repId }: InspectionCardProp
       {/* Name + address */}
       <div className="flex flex-col gap-1">
         <p className="text-text-primary font-semibold text-xl leading-tight">
-          {inspection.customer?.name || "Unnamed Inspection"}
+          {inspection.customerName || "Unnamed Inspection"}
         </p>
-        {inspection.customer?.address && (
+        {inspection.address && (
           <p className="text-text-secondary text-base">
-            {inspection.customer.address}
+            {inspection.address}
           </p>
         )}
       </div>

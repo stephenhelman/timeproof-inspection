@@ -5,30 +5,35 @@ import { prisma } from "@/src/lib/prisma";
 export default async function NewInspectionPage({
   searchParams,
 }: {
-  searchParams: { leadId?: string };
+  searchParams: Promise<{ leadId?: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const leadId = searchParams?.leadId ?? null;
+  const { leadId } = await searchParams;
 
-  // If a leadId is provided, pre-populate from the lead
-  let customerId: string | undefined;
+  let prefill: {
+    customerName?: string;
+    address?: string;
+    phone?: string | null;
+    email?: string | null;
+    leadId?: string;
+  } = {};
+
   if (leadId) {
     const lead = await prisma.lead.findUnique({ where: { id: leadId } });
     if (lead) {
-      // Create a customer record from the lead's data so the wizard is pre-filled
-      const customer = await prisma.customer.create({
-        data: {
-          name: lead.customerName,
-          address: lead.address,
-          phone: lead.phone ?? null,
-          email: lead.email ?? null,
-        },
-      });
-      customerId = customer.id;
+      prefill = {
+        leadId,
+        customerName: lead.customerName,
+        address: [lead.streetAddress, lead.city, `${lead.state} ${lead.zip}`]
+          .filter(Boolean)
+          .join(", "),
+        phone: lead.phone,
+        email: lead.email,
+      };
 
-      // Advance the lead status if it's NEW or REVIVAL_PENDING
+      // Advance lead status if it's new/pending
       if (lead.status === "NEW" || lead.status === "REVIVAL_PENDING") {
         await prisma.lead.update({
           where: { id: leadId },
@@ -41,8 +46,11 @@ export default async function NewInspectionPage({
   const inspection = await prisma.inspection.create({
     data: {
       userId: session.user.id,
-      ...(leadId ? { leadId } : {}),
-      ...(customerId ? { customerId } : {}),
+      ...(prefill.leadId ? { leadId: prefill.leadId } : {}),
+      ...(prefill.customerName ? { customerName: prefill.customerName } : {}),
+      ...(prefill.address ? { address: prefill.address } : {}),
+      ...(prefill.phone ? { phone: prefill.phone } : {}),
+      ...(prefill.email ? { email: prefill.email } : {}),
     },
   });
 

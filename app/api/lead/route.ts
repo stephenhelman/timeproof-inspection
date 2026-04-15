@@ -11,7 +11,10 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const {
     customerName,
-    address,
+    streetAddress,
+    city,
+    state,
+    zip,
     phone,
     email,
     assignedTech,
@@ -22,9 +25,9 @@ export async function POST(req: Request) {
     status,
   } = body;
 
-  if (!customerName || !address) {
+  if (!customerName || !streetAddress) {
     return NextResponse.json(
-      { error: "customerName and address are required" },
+      { error: "customerName and streetAddress are required" },
       { status: 400 }
     );
   }
@@ -32,7 +35,10 @@ export async function POST(req: Request) {
   const lead = await prisma.lead.create({
     data: {
       customerName,
-      address,
+      streetAddress,
+      city: city || "",
+      state: state || "",
+      zip: zip || "",
       phone: phone || null,
       email: email || null,
       assignedTech: assignedTech || null,
@@ -65,13 +71,13 @@ export async function GET(req: Request) {
   const revivalStatus = searchParams.get("revivalStatus");
   const assignedTech = searchParams.get("assignedTech");
   const source = searchParams.get("source");
+  const zip = searchParams.get("zip");
   const dateFrom = searchParams.get("dateFrom");
   const dateTo = searchParams.get("dateTo");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: Record<string, any> = {};
 
-  // REP role: only their assigned leads
   if (user?.role === "REP") {
     where.assignedUserId = session.user.id;
   }
@@ -80,6 +86,7 @@ export async function GET(req: Request) {
   if (revivalStatus) where.revivalStatus = revivalStatus;
   if (assignedTech) where.assignedTech = { contains: assignedTech, mode: "insensitive" };
   if (source) where.source = source;
+  if (zip) where.zip = { contains: zip, mode: "insensitive" };
   if (dateFrom || dateTo) {
     where.createdAt = {};
     if (dateFrom) where.createdAt.gte = new Date(dateFrom);

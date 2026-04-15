@@ -24,13 +24,24 @@ export const authConfig: NextAuthConfig = {
         return true;
       }
 
-      // Not logged in — only allow the login page
+      // Not logged in — allow login, register, forgot-password
       if (!isLoggedIn) {
-        return pathname.startsWith("/login") ? true : false;
+        if (
+          pathname.startsWith("/login") ||
+          pathname.startsWith("/register") ||
+          pathname.startsWith("/forgot-password")
+        ) {
+          return true;
+        }
+        return false;
       }
 
-      // Fully authenticated — redirect away from the login page
-      if (pathname.startsWith("/login")) {
+      // Fully authenticated — redirect away from auth pages
+      if (
+        pathname.startsWith("/login") ||
+        pathname.startsWith("/register") ||
+        pathname.startsWith("/forgot-password")
+      ) {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 

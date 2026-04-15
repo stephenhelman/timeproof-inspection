@@ -16,7 +16,6 @@ export default async function InspectionPage({
   const inspection = await prisma.inspection.findUnique({
     where: { id },
     include: {
-      customer: true,
       structures: { orderBy: { order: "asc" } },
       photos: { orderBy: { photoNumber: "asc" } },
       quote: true,

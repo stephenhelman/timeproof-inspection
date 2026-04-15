@@ -121,9 +121,9 @@ export default function Step4Photos({ inspectionId, initialData }: Props) {
           mode="presentation"
           photos={photos}
           findings={findings}
-          address={(initialData?.customer as Record<string, string>)?.address || ""}
+          address={(initialData?.address as string) || ""}
           repName={(initialData?.repName as string) || ""}
-          customerName={(initialData?.customer as Record<string, string>)?.name || ""}
+          customerName={(initialData?.customerName as string) || ""}
         />
       </div>
     );

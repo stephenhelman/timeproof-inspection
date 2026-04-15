@@ -126,8 +126,12 @@ export default function LeadDetailPage() {
 
   const handleDelete = async () => {
     if (!confirm("Delete this lead? This cannot be undone.")) return;
-    await fetch(`/api/lead/${id}`, { method: "DELETE" });
-    router.push("/leads");
+    const res = await fetch(`/api/lead/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      router.push("/leads");
+    } else {
+      showToast("Delete failed.");
+    }
   };
 
   if (loading) {
@@ -176,7 +180,12 @@ export default function LeadDetailPage() {
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <h1 className="text-[#f0f4ff] text-2xl font-bold">{lead.customerName}</h1>
-                  <p className="text-[#8fa3c8] text-sm mt-1">{lead.address}</p>
+                  <p className="text-[#8fa3c8] text-sm mt-1">
+                    {lead.streetAddress}
+                    {lead.city ? `, ${lead.city}` : ""}
+                    {lead.state ? `, ${lead.state}` : ""}
+                    {lead.zip ? ` ${lead.zip}` : ""}
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   {saving && <span className="text-[#8fa3c8] text-xs self-center">Saving…</span>}

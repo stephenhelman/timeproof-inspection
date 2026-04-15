@@ -17,7 +17,6 @@ export async function GET(
   const inspection = await prisma.inspection.findUnique({
     where: { id },
     include: {
-      customer: true,
       structures: { where: { inScope: true }, orderBy: { order: "asc" } },
       photos: { orderBy: { photoNumber: "asc" } },
       quote: true,
@@ -29,13 +28,13 @@ export async function GET(
   }
 
   const pdfBuffer = await generateInspectionPDF(inspection);
-  const customerName = inspection.customer?.name?.replace(/[^a-z0-9]/gi, "-") || "inspection";
+  const safeName = inspection.customerName?.replace(/[^a-z0-9]/gi, "-") || "inspection";
   const date = new Date(inspection.date).toISOString().split("T")[0];
 
   return new NextResponse(new Uint8Array(pdfBuffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="inspection-${customerName}-${date}.pdf"`,
+      "Content-Disposition": `attachment; filename="inspection-${safeName}-${date}.pdf"`,
     },
   });
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { autoFlagRevival } from "@/src/lib/leads";
 
 export async function GET(
   _req: Request,
@@ -13,11 +14,15 @@ export async function GET(
 
   const { id } = await params;
 
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { role: true },
+  });
+
   const lead = await prisma.lead.findUnique({
     where: { id },
     include: {
       inspections: {
-        include: { customer: true },
         orderBy: { createdAt: "desc" },
       },
       assignedUser: { select: { id: true, name: true, email: true } },
@@ -27,6 +32,11 @@ export async function GET(
 
   if (!lead) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // REP can only see their assigned leads
+  if (user?.role === "REP" && lead.assignedUserId !== session.user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   return NextResponse.json(lead);
@@ -43,16 +53,28 @@ export async function PATCH(
 
   const { id } = await params;
 
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { role: true },
+  });
+
   const existing = await prisma.lead.findUnique({ where: { id } });
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (user?.role === "REP" && existing.assignedUserId !== session.user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json().catch(() => ({}));
 
   const allowedFields = [
     "customerName",
-    "address",
+    "streetAddress",
+    "city",
+    "state",
+    "zip",
     "phone",
     "email",
     "assignedTech",
@@ -78,7 +100,6 @@ export async function PATCH(
   for (const key of allowedFields) {
     if (key in body) {
       const val = body[key];
-      // Parse date fields
       if (
         (key === "appointmentDate" ||
           key === "jobCompletionDate" ||
@@ -106,11 +127,13 @@ export async function PATCH(
     data: updateData,
     include: {
       inspections: {
-        include: { customer: true },
         orderBy: { createdAt: "desc" },
       },
     },
   });
+
+  // Auto-flag for revival when applicable
+  await autoFlagRevival(id);
 
   return NextResponse.json(updated);
 }
@@ -124,21 +147,16 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
-
-  if (user?.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const { id } = await params;
   const existing = await prisma.lead.findUnique({ where: { id } });
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Cascade: delete all inspections (and their children) before deleting the lead
+  // The lead relation on Inspection uses onDelete: SetNull, so we manually delete first
+  await prisma.inspection.deleteMany({ where: { leadId: id } });
   await prisma.lead.delete({ where: { id } });
+
   return NextResponse.json({ ok: true });
 }

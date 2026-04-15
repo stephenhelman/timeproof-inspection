@@ -102,23 +102,15 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-model Customer {
-  id           String       @id @default(cuid())
-  name         String
-  address      String
-  phone        String?
-  email        String?
-  heardAboutUs String?
-  createdAt    DateTime     @default(now())
-  inspections  Inspection[]
-}
-
 model Lead {
   id                   String          @id @default(cuid())
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
   customerName         String
-  address              String
+  streetAddress        String
+  city                 String
+  state                String
+  zip                  String
   phone                String?
   email                String?
   assignedTech         String?
@@ -160,10 +152,15 @@ model Inspection {
   reportUuid        String        @unique @default(cuid())
   userId            String
   user              User          @relation(fields: [userId], references: [id])
-  customerId        String?
-  customer          Customer?     @relation(fields: [customerId], references: [id])
+  // Customer info — denormalized from lead at inspection creation time
+  customerName      String?
+  address           String?
+  phone             String?
+  email             String?
+  heardAboutUs      String?
+
   leadId            String?
-  lead              Lead?         @relation(fields: [leadId], references: [id])
+  lead              Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
   repName           String?
   date              DateTime      @default(now())
   status            String        @default("draft")

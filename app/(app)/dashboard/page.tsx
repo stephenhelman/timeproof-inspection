@@ -79,7 +79,8 @@ export default async function DashboardPage() {
         id: true,
         status: true,
         createdAt: true,
-        customer: { select: { name: true, address: true } },
+        customerName: true,
+        address: true,
         _count: { select: { reportVisits: true } },
       },
       orderBy: { updatedAt: "desc" },
@@ -99,7 +100,10 @@ export default async function DashboardPage() {
       select: {
         id: true,
         customerName: true,
-        address: true,
+        streetAddress: true,
+        city: true,
+        state: true,
+        zip: true,
         status: true,
         updatedAt: true,
         highestEstimateValue: true,
@@ -114,7 +118,7 @@ export default async function DashboardPage() {
         status: true,
         createdAt: true,
         updatedAt: true,
-        customer: { select: { name: true } },
+        customerName: true,
         _count: { select: { reportVisits: true } },
       },
     }),
@@ -323,7 +327,7 @@ export default async function DashboardPage() {
                 >
                   <div className="min-w-0">
                     <p className="text-text-primary text-sm font-medium truncate">{lead.customerName}</p>
-                    <p className="text-text-secondary text-xs truncate">{lead.address}</p>
+                    <p className="text-text-secondary text-xs truncate">{[lead.streetAddress, lead.city].filter(Boolean).join(", ")}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {lead.highestEstimateValue && (
@@ -375,7 +379,7 @@ export default async function DashboardPage() {
                 >
                   <div className="min-w-0">
                     <p className="text-text-primary text-sm font-medium truncate">
-                      {insp.customer?.name ?? "Unnamed"}
+                      {insp.customerName ?? "Unnamed"}
                     </p>
                     <p className="text-text-secondary text-xs">{fmtDate(insp.updatedAt)}</p>
                   </div>
