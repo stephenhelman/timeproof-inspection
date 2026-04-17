@@ -30,8 +30,15 @@ export async function GET() {
     }),
   ]);
 
+  const techSet = new Set<string>();
+  for (const r of techsRaw) {
+    if (r.assignedTech) {
+      r.assignedTech.split(",").map((t) => t.trim()).filter(Boolean).forEach((t) => techSet.add(t));
+    }
+  }
+
   return NextResponse.json({
     zips: zipsRaw.map((r) => r.zip),
-    techs: techsRaw.map((r) => r.assignedTech).filter(Boolean),
+    techs: Array.from(techSet).sort(),
   });
 }

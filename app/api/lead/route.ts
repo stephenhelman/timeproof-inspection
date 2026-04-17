@@ -74,6 +74,8 @@ export async function GET(req: Request) {
   const zip = searchParams.get("zip");
   const dateFrom = searchParams.get("dateFrom");
   const dateTo = searchParams.get("dateTo");
+  const sortBy = searchParams.get("sortBy");
+  const sortDir = (searchParams.get("sortDir") || "asc") as "asc" | "desc";
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: Record<string, any> = {};
@@ -93,9 +95,15 @@ export async function GET(req: Request) {
     if (dateTo) where.createdAt.lte = new Date(dateTo);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let orderBy: Record<string, any> = { updatedAt: "desc" };
+  if (sortBy === "appointmentDate") orderBy = { appointmentDate: sortDir };
+  else if (sortBy === "zip") orderBy = { zip: sortDir };
+  else if (sortBy === "highestEstimateValue") orderBy = { highestEstimateValue: sortDir };
+
   const leads = await prisma.lead.findMany({
     where,
-    orderBy: { updatedAt: "desc" },
+    orderBy,
     include: {
       _count: { select: { inspections: true } },
     },

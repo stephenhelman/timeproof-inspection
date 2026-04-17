@@ -215,16 +215,43 @@ function LeadCard({ lead, onUpdate }) {
   );
 }
 
+const REVIVAL_STATUS_OPTIONS = [
+  { value: "", label: "All Statuses" },
+  { value: "PENDING", label: "Pending" },
+  { value: "ATTEMPTED", label: "Attempted" },
+  { value: "CONNECTED", label: "Connected" },
+  { value: "NO_ANSWER", label: "No Answer" },
+  { value: "NOT_INTERESTED", label: "Not Interested" },
+];
+
+const SORT_OPTIONS = [
+  { value: "", label: "Recently Updated" },
+  { value: "appointmentDate:asc", label: "Appt Date ↑" },
+  { value: "appointmentDate:desc", label: "Appt Date ↓" },
+  { value: "zip:asc", label: "Zip A→Z" },
+  { value: "highestEstimateValue:desc", label: "Price High→Low" },
+];
+
+const SELECT_CLASS =
+  "bg-bg-surface border border-border text-text-primary rounded-xl min-h-[44px] px-3 text-sm focus:outline-none focus:border-blue-500 transition-colors";
+
 export default function RevivalPage() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [zips, setZips] = useState([]);
+  const [techs, setTechs] = useState([]);
   const [filterZip, setFilterZip] = useState("");
+  const [filterTech, setFilterTech] = useState("");
+  const [filterRevivalStatus, setFilterRevivalStatus] = useState("");
+  const [sort, setSort] = useState("");
 
   useEffect(() => {
     fetch("/api/lead/meta")
       .then((r) => r.json())
-      .then((d) => setZips(d.zips || []))
+      .then((d) => {
+        setZips(d.zips || []);
+        setTechs(d.techs || []);
+      })
       .catch(() => {});
   }, []);
 
@@ -232,17 +259,26 @@ export default function RevivalPage() {
     setLoading(true);
     const params = new URLSearchParams({ status: "REVIVAL_PENDING" });
     if (filterZip) params.set("zip", filterZip);
+    if (filterTech) params.set("assignedTech", filterTech);
+    if (filterRevivalStatus) params.set("revivalStatus", filterRevivalStatus);
+    if (sort) {
+      const [sortBy, sortDir] = sort.split(":");
+      params.set("sortBy", sortBy);
+      params.set("sortDir", sortDir);
+    }
     const res = await fetch(`/api/lead?${params.toString()}`);
     const data = await res.json();
     setLeads(Array.isArray(data) ? data : []);
     setLoading(false);
-  }, [filterZip]);
+  }, [filterZip, filterTech, filterRevivalStatus, sort]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
   const handleCardUpdate = useCallback((leadId) => {
     setLeads((prev) => prev.filter((l) => l.id !== leadId));
   }, []);
+
+  const hasFilters = filterZip || filterTech || filterRevivalStatus || sort;
 
   return (
     <div className="min-h-screen bg-bg-base px-4 py-8">
@@ -265,19 +301,68 @@ export default function RevivalPage() {
           </a>
         </div>
 
-        {/* Zip filter */}
-        {zips.length > 0 && (
+        {/* Filters + Sort */}
+        <div className="flex flex-wrap gap-3 items-center">
+          {techs.length > 0 && (
+            <select
+              value={filterTech}
+              onChange={(e) => setFilterTech(e.target.value)}
+              className={SELECT_CLASS}
+            >
+              <option value="">All Techs</option>
+              {techs.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          )}
+
           <select
-            value={filterZip}
-            onChange={(e) => setFilterZip(e.target.value)}
-            className="bg-bg-surface border border-border text-text-primary rounded-xl min-h-[44px] px-3 text-sm focus:outline-none focus:border-blue-500 transition-colors w-48"
+            value={filterRevivalStatus}
+            onChange={(e) => setFilterRevivalStatus(e.target.value)}
+            className={SELECT_CLASS}
           >
-            <option value="">All Zips</option>
-            {zips.map((z) => (
-              <option key={z} value={z}>{z}</option>
+            {REVIVAL_STATUS_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
-        )}
+
+          {zips.length > 0 && (
+            <select
+              value={filterZip}
+              onChange={(e) => setFilterZip(e.target.value)}
+              className={SELECT_CLASS}
+            >
+              <option value="">All Zips</option>
+              {zips.map((z) => (
+                <option key={z} value={z}>{z}</option>
+              ))}
+            </select>
+          )}
+
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            className={SELECT_CLASS}
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          {hasFilters && (
+            <button
+              onClick={() => {
+                setFilterZip("");
+                setFilterTech("");
+                setFilterRevivalStatus("");
+                setSort("");
+              }}
+              className="text-text-secondary hover:text-text-primary text-sm transition-colors underline underline-offset-2"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
 
         {/* Cards */}
         {loading ? (
@@ -285,17 +370,22 @@ export default function RevivalPage() {
         ) : leads.length === 0 ? (
           <div className="bg-bg-surface border border-border rounded-2xl p-12 text-center space-y-3">
             <p className="text-text-primary font-semibold text-lg">
-              {filterZip ? `No revival leads in ${filterZip}` : "Queue is clear"}
+              {hasFilters ? "No leads match these filters" : "Queue is clear"}
             </p>
             <p className="text-text-secondary text-sm">
-              {filterZip ? "Try a different zip or clear the filter." : "No leads pending revival right now."}
+              {hasFilters ? "Try adjusting or clearing your filters." : "No leads pending revival right now."}
             </p>
-            {filterZip ? (
+            {hasFilters ? (
               <button
-                onClick={() => setFilterZip("")}
+                onClick={() => {
+                  setFilterZip("");
+                  setFilterTech("");
+                  setFilterRevivalStatus("");
+                  setSort("");
+                }}
                 className="inline-block mt-2 text-blue-400 hover:text-blue-300 text-sm underline underline-offset-2 transition-colors"
               >
-                Clear filter
+                Clear filters
               </button>
             ) : (
               <a
