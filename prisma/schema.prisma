@@ -130,6 +130,7 @@ model Lead {
   jobCompletionDate    DateTime?
   assignedUserId       String?
   assignedUser         User?           @relation(fields: [assignedUserId], references: [id])
+  ghlContactId         String?         // GHL contact ID written back after export
   inspections          Inspection[]
   notes                LeadNote[]
 }

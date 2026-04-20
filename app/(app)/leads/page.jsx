@@ -367,6 +367,10 @@ export default function LeadsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
+  // Selection state for GHL export
+  const [selected, setSelected] = useState(new Set());
+  const [exporting, setExporting] = useState(false);
+
   // Filter options from meta endpoint
   const [zips, setZips] = useState([]);
   const [techs, setTechs] = useState([]);
@@ -410,6 +414,54 @@ export default function LeadsPage() {
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const allSelected = leads.length > 0 && leads.every((l) => selected.has(l.id));
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(leads.map((l) => l.id)));
+    }
+  };
+
+  const toggleOne = (id, e) => {
+    e.stopPropagation();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleExportGhl = async () => {
+    if (selected.size === 0 || exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/lead/export-ghl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: Array.from(selected) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(`Export failed — ${data.error || "check your GHL configuration"}`);
+      } else if (data.failed > 0 && data.exported === 0) {
+        showToast(`Export failed — check console for errors`);
+      } else if (data.failed > 0) {
+        showToast(`${data.exported} exported, ${data.failed} failed — check console`);
+      } else {
+        showToast(`${data.exported} lead${data.exported !== 1 ? "s" : ""} exported to GHL successfully`);
+      }
+      setSelected(new Set());
+      fetchLeads();
+    } catch {
+      showToast("Export failed — check your GHL configuration");
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -540,6 +592,14 @@ export default function LeadsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#2a3a5c]">
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        className="w-4 h-4 rounded accent-[#1B3A7A] cursor-pointer"
+                      />
+                    </th>
                     {["Customer", "Address", "Zip", "Phone", "Tech", "Status", "Est. Value", "Reports", "Last Activity"].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[#8fa3c8] font-medium whitespace-nowrap">
                         {h}
@@ -552,10 +612,25 @@ export default function LeadsPage() {
                     <tr
                       key={lead.id}
                       onClick={() => (window.location.href = `/leads/${lead.id}`)}
-                      className="border-b border-[#2a3a5c] last:border-0 hover:bg-[#1a2236] cursor-pointer transition-colors"
+                      className={`border-b border-[#2a3a5c] last:border-0 hover:bg-[#1a2236] cursor-pointer transition-colors ${selected.has(lead.id) ? "bg-[#1a2236]" : ""}`}
                     >
-                      <td className="px-4 py-3 text-[#f0f4ff] font-medium whitespace-nowrap">
-                        {lead.customerName}
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(lead.id)}
+                          onChange={(e) => toggleOne(lead.id, e)}
+                          className="w-4 h-4 rounded accent-[#1B3A7A] cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[#f0f4ff] font-medium">{lead.customerName}</span>
+                          {lead.ghlContactId && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30 leading-none">
+                              GHL
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-[#8fa3c8] max-w-[180px] truncate">
                         {[lead.streetAddress, lead.city].filter(Boolean).join(", ")}
@@ -591,6 +666,28 @@ export default function LeadsPage() {
           )}
         </div>
       </div>
+
+      {/* Floating action bar — shown when leads are selected */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-[#1a2236] border border-[#2a3a5c] rounded-2xl px-5 py-3 shadow-2xl">
+          <span className="text-[#8fa3c8] text-sm whitespace-nowrap">
+            {selected.size} lead{selected.size !== 1 ? "s" : ""} selected
+          </span>
+          <button
+            onClick={handleExportGhl}
+            disabled={exporting}
+            className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 disabled:opacity-50 text-white text-sm font-medium rounded-xl px-4 py-2 transition-colors min-h-[36px]"
+          >
+            {exporting ? "Exporting…" : "Export to GHL"}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-[#8fa3c8] hover:text-[#f0f4ff] text-sm transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
     </div>
   );
 }

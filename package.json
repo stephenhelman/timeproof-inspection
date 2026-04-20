@@ -19,6 +19,7 @@
     "@types/papaparse": "^5.5.2",
     "@types/qrcode": "^1.5.6",
     "bcryptjs": "^3.0.3",
+    "ghl-sdk": "^1.2.0",
     "lucide-react": "^1.8.0",
     "next": "14.2.35",
     "next-auth": "^5.0.0-beta.30",
