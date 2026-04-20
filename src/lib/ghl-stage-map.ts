@@ -8,7 +8,7 @@ export const STAGE_MAP: Record<string, Partial<{
 }>> = {
   "Recovered":        { status: "REVIVAL_RECOVERED" },
   "Refused":          { status: "DEAD" },
-  "Drip - Pending":   { revivalStatus: "PENDING" },
+  "Drip - Pending":   { status: "REVIVAL_PENDING", revivalStatus: "PENDING" },
   "Drip - Responded": { status: "REVIVAL_PENDING" },
   "Dead":             { status: "DEAD" },
   "Sold":             { status: "SOLD" },

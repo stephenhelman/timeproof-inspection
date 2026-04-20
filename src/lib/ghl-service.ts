@@ -41,7 +41,7 @@ export function buildContactPayload(lead: Lead) {
     city: lead.city,
     state: lead.state,
     postalCode: lead.zip,
-    tags: [["tpusa"]] as string[][],
+    tags: ["tpusa"] as unknown as string[][],
     // customFields uses { id, value } for create — id must be the GHL field UUID.
     // If you have not yet created these fields in GHL, create them first then
     // set GHL_FIELD_* env vars to their IDs. The string fallbacks are for dev only.
