@@ -39,3 +39,10 @@ export interface ConversationContext {
 }
 
 export type PromptModule = string;
+
+export type OpenerType =
+  | 'curiosity_hook'
+  | 'warm_acknowledgment'
+  | 'door_opener'
+  | 'grateful_reply'
+  | 'low_friction_referral';
