@@ -348,3 +348,13 @@ model TrustedDevice {
   @@index([userId])
   @@index([deviceToken])
 }
+
+// Run after adding this model:
+//   npx prisma migrate dev --name add_bot_thread
+model BotThread {
+  id        String   @id @default(cuid())
+  contactId String   @unique
+  messages  Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

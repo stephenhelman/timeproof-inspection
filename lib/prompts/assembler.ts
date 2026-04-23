@@ -1,4 +1,4 @@
-import { ConversationContext } from './types';
+import { ConversationContext, OpenerType, PromptModule } from './types';
 import { getMasterPrompt } from './master';
 import { getOpenerModule } from './modules/opener';
 import { getWarmthModule } from './modules/warmth';
@@ -6,27 +6,42 @@ import { getMemoryModule } from './modules/memory';
 import { getDepthModule } from './modules/depth';
 import { getBranchModule } from './modules/branch';
 
+const DIVIDER = '\n\n---\n\n';
+
+const VALID_OPENER_TYPES: OpenerType[] = [
+  'curiosity_hook',
+  'warm_acknowledgment',
+  'door_opener',
+  'grateful_reply',
+  'low_friction_referral',
+];
+
 /**
  * Assembles the full system prompt for a given conversation context.
- * Combines the master prompt with all active context modules, filtering out any nulls.
- * Returns a single string ready to be passed as the system message to the LLM.
+ * Calls all prompt modules in priority order, parses opener type from
+ * opener.ts output for use by depth.ts, filters null module outputs,
+ * and joins all sections with a standard divider. The returned string
+ * is passed directly to the Claude API system parameter. No prompt
+ * logic or instruction text lives in this function — it is pure
+ * orchestration.
  */
 export function assemblePrompt(context: ConversationContext): string {
-  const sections: (string | null)[] = [
+  const openerOutput = getOpenerModule(context);
+  const openerTypeMatch = openerOutput.match(/OPENER_TYPE:\s*(\S+)/);
+  const parsedType = openerTypeMatch?.[1]?.trim();
+
+  const openerType: OpenerType = VALID_OPENER_TYPES.includes(parsedType as OpenerType)
+    ? (parsedType as OpenerType)
+    : 'warm_acknowledgment';
+
+  const modules: (PromptModule | null)[] = [
     getMasterPrompt(),
-    // ─── OPENER MODULE ───────────────────────────────────────────────────────
-    getOpenerModule(context),
-    // ─── WARMTH MODULE ───────────────────────────────────────────────────────
     getWarmthModule(context),
-    // ─── MEMORY MODULE ───────────────────────────────────────────────────────
     getMemoryModule(context),
-    // ─── DEPTH MODULE ────────────────────────────────────────────────────────
-    getDepthModule(context),
-    // ─── BRANCH MODULE ───────────────────────────────────────────────────────
+    openerOutput,
+    getDepthModule(context, openerType),
     getBranchModule(context),
   ];
 
-  return sections
-    .filter((section): section is string => section !== null)
-    .join('\n\n');
+  return modules.filter((m): m is PromptModule => m !== null).join(DIVIDER);
 }
