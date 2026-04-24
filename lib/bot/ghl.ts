@@ -183,7 +183,7 @@ export async function getContact(contactId: string): Promise<GHLContact> {
       email: c.email ?? undefined,
       address1: c.address1 ?? undefined,
       postalCode: c.postalCode ?? undefined,
-      customField: c.customField as Record<string, unknown> | undefined,
+      customField: c.customFields as unknown as Record<string, unknown> | undefined,
       tags: c.tags ?? undefined,
     };
   } catch (error) {
