@@ -1,5 +1,10 @@
 import { ConversationContext } from '@/lib/prompts/types';
 
+export type ContextResult = {
+  context: ConversationContext;
+  messageBody: string;
+};
+
 const VALID_TRIGGER_TYPES: ConversationContext['trigger_type'][] = [
   'missed_call_textback',
   'drip_reply',
@@ -35,8 +40,9 @@ const VALID_LAST_MESSAGE_CONTEXTS: ConversationContext['last_message_context'][]
  * Converts raw Fusion webhook customData into a typed
  * ConversationContext. Handles string coercion, null safety,
  * and unknown value fallbacks for all union type fields.
+ * Also extracts messageBody for use in the route handler.
  */
-export function buildContext(data: Record<string, string | null>): ConversationContext {
+export function buildContext(data: Record<string, string | null>): ContextResult {
   const triggerType = VALID_TRIGGER_TYPES.includes(data.triggerType as ConversationContext['trigger_type'])
     ? (data.triggerType as ConversationContext['trigger_type'])
     : 'inbound_sms';
@@ -63,14 +69,19 @@ export function buildContext(data: Record<string, string | null>): ConversationC
     ? (data.lastMessageContext as ConversationContext['last_message_context'])
     : 'none';
 
+  const messageBody = data.messageBody ?? '';
+
   return {
-    trigger_type: triggerType,
-    pipeline_stage: pipelineStage,
-    drip_day: dripDay,
-    message_history_count: messageHistoryCount,
-    last_message_context: lastMessageContext,
-    homeowner_name: data.homeownerName ?? '',
-    address: data.address ?? '',
-    zip_code: data.zipCode ?? '',
+    context: {
+      trigger_type: triggerType,
+      pipeline_stage: pipelineStage,
+      drip_day: dripDay,
+      message_history_count: messageHistoryCount,
+      last_message_context: lastMessageContext,
+      homeowner_name: data.homeownerName ?? '',
+      address: data.address ?? '',
+      zip_code: data.zipCode ?? '',
+    },
+    messageBody,
   };
 }

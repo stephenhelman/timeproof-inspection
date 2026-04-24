@@ -34,21 +34,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'customData.contactId is required' }, { status: 400 });
   }
 
-  // Extract the homeowner's inbound SMS text. body.message may be an object in
-  // some GHL webhook shapes, so a typeof guard is required before trusting it.
-  function extractString(val: unknown): string | null {
-    return typeof val === 'string' && val.trim().length > 0 ? val : null;
-  }
-  const homeownerMessage: string =
-    extractString(body.message) ??
-    extractString(customData.messageBody) ??
-    extractString(customData.body) ??
-    extractString(customData.smsBody) ??
-    '';
-
   try {
-    // 1. Build typed conversation context from raw customData
-    const context = buildContext(customData);
+    // 1. Build typed conversation context and extract inbound message body
+    const { context, messageBody } = buildContext(customData);
+
+    if (!messageBody || messageBody.trim().length === 0) {
+      console.error('[route.ts] No message body in payload');
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
 
     // 2. Retrieve or create the persistent conversation thread
     const { threadId, messages, isNew } = await getOrCreateThread(contactId);
@@ -64,28 +57,17 @@ export async function POST(req: Request) {
     // 4. Append the current inbound message to thread history before calling Claude
     const messagesWithInbound = [
       ...messages,
-      { role: 'user' as const, content: homeownerMessage },
+      { role: 'user' as const, content: messageBody.trim() },
     ];
 
-    const cleanMessages = messagesWithInbound.filter(
-      (m) => typeof m.content === 'string' && m.content.trim().length > 0
-    );
-
-    if (cleanMessages.length === 0) {
-      console.error('[route.ts] No valid messages to send to Claude');
-      return new Response(JSON.stringify({ error: 'No message content' }), {
-        status: 400,
-      });
-    }
-
     // 5. Call Claude with system prompt and full message history including inbound
-    const responseText = await callClaude(systemPrompt, cleanMessages);
+    const responseText = await callClaude(systemPrompt, messagesWithInbound);
 
     // 6. Send the SMS reply via GHL before writing any state
     await sendSMS(contactId, responseText);
 
     // 7. Persist both messages to the thread
-    await updateThread(threadId, homeownerMessage, responseText);
+    await updateThread(threadId, messageBody.trim(), responseText);
 
     // 8. Update contact fields — botThreadId only written for new threads
     const contactUpdates: Parameters<typeof updateContact>[1] = {
