@@ -46,6 +46,7 @@ export type ContactFieldUpdates = {
   botThreadId?: string;
   revivalStage?: string;
   dripDay?: number;
+  conversationId?: string;
 };
 
 export type GHLContact = {
@@ -63,8 +64,9 @@ export type GHLContact = {
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 /**
- * Sends an SMS via GHL. Uses conversationId when provided — required on
- * some white-label configurations. Falls back to contactId if not.
+ * Sends an SMS via GHL. Requires a conversationId — the v2
+ * /conversations/messages endpoint does not accept contactId in the body.
+ * Call getConversation (or createConversation) before calling this.
  */
 export async function sendSMS(
   contactId: string,
@@ -73,11 +75,19 @@ export async function sendSMS(
 ): Promise<void> {
   console.log('[ghl.ts] sendSMS →', { contactId, messageLength: message.length });
 
-  const body = conversationId
-    ? { type: 'SMS', conversationId, message }
-    : { type: 'SMS', contactId, message };
+  if (!conversationId) {
+    console.error(
+      '[ghl.ts] sendSMS called without conversationId —',
+      'cannot send SMS without a valid conversation.',
+      'contactId:', contactId
+    );
+    throw new Error(
+      'sendSMS requires a conversationId. ' +
+      'getConversation must be called first.'
+    );
+  }
 
-  await ghlFetch('/conversations/messages', 'POST', body);
+  await ghlFetch('/conversations/messages', 'POST', { type: 'SMS', conversationId, message });
 }
 
 /**
@@ -97,6 +107,7 @@ export async function updateContactFields(
   if (fields.botThreadId !== undefined) customField['botThreadId'] = fields.botThreadId;
   if (fields.revivalStage !== undefined) customField['revivalStage'] = fields.revivalStage;
   if (fields.dripDay !== undefined) customField['dripDay'] = fields.dripDay;
+  if (fields.conversationId !== undefined) customField['conversationId'] = fields.conversationId;
 
   if (Object.keys(customField).length === 0) {
     console.warn('[ghl.ts] updateContactFields called with no defined fields — skipping');
@@ -147,9 +158,8 @@ export async function getContact(contactId: string): Promise<GHLContact> {
 }
 
 /**
- * Looks up the GHL conversationId for a contact. Required on some
- * white-label configurations where sendSMS expects conversationId
- * rather than contactId.
+ * Looks up the GHL conversationId for a contact via the search endpoint.
+ * Returns null if no conversation thread exists yet.
  */
 export async function getConversation(contactId: string): Promise<string | null> {
   console.log('[ghl.ts] getConversation →', { contactId });
@@ -159,5 +169,26 @@ export async function getConversation(contactId: string): Promise<string | null>
     'GET'
   ) as { conversations: { id: string }[] };
 
-  return data.conversations[0]?.id ?? null;
+  console.log('[ghl.ts] getConversation raw response:', JSON.stringify(data));
+
+  const conversationId = data.conversations[0]?.id ?? null;
+  console.log('[ghl.ts] getConversation returning:', conversationId);
+
+  return conversationId;
+}
+
+/**
+ * Creates a new GHL conversation for a contact. Use when getConversation
+ * returns null (first inbound from this contact).
+ */
+export async function createConversation(contactId: string): Promise<string> {
+  console.log('[ghl.ts] createConversation →', { contactId });
+
+  const data = await ghlFetch('/conversations', 'POST', { contactId }) as { id: string };
+
+  if (!data.id) {
+    throw new Error(`createConversation: no id in response for contactId ${contactId}`);
+  }
+
+  return data.id;
 }

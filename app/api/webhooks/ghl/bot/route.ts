@@ -3,7 +3,7 @@ import { buildContext } from '@/lib/bot/context';
 import { getOrCreateThread, updateThread } from '@/lib/bot/thread';
 import { assemblePrompt } from '@/lib/prompts/assembler';
 import { callClaude } from '@/lib/bot/claude';
-import { sendSMS, updateContactFields, addTags, getConversation, type ContactFieldUpdates } from '@/lib/bot/ghl';
+import { sendSMS, updateContactFields, addTags, getConversation, createConversation, type ContactFieldUpdates } from '@/lib/bot/ghl';
 import { checkEscalation } from '@/lib/bot/escalation';
 
 /**
@@ -43,7 +43,19 @@ export async function POST(req: Request) {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
 
-    const conversationId = await getConversation(contactId);
+    let conversationId = await getConversation(contactId);
+    let isNewConversation = false;
+
+    if (!conversationId) {
+      console.log(
+        '[route.ts] No existing conversation found,',
+        'creating new conversation for contactId:', contactId
+      );
+      conversationId = await createConversation(contactId);
+      isNewConversation = true;
+    }
+
+    console.log('[route.ts] conversationId resolved:', conversationId);
 
     // 2. Retrieve or create the persistent conversation thread
     const { threadId, messages, isNew } = await getOrCreateThread(contactId);
@@ -66,7 +78,7 @@ export async function POST(req: Request) {
     const responseText = await callClaude(systemPrompt, messagesWithInbound);
 
     // 6. Send the SMS reply via GHL before writing any state
-    await sendSMS(contactId, responseText, conversationId ?? undefined);
+    await sendSMS(contactId, responseText, conversationId);
 
     // 7. Persist both messages to the thread
     await updateThread(threadId, messageBody.trim(), responseText);
@@ -76,6 +88,7 @@ export async function POST(req: Request) {
       botMessageCount: context.message_history_count + 1,
       lastMessageContext: context.last_message_context,
       ...(isNew ? { botThreadId: threadId } : {}),
+      ...(isNewConversation ? { conversationId } : {}),
     };
     await updateContactFields(contactId, contactUpdates);
 
