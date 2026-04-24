@@ -1,42 +1,4 @@
-const GHL_BASE_URL = 'https://services.leadconnectorhq.com';
-const GHL_VERSION = '2021-04-15';
-
-function getHeaders(): Record<string, string> {
-  const apiKey = process.env.GHL_API_KEY;
-  if (!apiKey) {
-    console.error('[ghl.ts] GHL_API_KEY is not set');
-  }
-  return {
-    'Authorization': `Bearer ${apiKey ?? ''}`,
-    'Content-Type': 'application/json',
-    'Version': GHL_VERSION,
-  };
-}
-
-async function ghlFetch(
-  path: string,
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-  body?: Record<string, unknown>
-): Promise<unknown> {
-  const url = `${GHL_BASE_URL}${path}`;
-  console.log('[ghl.ts]', method, path);
-
-  const res = await fetch(url, {
-    method,
-    headers: getHeaders(),
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-
-  if (!res.ok) {
-    const errorBody = await res.text();
-    console.error(`[ghl.ts] ${method} ${path} failed with status ${res.status}:`, errorBody);
-    throw new Error(
-      `GHL API ${method} ${path} failed with status ${res.status}: ${errorBody}`
-    );
-  }
-
-  return res.json();
-}
+import HighLevel from '@gohighlevel/api-client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,6 +23,22 @@ export type GHLContact = {
   tags?: string[];
 };
 
+// ─── Client ───────────────────────────────────────────────────────────────────
+
+function getClient() {
+  const token = process.env.GHL_API_KEY;
+  if (!token) {
+    console.error('[ghl.ts] GHL_API_KEY is not set');
+  }
+  return new HighLevel({
+    privateIntegrationToken: token ?? '',
+  });
+}
+
+function getLocationId(): string {
+  return process.env.GHL_LOCATION_ID ?? '';
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 /**
@@ -73,7 +51,11 @@ export async function sendSMS(
   message: string,
   conversationId?: string
 ): Promise<void> {
-  console.log('[ghl.ts] sendSMS →', { contactId, messageLength: message.length });
+  console.log('[ghl.ts] sendSMS →', {
+    contactId,
+    conversationId: conversationId ?? 'none',
+    messageLength: message.length,
+  });
 
   if (!conversationId) {
     console.error(
@@ -87,7 +69,20 @@ export async function sendSMS(
     );
   }
 
-  await ghlFetch('/conversations/messages', 'POST', { type: 'SMS', conversationId, message });
+  try {
+    const client = getClient();
+    // SDK DTO declares contactId as required but the actual GHL v2 API
+    // requires conversationId. The SDK proxies the body directly so we
+    // cast to bypass the type mismatch.
+    await client.conversations.sendANewMessage({
+      type: 'SMS',
+      conversationId,
+      message,
+    } as any);
+  } catch (error) {
+    console.error('[ghl.ts] sendSMS error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -114,7 +109,18 @@ export async function updateContactFields(
     return;
   }
 
-  await ghlFetch(`/contacts/${contactId}`, 'PUT', { customField });
+  try {
+    const client = getClient();
+    // SDK UpdateContactDto uses customFields (array) but the GHL API also
+    // accepts customField (object). Cast to preserve the object format.
+    await client.contacts.updateContact(
+      { contactId },
+      { customField } as any
+    );
+  } catch (error) {
+    console.error('[ghl.ts] updateContactFields error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -128,7 +134,13 @@ export async function addTags(contactId: string, tags: string[]): Promise<void> 
     return;
   }
 
-  await ghlFetch(`/contacts/${contactId}/tags`, 'POST', { tags });
+  try {
+    const client = getClient();
+    await client.contacts.addTags({ contactId }, { tags });
+  } catch (error) {
+    console.error('[ghl.ts] addTags error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -143,7 +155,13 @@ export async function removeTags(contactId: string, tags: string[]): Promise<voi
     return;
   }
 
-  await ghlFetch(`/contacts/${contactId}/tags`, 'DELETE', { tags });
+  try {
+    const client = getClient();
+    await client.contacts.removeTags({ contactId }, { tags });
+  } catch (error) {
+    console.error('[ghl.ts] removeTags error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -153,8 +171,25 @@ export async function removeTags(contactId: string, tags: string[]): Promise<voi
 export async function getContact(contactId: string): Promise<GHLContact> {
   console.log('[ghl.ts] getContact →', { contactId });
 
-  const data = await ghlFetch(`/contacts/${contactId}`, 'GET') as { contact: GHLContact };
-  return data.contact;
+  try {
+    const client = getClient();
+    const data = await client.contacts.getContact({ contactId });
+    const c = data.contact!;
+    return {
+      id: c.id ?? '',
+      firstName: c.firstName ?? '',
+      lastName: c.lastName ?? '',
+      phone: c.phone ?? '',
+      email: c.email ?? undefined,
+      address1: c.address1 ?? undefined,
+      postalCode: c.postalCode ?? undefined,
+      customField: c.customField as Record<string, unknown> | undefined,
+      tags: c.tags ?? undefined,
+    };
+  } catch (error) {
+    console.error('[ghl.ts] getContact error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -164,17 +199,23 @@ export async function getContact(contactId: string): Promise<GHLContact> {
 export async function getConversation(contactId: string): Promise<string | null> {
   console.log('[ghl.ts] getConversation →', { contactId });
 
-  const data = await ghlFetch(
-    `/conversations/search?contactId=${contactId}`,
-    'GET'
-  ) as { conversations: { id: string }[] };
+  try {
+    const client = getClient();
+    const data = await client.conversations.searchConversation({
+      locationId: getLocationId(),
+      contactId,
+    });
 
-  console.log('[ghl.ts] getConversation raw response:', JSON.stringify(data));
+    console.log('[ghl.ts] getConversation raw response:', JSON.stringify(data));
 
-  const conversationId = data.conversations[0]?.id ?? null;
-  console.log('[ghl.ts] getConversation returning:', conversationId);
+    const conversationId = data.conversations?.[0]?.id ?? null;
+    console.log('[ghl.ts] getConversation result:', conversationId ?? 'null');
 
-  return conversationId;
+    return conversationId;
+  } catch (error) {
+    console.error('[ghl.ts] getConversation error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -184,11 +225,21 @@ export async function getConversation(contactId: string): Promise<string | null>
 export async function createConversation(contactId: string): Promise<string> {
   console.log('[ghl.ts] createConversation →', { contactId });
 
-  const data = await ghlFetch('/conversations', 'POST', { contactId }) as { id: string };
+  try {
+    const client = getClient();
+    const data = await client.conversations.createConversation({
+      locationId: getLocationId(),
+      contactId,
+    });
 
-  if (!data.id) {
-    throw new Error(`createConversation: no id in response for contactId ${contactId}`);
+    const conversationId = data.conversation?.id;
+    if (!conversationId) {
+      throw new Error(`createConversation: no id in response for contactId ${contactId}`);
+    }
+
+    return conversationId;
+  } catch (error) {
+    console.error('[ghl.ts] createConversation error:', error);
+    throw error;
   }
-
-  return data.id;
 }
