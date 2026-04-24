@@ -34,12 +34,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'customData.contactId is required' }, { status: 400 });
   }
 
-  // The homeowner's inbound message text — check top-level and customData fallbacks.
+  // Extract the homeowner's inbound SMS text. body.message may be an object in
+  // some GHL webhook shapes, so a typeof guard is required before trusting it.
+  function extractString(val: unknown): string | null {
+    return typeof val === 'string' && val.trim().length > 0 ? val : null;
+  }
   const homeownerMessage: string =
-    (body.message as string | undefined) ??
-    customData.messageBody ??
-    customData.body ??
-    customData.smsBody ??
+    extractString(body.message) ??
+    extractString(customData.messageBody) ??
+    extractString(customData.body) ??
+    extractString(customData.smsBody) ??
     '';
 
   try {
@@ -64,7 +68,7 @@ export async function POST(req: Request) {
     ];
 
     const cleanMessages = messagesWithInbound.filter(
-      (m) => m.content && m.content.trim().length > 0
+      (m) => typeof m.content === 'string' && m.content.trim().length > 0
     );
 
     if (cleanMessages.length === 0) {
