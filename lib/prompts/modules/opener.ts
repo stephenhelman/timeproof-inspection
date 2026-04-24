@@ -65,13 +65,22 @@ Example register (do not use verbatim):
       return `OPENER_TYPE: warm_acknowledgment
 
 FIRST_MESSAGE_INSTRUCTION:
-They replied to an early drip message. They know who we are — do not
-re-introduce the company. Acknowledge their reply warmly in one short message.
-Do not assume why they replied. Do not mention the inspection or any next step.
-Ask one open question that makes it easy for them to tell you what's on their
-mind. Match their energy — if their reply was short, keep yours short.
+They replied to an early drip message that already introduced the outreach as
+a follow-up on their roof inspection. They know who we are and why we reached
+out. Do not ask a generic open question. Do not re-introduce the company or the
+purpose of the call — the drip already did that.
+
+Acknowledge their reply warmly in one short message and move directly to the
+experience check. Ask whether everything went smoothly when our team came out —
+that is the natural next step given the drip already set the frame.
+
+Keep it conversational and unhurried. One sentence acknowledgment then one
+question as a natural follow-on in the same message. If the reply was very short
+like "thank you" or "okay", the acknowledgment can be minimal and the question
+carries the message.
+
 Example register (do not use verbatim):
-"Hey [Name], glad you reached out — what can I help you with?"`;
+"Of course — glad you got our message. Did everything go smoothly when our team came out to your place?"`;
     }
 
     case 'inbound_sms':

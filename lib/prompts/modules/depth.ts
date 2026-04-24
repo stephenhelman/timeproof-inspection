@@ -115,6 +115,10 @@ No further exchanges.`;
       directive = `You have not sent a message yet. Send the curiosity hook only — one short human message that creates an opening. Do not mention the company, the inspection, or any reason for the contact. Reference the missed call. Ask if you caught them at a bad time. Stop. Wait for their reply.`;
     } else if (openerType === 'curiosity_hook' && message_history_count === 1) {
       directive = `They replied to the curiosity hook. Now deliver the frame in one message. Introduce yourself by first name. Name the company as the roofing company that came out to their property. Reference the inspection briefly and naturally. Ask if they have a couple of minutes. Do not ask about their experience yet. One message. Stop.`;
+    } else if (context.trigger_type === 'drip_reply' && openerType === 'warm_acknowledgment') {
+      directive = `The frame has already been delivered via the drip message sequence. Skip the permission and frame stages entirely. Begin at stage 3 — the experience check. The opener instruction has already directed the first message toward the experience check. Follow through on that and continue the NEPQ stages from stage 3 forward.
+
+If trigger_type is not 'drip_reply', follow the normal opening sequence.`;
     } else {
       directive = `You are in the opening exchange. Acknowledge their message naturally using the instruction from the opener module. Ask one open question. Do not move to the experience check yet. Wait for their response.`;
     }

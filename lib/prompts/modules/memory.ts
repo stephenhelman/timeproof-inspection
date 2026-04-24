@@ -21,7 +21,7 @@ export function getMemoryModule(context: ConversationContext): PromptModule {
       break;
 
     case 3:
-      instruction = `This homeowner has received two drip messages — the Day 1 re-introduction and the Day 3 value touch. The outreach has been low pressure across both messages. They have seen that we are not aggressive. The referral offer has not been mentioned yet.`;
+      instruction = `This homeowner has received two drip messages — the Day 1 re-introduction and the Day 3 value touch. The outreach has been low pressure across both messages. They have seen that we are not aggressive. The referral offer has not been mentioned yet. The homeowner has received two low-pressure messages and knows this is a follow-up on their inspection. The frame has been set.`;
       break;
 
     case 7:
