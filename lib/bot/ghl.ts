@@ -96,27 +96,24 @@ export async function updateContactFields(
 ): Promise<void> {
   console.log('[ghl.ts] updateContactFields →', { contactId, fields });
 
-  const customField: Record<string, string | number> = {};
+  const definedEntries = (Object.entries(fields) as [string, string | number | undefined][])
+    .filter((entry): entry is [string, string | number] => entry[1] !== undefined);
 
-  if (fields.botMessageCount !== undefined) customField['botMessageCount'] = fields.botMessageCount;
-  if (fields.lastMessageContext !== undefined) customField['lastMessageContext'] = fields.lastMessageContext;
-  if (fields.botThreadId !== undefined) customField['botThreadId'] = fields.botThreadId;
-  if (fields.revivalStage !== undefined) customField['revivalStage'] = fields.revivalStage;
-  if (fields.dripDay !== undefined) customField['dripDay'] = fields.dripDay;
-  if (fields.conversationId !== undefined) customField['conversationId'] = fields.conversationId;
-
-  if (Object.keys(customField).length === 0) {
+  if (definedEntries.length === 0) {
     console.warn('[ghl.ts] updateContactFields called with no defined fields — skipping');
     return;
   }
 
+  const customFields = definedEntries.map(([key, value]) => ({ key, field_value: value }));
+
   try {
     const client = getClient();
-    // SDK UpdateContactDto uses customFields (array) but the GHL API also
-    // accepts customField (object). Cast to preserve the object format.
+    // GHL v2 requires customFields as an array of { key, field_value } objects.
+    // SDK type is CustomFieldSchema[] ({ id?, value? }) so we cast to pass
+    // the key-based shape the API actually accepts.
     await client.contacts.updateContact(
       { contactId },
-      { customField } as any
+      { customFields } as any
     );
   } catch (error) {
     console.error('[ghl.ts] updateContactFields error:', error);
