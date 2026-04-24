@@ -3,7 +3,7 @@ import { buildContext } from '@/lib/bot/context';
 import { getOrCreateThread, updateThread } from '@/lib/bot/thread';
 import { assemblePrompt } from '@/lib/prompts/assembler';
 import { callClaude } from '@/lib/bot/claude';
-import { sendSMS, updateContact, addTags } from '@/lib/bot/ghl';
+import { sendSMS, updateContactFields, addTags, getConversation, type ContactFieldUpdates } from '@/lib/bot/ghl';
 import { checkEscalation } from '@/lib/bot/escalation';
 
 /**
@@ -43,6 +43,8 @@ export async function POST(req: Request) {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
 
+    const conversationId = await getConversation(contactId);
+
     // 2. Retrieve or create the persistent conversation thread
     const { threadId, messages, isNew } = await getOrCreateThread(contactId);
 
@@ -64,18 +66,18 @@ export async function POST(req: Request) {
     const responseText = await callClaude(systemPrompt, messagesWithInbound);
 
     // 6. Send the SMS reply via GHL before writing any state
-    await sendSMS(contactId, responseText);
+    await sendSMS(contactId, responseText, conversationId ?? undefined);
 
     // 7. Persist both messages to the thread
     await updateThread(threadId, messageBody.trim(), responseText);
 
     // 8. Update contact fields — botThreadId only written for new threads
-    const contactUpdates: Parameters<typeof updateContact>[1] = {
+    const contactUpdates: ContactFieldUpdates = {
       botMessageCount: context.message_history_count + 1,
       lastMessageContext: context.last_message_context,
       ...(isNew ? { botThreadId: threadId } : {}),
     };
-    await updateContact(contactId, contactUpdates);
+    await updateContactFields(contactId, contactUpdates);
 
     // 9. Detect escalation and tag if triggered — always the last operation
     const escalated = checkEscalation(responseText);

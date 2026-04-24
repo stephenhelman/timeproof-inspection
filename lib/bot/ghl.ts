@@ -1,75 +1,163 @@
-const GHL_BASE_URL = 'https://rest.gohighlevel.com/v1';
+const GHL_BASE_URL = 'https://services.leadconnectorhq.com';
+const GHL_VERSION = '2021-04-15';
 
-function ghlHeaders(): Record<string, string> {
+function getHeaders(): Record<string, string> {
+  const apiKey = process.env.GHL_API_KEY;
+  if (!apiKey) {
+    console.error('[ghl.ts] GHL_API_KEY is not set');
+  }
   return {
-    'Authorization': `Bearer ${process.env.GHL_API_KEY}`,
+    'Authorization': `Bearer ${apiKey ?? ''}`,
     'Content-Type': 'application/json',
+    'Version': GHL_VERSION,
   };
 }
 
-export type ContactUpdates = {
+async function ghlFetch(
+  path: string,
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  body?: Record<string, unknown>
+): Promise<unknown> {
+  const url = `${GHL_BASE_URL}${path}`;
+  console.log('[ghl.ts]', method, path);
+
+  const res = await fetch(url, {
+    method,
+    headers: getHeaders(),
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.text();
+    console.error(`[ghl.ts] ${method} ${path} failed with status ${res.status}:`, errorBody);
+    throw new Error(
+      `GHL API ${method} ${path} failed with status ${res.status}: ${errorBody}`
+    );
+  }
+
+  return res.json();
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type ContactFieldUpdates = {
   botMessageCount?: number;
   lastMessageContext?: string;
   botThreadId?: string;
+  revivalStage?: string;
+  dripDay?: number;
 };
 
-/**
- * Sends an SMS to the contact via the GHL REST API.
- */
-export async function sendSMS(contactId: string, message: string): Promise<void> {
-  const res = await fetch(`${GHL_BASE_URL}/conversations/messages`, {
-    method: 'POST',
-    headers: ghlHeaders(),
-    body: JSON.stringify({
-      type: 'SMS',
-      contactId,
-      message,
-    }),
-  });
+export type GHLContact = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email?: string;
+  address1?: string;
+  postalCode?: string;
+  customField?: Record<string, unknown>;
+  tags?: string[];
+};
 
-  if (!res.ok) {
-    throw new Error(`sendSMS failed with status ${res.status}`);
-  }
+// ─── Exports ──────────────────────────────────────────────────────────────────
+
+/**
+ * Sends an SMS via GHL. Uses conversationId when provided — required on
+ * some white-label configurations. Falls back to contactId if not.
+ */
+export async function sendSMS(
+  contactId: string,
+  message: string,
+  conversationId?: string
+): Promise<void> {
+  console.log('[ghl.ts] sendSMS →', { contactId, messageLength: message.length });
+
+  const body = conversationId
+    ? { type: 'SMS', conversationId, message }
+    : { type: 'SMS', contactId, message };
+
+  await ghlFetch('/conversations/messages', 'POST', body);
 }
 
 /**
- * Updates custom fields on a GHL contact. Only sends fields that are
- * present in the updates object — undefined values are excluded.
+ * Updates custom fields on a GHL contact. Skips the API call if no
+ * fields are defined to avoid sending an empty payload.
  */
-export async function updateContact(
+export async function updateContactFields(
   contactId: string,
-  updates: ContactUpdates
+  fields: ContactFieldUpdates
 ): Promise<void> {
+  console.log('[ghl.ts] updateContactFields →', { contactId, fields });
+
   const customField: Record<string, string | number> = {};
 
-  if (updates.botMessageCount !== undefined) customField['botMessageCount'] = updates.botMessageCount;
-  if (updates.lastMessageContext !== undefined) customField['lastMessageContext'] = updates.lastMessageContext;
-  if (updates.botThreadId !== undefined) customField['botThreadId'] = updates.botThreadId;
+  if (fields.botMessageCount !== undefined) customField['botMessageCount'] = fields.botMessageCount;
+  if (fields.lastMessageContext !== undefined) customField['lastMessageContext'] = fields.lastMessageContext;
+  if (fields.botThreadId !== undefined) customField['botThreadId'] = fields.botThreadId;
+  if (fields.revivalStage !== undefined) customField['revivalStage'] = fields.revivalStage;
+  if (fields.dripDay !== undefined) customField['dripDay'] = fields.dripDay;
 
-  if (Object.keys(customField).length === 0) return;
-
-  const res = await fetch(`${GHL_BASE_URL}/contacts/${contactId}`, {
-    method: 'PUT',
-    headers: ghlHeaders(),
-    body: JSON.stringify({ customField }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`updateContact failed with status ${res.status}`);
+  if (Object.keys(customField).length === 0) {
+    console.warn('[ghl.ts] updateContactFields called with no defined fields — skipping');
+    return;
   }
+
+  await ghlFetch(`/contacts/${contactId}`, 'PUT', { customField });
 }
 
 /**
  * Adds tags to a GHL contact.
  */
 export async function addTags(contactId: string, tags: string[]): Promise<void> {
-  const res = await fetch(`${GHL_BASE_URL}/contacts/${contactId}/tags`, {
-    method: 'POST',
-    headers: ghlHeaders(),
-    body: JSON.stringify({ tags }),
-  });
+  console.log('[ghl.ts] addTags →', { contactId, tags });
 
-  if (!res.ok) {
-    throw new Error(`addTags failed with status ${res.status}`);
+  if (tags.length === 0) {
+    console.warn('[ghl.ts] addTags called with empty tags array — skipping');
+    return;
   }
+
+  await ghlFetch(`/contacts/${contactId}/tags`, 'POST', { tags });
+}
+
+/**
+ * Removes tags from a GHL contact. Available for when a rep manually
+ * clears bot_paused or similar workflow tags.
+ */
+export async function removeTags(contactId: string, tags: string[]): Promise<void> {
+  console.log('[ghl.ts] removeTags →', { contactId, tags });
+
+  if (tags.length === 0) {
+    console.warn('[ghl.ts] removeTags called with empty tags array — skipping');
+    return;
+  }
+
+  await ghlFetch(`/contacts/${contactId}/tags`, 'DELETE', { tags });
+}
+
+/**
+ * Fetches a GHL contact by ID. Utility function for debugging and
+ * future use — not currently called in the bot webhook flow.
+ */
+export async function getContact(contactId: string): Promise<GHLContact> {
+  console.log('[ghl.ts] getContact →', { contactId });
+
+  const data = await ghlFetch(`/contacts/${contactId}`, 'GET') as { contact: GHLContact };
+  return data.contact;
+}
+
+/**
+ * Looks up the GHL conversationId for a contact. Required on some
+ * white-label configurations where sendSMS expects conversationId
+ * rather than contactId.
+ */
+export async function getConversation(contactId: string): Promise<string | null> {
+  console.log('[ghl.ts] getConversation →', { contactId });
+
+  const data = await ghlFetch(
+    `/conversations/search?contactId=${contactId}`,
+    'GET'
+  ) as { conversations: { id: string }[] };
+
+  return data.conversations[0]?.id ?? null;
 }
