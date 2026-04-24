@@ -76,7 +76,8 @@ export async function sendSMS(
     // cast to bypass the type mismatch.
     await client.conversations.sendANewMessage({
       type: 'SMS',
-      conversationId,
+      contactId,
+      ...(conversationId ? { conversationId } : {}),
       message,
     } as any);
   } catch (error) {
