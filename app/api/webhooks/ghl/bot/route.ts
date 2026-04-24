@@ -34,8 +34,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'customData.contactId is required' }, { status: 400 });
   }
 
-  // The homeowner's inbound message text arrives at the top level of the payload.
-  const homeownerMessage: string = (body.message as string | undefined) ?? '';
+  // The homeowner's inbound message text — check top-level and customData fallbacks.
+  const homeownerMessage: string =
+    (body.message as string | undefined) ??
+    customData.messageBody ??
+    customData.body ??
+    customData.smsBody ??
+    '';
 
   try {
     // 1. Build typed conversation context from raw customData
@@ -47,16 +52,38 @@ export async function POST(req: Request) {
     // 3. Assemble the full Claude system prompt
     const systemPrompt = assemblePrompt(context);
 
-    // 4. Call Claude with the system prompt and full message history
-    const responseText = await callClaude(systemPrompt, messages);
+    if (!systemPrompt || systemPrompt.trim().length === 0) {
+      console.error('[route.ts] assemblePrompt returned empty string');
+      throw new Error('System prompt assembly failed — empty result');
+    }
 
-    // 5. Send the SMS reply via GHL before writing any state
+    // 4. Append the current inbound message to thread history before calling Claude
+    const messagesWithInbound = [
+      ...messages,
+      { role: 'user' as const, content: homeownerMessage },
+    ];
+
+    const cleanMessages = messagesWithInbound.filter(
+      (m) => m.content && m.content.trim().length > 0
+    );
+
+    if (cleanMessages.length === 0) {
+      console.error('[route.ts] No valid messages to send to Claude');
+      return new Response(JSON.stringify({ error: 'No message content' }), {
+        status: 400,
+      });
+    }
+
+    // 5. Call Claude with system prompt and full message history including inbound
+    const responseText = await callClaude(systemPrompt, cleanMessages);
+
+    // 6. Send the SMS reply via GHL before writing any state
     await sendSMS(contactId, responseText);
 
-    // 6. Persist both messages to the thread
+    // 7. Persist both messages to the thread
     await updateThread(threadId, homeownerMessage, responseText);
 
-    // 7. Update contact fields — botThreadId only written for new threads
+    // 8. Update contact fields — botThreadId only written for new threads
     const contactUpdates: Parameters<typeof updateContact>[1] = {
       botMessageCount: context.message_history_count + 1,
       lastMessageContext: context.last_message_context,
@@ -64,7 +91,7 @@ export async function POST(req: Request) {
     };
     await updateContact(contactId, contactUpdates);
 
-    // 8. Detect escalation and tag if triggered — always the last operation
+    // 9. Detect escalation and tag if triggered — always the last operation
     const escalated = checkEscalation(responseText);
     if (escalated) {
       await addTags(contactId, ['bot_paused', 'tpusa_escalated']);

@@ -16,6 +16,15 @@ export async function callClaude(
     return 'Hey, just wanted to follow up — is now a good time to connect?';
   }
 
+  console.log('[claude.ts] Sending to Claude API:', JSON.stringify({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 300,
+    messageCount: messages.length,
+    systemPromptLength: systemPrompt.length,
+    firstMessage: messages[0] ?? null,
+    lastMessage: messages[messages.length - 1] ?? null,
+  }, null, 2));
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -32,7 +41,11 @@ export async function callClaude(
   });
 
   if (!response.ok) {
-    throw new Error(`Claude API request failed with status ${response.status}`);
+    const errorBody = await response.text();
+    console.error('[claude.ts] Anthropic API error body:', errorBody);
+    throw new Error(
+      `Claude API request failed with status ${response.status}: ${errorBody}`
+    );
   }
 
   const data = await response.json() as { content: { text: string }[] };
