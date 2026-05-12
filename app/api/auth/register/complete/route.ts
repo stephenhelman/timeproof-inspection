@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
   if (!isWorkEmail(email)) {
     return NextResponse.json(
-      { error: "Only @timeproofusa.com email addresses are allowed" },
+      { error: "Only @operationprofitllc.com email addresses are allowed" },
       { status: 400 }
     );
   }

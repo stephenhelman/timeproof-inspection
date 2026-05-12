@@ -31,7 +31,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const result = await verifyCode(email, code, "magic-login");
         if (!result.success) return null;
 
-        // Find or create user — any verified @timeproofusa.com email gets in
+        // Find or create user — any verified @operationprofitllc.com email gets in
         let user = await prisma.user.findUnique({ where: { email } });
         if (!user) {
           user = await prisma.user.create({

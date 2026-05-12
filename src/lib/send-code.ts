@@ -30,7 +30,7 @@ export async function sendVerificationCode(
   if (purpose !== "2fa" && !isWorkEmail(email)) {
     return {
       success: false,
-      error: "Only @timeproofusa.com email addresses are allowed",
+      error: "Only @operationprofitllc.com email addresses are allowed",
     };
   }
 
