@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import CallScriptModal from "@/src/components/revival/CallScriptModal";
+// PRESERVED — not active in Qntum build (revival)
+// import CallScriptModal from "@/src/components/revival/CallScriptModal";
 import { MessageSquare, Send, ChevronDown } from "lucide-react";
 
 const LEAD_STATUS_OPTIONS = [
@@ -63,7 +64,8 @@ export default function LeadDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
-  const [scriptOpen, setScriptOpen] = useState(false);
+  // PRESERVED — not active in Qntum build (revival)
+  // const [scriptOpen, setScriptOpen] = useState(false);
   const [deletingInspection, setDeletingInspection] = useState(false);
 
   // Revival fields state
@@ -154,12 +156,14 @@ export default function LeadDetailPage() {
         </div>
       )}
 
+      {/* PRESERVED — not active in Qntum build (revival)
       <CallScriptModal
         isOpen={scriptOpen}
         onClose={() => setScriptOpen(false)}
         customerName={lead.customerName}
         leadId={id}
       />
+      */}
 
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Breadcrumb */}
@@ -397,12 +401,14 @@ export default function LeadDetailPage() {
                   </button>
                 </div>
 
+                {/* PRESERVED — not active in Qntum build (revival call script)
                 <button
                   onClick={() => setScriptOpen(true)}
                   className="w-full bg-[#0a0f1e] border border-amber-500/30 hover:border-amber-500 text-amber-300 font-medium rounded-xl py-3 text-sm transition-colors min-h-[48px]"
                 >
                   Open Call Script
                 </button>
+                */}
               </div>
             )}
 

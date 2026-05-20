@@ -90,7 +90,7 @@ export default function PhotoReveal({
       return (
         <div className="flex flex-col items-center justify-center text-center gap-6 h-full px-8">
           <div className="h-50 rounded-2xl flex items-center justify-center overflow-hidden bg-white">
-            <img src="/logo.png" alt="TIMEPROOF" className="h-50 w-auto px-3" />
+            <img src="/logo.png" alt="Qntum Roofing" className="h-50 w-auto px-3" />
           </div>
           <h1
             className={`font-bold ${mode === "presentation" ? "text-text-primary text-4xl" : "text-gray-900 text-3xl"}`}

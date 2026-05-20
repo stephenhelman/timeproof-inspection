@@ -2,15 +2,13 @@ import { auth } from "@/src/lib/auth";
 import { redirect } from "next/navigation";
 import { signOut } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
-import Logo from "@/src/components/ui/Logo";
 import Image from "next/image";
 import {
   ClipboardList,
   Users,
-  PhoneCall,
+  // PhoneCall,  // PRESERVED — not active in Qntum build (revival)
   CreditCard,
   LogOut,
-  Settings,
 } from "lucide-react";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -30,12 +28,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     select: { profileImageUrl: true, role: true },
   });
 
-  const revivalCount = await prisma.lead.count({
-    where: {
-      status: "REVIVAL_PENDING",
-      ...(dbUser.role === "REP" ? { assignedUserId: session.user.id } : {}),
-    },
-  });
+  // PRESERVED — not active in Qntum build (revival queue)
+  // const revivalCount = await prisma.lead.count({
+  //   where: {
+  //     status: "REVIVAL_PENDING",
+  //     ...(dbUser.role === "REP" ? { assignedUserId: session.user.id } : {}),
+  //   },
+  // });
 
   const cardUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/card/${session.user.id}`;
 
@@ -50,7 +49,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14 gap-4">
           {/* Logo → home */}
           <a href="/dashboard" className="flex items-center shrink-0">
-            <Logo height={22} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/qntum-logo.svg" alt="Qntum Roofing" height={32} style={{ height: "32px", width: "auto" }} />
           </a>
 
           {/* Desktop centre nav */}
@@ -65,18 +65,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 {label}
               </a>
             ))}
-            <a
-              href="/revival"
-              className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary text-sm px-3 py-2 rounded-lg hover:bg-bg-elevated transition-colors"
-            >
+            {/* PRESERVED — not active in Qntum build (revival nav link)
+            <a href="/revival" ...>
               <PhoneCall size={15} strokeWidth={1.75} />
-              Revival
-              {revivalCount > 0 && (
-                <span className="bg-amber-500 text-black text-[10px] font-bold rounded-full min-w-[17px] h-[17px] flex items-center justify-center px-1 leading-none">
-                  {revivalCount > 99 ? "99+" : revivalCount}
-                </span>
-              )}
+              Revival ...
             </a>
+            */}
           </div>
 
           {/* Right side */}
@@ -142,18 +136,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               {label}
             </a>
           ))}
-          <a
-            href="/revival"
-            className="flex items-center gap-1.5 shrink-0 text-text-secondary hover:text-text-primary text-sm px-4 py-2.5 transition-colors"
-          >
-            <PhoneCall size={14} strokeWidth={1.75} />
-            Revival
-            {revivalCount > 0 && (
-              <span className="bg-amber-500 text-black text-[10px] font-bold rounded-full min-w-[17px] h-[17px] flex items-center justify-center px-1 leading-none">
-                {revivalCount > 99 ? "99+" : revivalCount}
-              </span>
-            )}
-          </a>
+          {/* PRESERVED — not active in Qntum build (revival mobile nav link) */}
           <a
             href={cardUrl}
             target="_blank"

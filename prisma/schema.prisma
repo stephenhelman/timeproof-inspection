@@ -158,7 +158,8 @@ model Inspection {
   address           String?
   phone             String?
   email             String?
-  heardAboutUs      String?
+  // PRESERVED — not active in Qntum build
+  // heardAboutUs   String?
 
   leadId            String?
   lead              Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -166,7 +167,7 @@ model Inspection {
   date              DateTime      @default(now())
   status            String        @default("draft")
 
-  // Discovery
+  // Discovery (legacy — preserved for existing data)
   ownershipLength   String?
   previousRoofWork  Boolean?
   previousRoofWhen  String?
@@ -180,11 +181,11 @@ model Inspection {
   allDecisionMakers Boolean?
   priorities        String[]
 
-  // Findings — auto-populated from photo damage tags
+  // Findings — legacy (preserved for existing data)
   findings          Json?
   findingsNotes     String?
 
-  // Production
+  // Production (legacy — preserved for existing data)
   productionNotes   String?
   gateCode          String?
   hasPets           Boolean?
@@ -195,9 +196,62 @@ model Inspection {
   specialRequests   String?
   followUpNotes     String?
 
+  // Qntum intake form — Pass 1 (Before)
+  northStar              String?   // Why are we here
+  focusDrivers           String?   // What moves the needle
+  timeInHome             String?
+  yearBuilt              String?
+  ageOfRoof              String?
+  lastReplacedBy         String?
+  pastRepairs            String?
+  otherProjects          String?
+  hoaPresent             Boolean?
+  hoaName                String?
+  issuesConcerns         String?
+  issueDuration          String?
+  issueImpact            String?
+  rootCauseBeliefBefore  String?   // their belief before inspection
+  triggerMoment          String?
+  priorMeetingHad        Boolean?
+  priorMeetingWho        String?
+  priorMeetingRecommended String?
+  priorMeetingWhyNotFixed String?
+  noPriorMeetingReason   String?
+  winDefinition          String?   // "short" | "long"
+  personalFamily         String?
+  personalOccupation     String?
+  personalRecreation     String?
+  personalIdentity       String?
+  decisionMakers         Boolean?
+  decisionMakersWho      String?
+
+  // Appointment
+  appointmentAt          DateTime?
+  setterName             String?
+
+  // Intake form — Pass 2 (After)
+  problemAwarenessBefore String?   // locked after Pass 1 complete
+  problemAwarenessAfter  String?   // unlocked after Warning Signs complete
+  intakePass1Complete    Boolean   @default(false)
+  intakePass2Complete    Boolean   @default(false)
+
+  // Rep internal notes — never shown on report
+  repNotes               String?
+
+  // Diagnosis — stored as JSON array of finding objects
+  diagnosis              Json?
+
+  // Warning signs covered
+  warningSignsCovered    String[]  @default([])
+
+  // Export tracking
+  qntumExportedAt        DateTime?
+
   structures        Structure[]
   photos            Photo[]
+  // PRESERVED — not active in Qntum build
   packages          Package[]
+  // PRESERVED — not active in Qntum build
   quote             Quote?
   reportVisits      ReportVisit[]
 
@@ -205,6 +259,7 @@ model Inspection {
   updatedAt         DateTime      @updatedAt
 }
 
+// PRESERVED — not active in Qntum build
 model Structure {
   id            String     @id @default(cuid())
   inspectionId  String
@@ -213,21 +268,21 @@ model Structure {
   inScope       Boolean    @default(true)
   order         Int        @default(0)
 
-  // UI preference: "simple" = manual totals, "advanced" = auto-summed from facets
-  entryMode     String     @default("simple")
+  // PRESERVED — not active in Qntum build
+  // entryMode  String  @default("simple")
 
-  // Measurement totals (entered directly in simple mode; auto-summed in advanced)
-  pitch         String?
-  sqft          Float?
-  ridge         Float?
-  hip           Float?
-  valley        Float?
-  rake          Float?
-  eave          Float?
-  flashing      Float?
-  stepFlashing  Float?
-  parapets      Float?
-  other         Float?
+  // Measurement totals — PRESERVED — not active in Qntum build
+  // pitch      String?
+  // sqft       Float?
+  // ridge      Float?
+  // hip        Float?
+  // valley     Float?
+  // rake       Float?
+  // eave       Float?
+  // flashing   Float?
+  // stepFlashing Float?
+  // parapets   Float?
+  // other      Float?
 
   // Penetration counts — always structure-level
   pipeBoots     Int?
@@ -240,6 +295,7 @@ model Structure {
   facets        Facet[]
 }
 
+// PRESERVED — not active in Qntum build
 model Facet {
   id          String    @id @default(cuid())
   structureId String
@@ -247,17 +303,18 @@ model Facet {
   order       Int       @default(0)
   name        String    @default("Facet")
 
-  pitch        String?
-  sqft         Float?
-  ridge        Float?
-  hip          Float?
-  valley       Float?
-  rake         Float?
-  eave         Float?
-  flashing     Float?
-  stepFlashing Float?
-  parapets     Float?
-  other        Float?
+  // PRESERVED — not active in Qntum build
+  // pitch        String?
+  // sqft         Float?
+  // ridge        Float?
+  // hip          Float?
+  // valley       Float?
+  // rake         Float?
+  // eave         Float?
+  // flashing     Float?
+  // stepFlashing Float?
+  // parapets     Float?
+  // other        Float?
 }
 
 model Photo {
@@ -269,9 +326,11 @@ model Photo {
   r2Url         String
   damageTags    String[]
   description   String?
+  photoSection  String     @default("roof")  // "roof" | "attic"
   createdAt     DateTime   @default(now())
 }
 
+// PRESERVED — not active in Qntum build
 model Package {
   id            String     @id @default(cuid())
   inspectionId  String
@@ -288,6 +347,7 @@ model Package {
   updatedAt     DateTime   @updatedAt
 }
 
+// PRESERVED — not active in Qntum build
 model Quote {
   id             String     @id @default(cuid())
   inspectionId   String     @unique

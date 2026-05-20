@@ -3,34 +3,48 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Step1CustomerInfo from "./steps/Step1CustomerInfo";
-import Step2Discovery from "./steps/Step2Discovery";
-import Step3Findings from "./steps/Step3Findings";
-import Step4Photos from "./steps/Step4Photos";
-import Step5Structures from "./steps/Step5Structures";
-import Step6Quote from "./steps/Step6Quote";
-import Step7ProductionNotes from "./steps/Step7ProductionNotes";
-import Step8Review from "./steps/Step8Review";
+import Step2RoofPhotos from "./steps/Step2RoofPhotos";
+import Step3AtticPhotos from "./steps/Step3AtticPhotos";
+import Step4Diagnosis from "./steps/Step4Diagnosis";
+import Step5IntakeForm from "./steps/Step5IntakeForm";
+import Step6WarningSigns from "./steps/Step6WarningSigns";
+import Step7ReviewShare from "./steps/Step7ReviewShare";
+
+// PRESERVED — not active in Qntum build
+// import Step2Discovery from "./steps/Step2Discovery";
+// import Step3Findings from "./steps/Step3Findings";
+// import Step4Photos from "./steps/Step4Photos";
+// import Step5Structures from "./steps/Step5Structures";
+// import Step6Quote from "./steps/Step6Quote";
+// import Step7ProductionNotes from "./steps/Step7ProductionNotes";
+// import Step8Review from "./steps/Step8Review";
 
 const STEPS = [
   { id: "customer", label: "Customer", icon: "👤" },
-  { id: "discovery", label: "Discovery", icon: "🔍" },
-  { id: "findings", label: "Findings", icon: "📋" },
-  { id: "photos", label: "Photos", icon: "📷" },
-  { id: "structures", label: "Structures", icon: "🏠" },
-  { id: "quote", label: "Quote", icon: "💰" },
-  { id: "production", label: "Production", icon: "⚙️" },
+  { id: "roof-photos", label: "Roof Photos", icon: "🏠" },
+  { id: "attic-photos", label: "Attic Photos", icon: "🔦" },
+  { id: "diagnosis", label: "Diagnosis", icon: "🔬" },
+  { id: "intake", label: "Intake", icon: "📋" },
+  { id: "warning-signs", label: "Warning Signs", icon: "⚠️" },
   { id: "review", label: "Review", icon: "✅" },
 ];
 
 const STEP_FIELDS: Record<number, string[]> = {
-  0: ["customerName", "address", "phone", "email", "heardAboutUs", "repName"],
-  1: ["ownershipLength", "previousRoofWork", "previousRoofWhen", "activeLeaks", "leakLocation", "allDecisionMakers", "priorities"],
-  2: ["findings", "findingsNotes"],
-  3: [],
-  4: [],
-  5: ["quote"],
-  6: ["productionNotes", "gateCode", "hasPets", "accessIssues", "hoaRestrictions", "hoaDetails", "colorSelected", "specialRequests", "followUpNotes"],
-  7: ["status"],
+  0: ["customerName", "address", "phone", "email", "repName", "setterName", "appointmentAt", "decisionMakers", "decisionMakersWho"],
+  1: [],
+  2: [],
+  3: ["diagnosis"],
+  4: [
+    "northStar", "focusDrivers", "timeInHome", "yearBuilt", "ageOfRoof",
+    "lastReplacedBy", "pastRepairs", "otherProjects", "hoaPresent", "hoaName",
+    "issuesConcerns", "issueDuration", "issueImpact", "rootCauseBeliefBefore",
+    "triggerMoment", "priorMeetingHad", "priorMeetingWho", "priorMeetingRecommended",
+    "priorMeetingWhyNotFixed", "noPriorMeetingReason", "winDefinition", "colorPreference",
+    "personalFamily", "personalOccupation", "personalRecreation", "personalIdentity",
+    "problemAwarenessBefore", "repNotes", "intakePass1Complete", "intakePass2Complete",
+  ],
+  5: ["warningSignsCovered"],
+  6: ["status"],
 };
 
 interface StepperProps {
@@ -55,7 +69,6 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
           stepData[field] = initialData[field];
         }
       });
-      // Customer fields are now flat on inspection — already handled by STEP_FIELDS above
       if (Object.keys(stepData).length > 0) data[Number(stepIndex)] = stepData;
     });
     return data;
@@ -136,14 +149,31 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
 
   const stepComponents = [
     <Step1CustomerInfo key={0} {...stepProps} />,
-    <Step2Discovery key={1} {...stepProps} />,
-    <Step3Findings key={2} {...stepProps} />,
-    <Step4Photos key={3} {...stepProps} />,
-    <Step5Structures key={4} {...stepProps} />,
-    <Step6Quote key={5} {...stepProps} />,
-    <Step7ProductionNotes key={6} {...stepProps} />,
-    <Step8Review key={7} {...stepProps} reportUuid={initialData?.reportUuid} />,
+    <Step2RoofPhotos key={1} inspectionId={inspectionId} initialData={initialData} />,
+    <Step3AtticPhotos key={2} inspectionId={inspectionId} initialData={initialData} />,
+    <Step4Diagnosis key={3} inspectionId={inspectionId} initialData={initialData} />,
+    <Step5IntakeForm
+      key={4}
+      inspectionId={inspectionId}
+      initialData={initialData}
+      onAdvanceToWarningSigns={() => {
+        setCompletedSteps((prev) => new Set([...Array.from(prev), 4]));
+        setCurrentStep(5);
+      }}
+    />,
+    <Step6WarningSigns
+      key={5}
+      inspectionId={inspectionId}
+      initialData={initialData}
+      onReturnToIntake={() => setCurrentStep(4)}
+    />,
+    <Step7ReviewShare key={6} {...stepProps} reportUuid={initialData?.reportUuid} />,
   ];
+
+  // Step 5 (IntakeForm) manages its own "Complete Pass 1" button that advances to step 6.
+  // Step 6 (WarningSigns) has its own "Return to Intake" button.
+  // The standard Next/Back buttons still work for free navigation.
+  const hideNextButton = currentStep === 4; // IntakeForm handles its own advance
 
   return (
     <div className="h-dvh bg-bg-base flex overflow-hidden">
@@ -152,7 +182,6 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
       <aside
         className={`${sidebarOpen ? "w-56" : "w-16"} shrink-0 bg-bg-surface border-r border-border flex flex-col transition-all duration-200 ease-in-out`}
       >
-        {/* Sidebar header / toggle */}
         <div className="flex items-center justify-between h-16 px-3 border-b border-border shrink-0">
           {sidebarOpen && (
             <span className="text-text-secondary text-xs font-semibold uppercase tracking-wider pl-1">
@@ -177,7 +206,6 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
           </button>
         </div>
 
-        {/* Step list */}
         <nav className="flex flex-col gap-1 p-2 flex-1 overflow-y-auto">
           {STEPS.map((step, i) => {
             const isCompleted = completedSteps.has(i);
@@ -193,7 +221,7 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
                 title={!sidebarOpen ? step.label : undefined}
                 className={`flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-sm font-medium transition-all min-h-11 w-full text-left ${
                   isCurrent
-                    ? "bg-brand-blue text-text-primary shadow-md shadow-brand-navy/40"
+                    ? "bg-brand-blue text-text-primary shadow-md"
                     : isCompleted
                     ? "bg-brand-navy/40 text-text-accent hover:bg-brand-navy/60 cursor-pointer"
                     : "text-text-hint cursor-default"
@@ -210,9 +238,7 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
           })}
         </nav>
 
-        {/* Save status + Save and Exit */}
         <div className="p-3 border-t border-border shrink-0 flex flex-col gap-2">
-          {/* Save status */}
           <div className="min-h-5 flex items-center">
             {saving && (
               <span className="flex items-center gap-2 text-text-secondary text-xs">
@@ -231,7 +257,6 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
             )}
           </div>
 
-          {/* Save and Exit button */}
           <button
             type="button"
             disabled={saving}
@@ -259,8 +284,6 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
 
       {/* ── Main area ── */}
       <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Step content — scrollable */}
         <div className="flex-1 overflow-y-auto overscroll-none">
           <div className="max-w-2xl mx-auto px-6 py-10">
             {stepComponents[currentStep]}
@@ -279,21 +302,22 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
                 ← Back
               </button>
             )}
-            {currentStep < STEPS.length - 1 ? (
+            {!hideNextButton && currentStep < STEPS.length - 1 && (
               <button
                 type="button"
                 onClick={handleNext}
                 disabled={saving}
-                className="flex-1 bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-text-primary rounded-2xl min-h-14 text-lg font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand-navy/30"
+                className="flex-1 bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-text-primary rounded-2xl min-h-14 text-lg font-semibold transition-all flex items-center justify-center gap-2 shadow-lg"
               >
                 {saving ? "Saving…" : "Next →"}
               </button>
-            ) : (
+            )}
+            {currentStep === STEPS.length - 1 && (
               <button
                 type="button"
                 onClick={handleComplete}
                 disabled={saving}
-                className="flex-1 bg-success hover:bg-success/80 disabled:opacity-50 text-text-primary rounded-2xl min-h-14 text-lg font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-success/30"
+                className="flex-1 bg-success hover:bg-success/80 disabled:opacity-50 text-text-primary rounded-2xl min-h-14 text-lg font-semibold transition-all flex items-center justify-center gap-2 shadow-lg"
               >
                 {saving ? "Saving..." : "Complete Inspection ✓"}
               </button>

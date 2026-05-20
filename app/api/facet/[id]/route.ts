@@ -11,44 +11,12 @@ async function getOwnedFacet(id: string, userId: string) {
   return facet;
 }
 
+// PRESERVED — not active in Qntum build (measurement fields removed from schema)
 async function recomputeStructureTotals(structureId: string) {
-  const facets = await prisma.facet.findMany({
-    where: { structureId },
-    orderBy: { order: "asc" },
-  });
-
-  if (facets.length === 0) return;
-
-  const sum = (field: keyof (typeof facets)[0]) =>
-    facets.reduce((acc, f) => acc + (Number(f[field]) || 0), 0);
-
-  // Dominant pitch = most frequently occurring pitch across facets
-  const pitchCounts: Record<string, number> = {};
-  facets.forEach((f) => {
-    if (f.pitch) pitchCounts[f.pitch] = (pitchCounts[f.pitch] ?? 0) + 1;
-  });
-  const dominantPitch =
-    Object.entries(pitchCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
-  const updated = await prisma.structure.update({
+  return prisma.structure.findUnique({
     where: { id: structureId },
-    data: {
-      pitch:        dominantPitch,
-      sqft:         sum("sqft"),
-      ridge:        sum("ridge"),
-      hip:          sum("hip"),
-      valley:       sum("valley"),
-      rake:         sum("rake"),
-      eave:         sum("eave"),
-      flashing:     sum("flashing"),
-      stepFlashing: sum("stepFlashing"),
-      parapets:     sum("parapets"),
-      other:        sum("other"),
-    },
     include: { facets: { orderBy: { order: "asc" } } },
   });
-
-  return updated;
 }
 
 export async function PATCH(

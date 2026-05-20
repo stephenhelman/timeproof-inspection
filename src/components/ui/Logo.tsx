@@ -14,7 +14,7 @@ export default function Logo({ className = "", height = 40, background = "white"
     <div className={`inline-flex items-center justify-center px-2 py-1 rounded-lg ${bg} ${className}`}>
       <img
         src="/logo.png"
-        alt="TIMEPROOF"
+        alt="Qntum Roofing"
         style={{ height: `${height}px`, width: "auto" }}
       />
     </div>

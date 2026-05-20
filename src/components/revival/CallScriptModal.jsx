@@ -11,7 +11,7 @@ const script = {
     lines: [
       {
         label: "Introduction",
-        text: "Hey [Name], this is [Your Name] calling from TimeProof Roofing. I'm not sure if we've spoken before — I'm actually reaching out on behalf of our team to follow up on an inspection we ran at your property a little while back. Do you have just a couple minutes?",
+        text: "Hey [Name], this is [Your Name] calling from Qntum Roofing. I'm not sure if we've spoken before — I'm actually reaching out on behalf of our team to follow up on an inspection we ran at your property a little while back. Do you have just a couple minutes?",
         note: "If they say they're busy: 'Totally understand. When would be a better time to connect? I just want to make sure your experience with us was a good one.'",
       },
     ],

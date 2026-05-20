@@ -3,7 +3,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { signIn, getSession } from "next-auth/react";
-import Logo from "@/src/components/ui/Logo";
 import { isWorkEmail, ALLOWED_EMAIL_DOMAIN } from "@/src/lib/auth-constants";
 import { validatePassword } from "@/src/lib/password";
 
@@ -71,7 +70,7 @@ function Step1Email({ onSuccess }: { onSuccess: (email: string) => void }) {
     <>
       <h1 className="text-text-primary text-2xl font-bold mb-1">Forgot your password?</h1>
       <p className="text-text-secondary text-base mb-8">
-        Enter your TIMEPROOF work email and we&apos;ll send a reset code.
+        Enter your Qntum Roofing work email and we&apos;ll send a reset code.
       </p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -387,7 +386,8 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen bg-bg-base flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-10">
-          <Logo height={52} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/qntum-logo.svg" alt="Qntum Roofing" style={{ height: "40px", width: "auto" }} />
         </div>
         <div className="bg-bg-surface border border-border rounded-3xl p-8">
           <StepIndicator step={step} />

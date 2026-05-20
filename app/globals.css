@@ -5,30 +5,30 @@
    Design Tokens
 ───────────────────────────────────────────── */
 :root {
-  /* Brand */
-  --color-brand-blue: #1b3a7a;
-  --color-brand-red: #c0272d;
-  --color-brand-navy: #152d63;
+  /* Brand — Qntum Roofing */
+  --color-brand-blue: #2a6db5;
+  --color-brand-red: #c0392b;
+  --color-brand-navy: #0a0e1a;
 
   /* App — dark theme */
-  --color-bg-base: #0a0f1e;
-  --color-bg-surface: #111827;
-  --color-bg-elevated: #1a2236;
-  --color-bg-input: #1e2a40;
-  --color-border: #2a3a5c;
-  --color-border-hover: #3d5080;
+  --color-bg-base: #0a0e1a;
+  --color-bg-surface: #0f1626;
+  --color-bg-elevated: #162030;
+  --color-bg-input: #1a2840;
+  --color-border: #1e3050;
+  --color-border-hover: #2a4070;
 
   /* Text */
-  --color-text-primary: #f0f4ff;
-  --color-text-secondary: #8fa3c8;
+  --color-text-primary: #E4EEF4;
+  --color-text-secondary: #8fa8bf;
   --color-text-hint: #4d6490;
-  --color-text-accent: #93b4f0; /* light blue for accent text on dark */
+  --color-text-accent: #E4EEF4;
 
   /* Interactive */
-  --color-accent-blue: #1b3a7a;
-  --color-accent-blue-hover: #2348a0;
-  --color-accent-red: #c0272d;
-  --color-accent-red-hover: #a01f24;
+  --color-accent-blue: #2a6db5;
+  --color-accent-blue-hover: #3580cc;
+  --color-accent-red: #c0392b;
+  --color-accent-red-hover: #a0311f;
 
   /* Status */
   --color-success: #1a6e3c;
@@ -42,7 +42,7 @@
   --color-report-bg: #ffffff;
   --color-report-surface: #f4f6fb;
   --color-report-border: #dde3f0;
-  --color-report-heading: #1b3a7a;
+  --color-report-heading: #1a1a2e;
   --color-report-text: #1e2a40;
 }
 
@@ -52,26 +52,26 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  --color-brand-blue: #1b3a7a;
-  --color-brand-red: #c0272d;
-  --color-brand-navy: #152d63;
+  --color-brand-blue: #2a6db5;
+  --color-brand-red: #c0392b;
+  --color-brand-navy: #0a0e1a;
 
-  --color-bg-base: #0a0f1e;
-  --color-bg-surface: #111827;
-  --color-bg-elevated: #1a2236;
-  --color-bg-input: #1e2a40;
-  --color-border: #2a3a5c;
-  --color-border-hover: #3d5080;
+  --color-bg-base: #0a0e1a;
+  --color-bg-surface: #0f1626;
+  --color-bg-elevated: #162030;
+  --color-bg-input: #1a2840;
+  --color-border: #1e3050;
+  --color-border-hover: #2a4070;
 
-  --color-text-primary: #f0f4ff;
-  --color-text-secondary: #8fa3c8;
+  --color-text-primary: #E4EEF4;
+  --color-text-secondary: #8fa8bf;
   --color-text-hint: #4d6490;
-  --color-text-accent: #93b4f0;
+  --color-text-accent: #E4EEF4;
 
-  --color-accent-blue: #1b3a7a;
-  --color-accent-blue-hover: #2348a0;
-  --color-accent-red: #c0272d;
-  --color-accent-red-hover: #a01f24;
+  --color-accent-blue: #2a6db5;
+  --color-accent-blue-hover: #3580cc;
+  --color-accent-red: #c0392b;
+  --color-accent-red-hover: #a0311f;
 
   --color-success: #1a6e3c;
   --color-success-text: #4ade80;
@@ -83,6 +83,6 @@
   --color-report-bg: #ffffff;
   --color-report-surface: #f4f6fb;
   --color-report-border: #dde3f0;
-  --color-report-heading: #1b3a7a;
+  --color-report-heading: #1a1a2e;
   --color-report-text: #1e2a40;
 }

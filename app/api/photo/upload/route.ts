@@ -13,6 +13,7 @@ export async function POST(req: Request) {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const inspectionId = formData.get("inspectionId") as string | null;
+    const photoSection = (formData.get("photoSection") as string | null) || "roof";
 
     if (!file || !inspectionId) {
       return NextResponse.json({ error: "Missing file or inspectionId" }, { status: 400 });
@@ -55,6 +56,7 @@ export async function POST(req: Request) {
         r2Url,
         damageTags: [],
         description: "",
+        photoSection,
       },
     });
 

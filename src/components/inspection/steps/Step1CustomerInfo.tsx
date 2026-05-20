@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Input from "@/src/components/ui/Input";
 
 interface Props {
@@ -9,22 +8,10 @@ interface Props {
   inspectionId: string;
 }
 
-const HEARD_OPTIONS = ["Radio Ad", "TV Ad", "Online Ad", "Referral", "Door Knock", "Other"];
+// PRESERVED — not active in Qntum build
+// const HEARD_OPTIONS = ["Radio Ad", "TV Ad", "Online Ad", "Referral", "Door Knock", "Other"];
 
 export default function Step1CustomerInfo({ data, onChange }: Props) {
-  const [heardAboutUs, setHeardAboutUs] = useState((data.heardAboutUs as string) || "");
-  const [otherText, setOtherText] = useState((data.heardAboutUsOther as string) || "");
-
-  const handleHeardChange = (val: string) => {
-    setHeardAboutUs(val);
-    onChange({ heardAboutUs: val === "Other" ? otherText : val });
-  };
-
-  const handleOtherChange = (val: string) => {
-    setOtherText(val);
-    onChange({ heardAboutUs: val });
-  };
-
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -65,27 +52,53 @@ export default function Step1CustomerInfo({ data, onChange }: Props) {
           value={(data.repName as string) || ""}
           onChange={(e) => onChange({ repName: e.target.value })}
         />
-
+        <Input
+          label="Setter Name"
+          placeholder="Who set the appointment?"
+          value={(data.setterName as string) || ""}
+          onChange={(e) => onChange({ setterName: e.target.value })}
+        />
         <div className="flex flex-col gap-1.5">
-          <label className="text-text-secondary text-sm font-medium">How did you hear about us?</label>
-          <select
-            value={heardAboutUs}
-            onChange={(e) => handleHeardChange(e.target.value)}
+          <label className="text-text-secondary text-sm font-medium">Appointment Date & Time</label>
+          <input
+            type="datetime-local"
+            value={(data.appointmentAt as string) || ""}
+            onChange={(e) => onChange({ appointmentAt: e.target.value || null })}
             className="bg-bg-input border border-border text-text-primary rounded-xl min-h-12 px-4 text-base focus:outline-none focus:border-text-accent focus:ring-1 focus:ring-text-accent/30 transition-colors"
-          >
-            <option value="">Select...</option>
-            {HEARD_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-          {heardAboutUs === "Other" && (
+          />
+        </div>
+
+        {/* Decision makers */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between min-h-12">
+            <span className="text-text-secondary text-sm font-medium">All decision makers present?</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!(data.decisionMakers)}
+              onClick={() => onChange({ decisionMakers: !data.decisionMakers })}
+              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none cursor-pointer ${
+                data.decisionMakers ? "bg-brand-blue" : "bg-border"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform mt-0.5 ${
+                  data.decisionMakers ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          {!!data.decisionMakers && (
             <Input
-              placeholder="Please specify..."
-              value={otherText}
-              onChange={(e) => handleOtherChange(e.target.value)}
+              placeholder="Who else is involved?"
+              value={(data.decisionMakersWho as string) || ""}
+              onChange={(e) => onChange({ decisionMakersWho: e.target.value })}
             />
           )}
         </div>
+
+        {/* PRESERVED — not active in Qntum build */}
+        {/* heardAboutUs field removed */}
       </div>
     </div>
   );

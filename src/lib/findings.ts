@@ -93,7 +93,7 @@ export const generateRevealStatement = ({
       items: [],
       closing:
         mode === "report"
-          ? `We'll discuss your options and what preventive measures can protect your investment going forward.\n\n— ${repName}, TIMEPROOF`
+          ? `We'll discuss your options and what preventive measures can protect your investment going forward.\n\n— ${repName}, Qntum Roofing`
           : null,
     };
   }
@@ -103,7 +103,7 @@ export const generateRevealStatement = ({
     items: checkedKeys.map(getLabelByKey),
     closing:
       mode === "report"
-        ? `I've documented each of these with photos above. If you have any questions before we talk next, feel free to reach out.\n\n— ${repName}, TIMEPROOF`
+        ? `I've documented each of these with photos above. If you have any questions before we talk next, feel free to reach out.\n\n— ${repName}, Qntum Roofing`
         : null,
   };
 };

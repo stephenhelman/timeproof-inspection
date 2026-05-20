@@ -77,7 +77,7 @@ export async function PATCH(
   }
 
   const allowedFields = [
-    "customerName", "address", "phone", "email", "heardAboutUs",
+    "customerName", "address", "phone", "email",
     "repName", "status",
     "ownershipLength", "previousRoofWork", "previousRoofWhen",
     "previousRoofWhy", "previousRoofNotes", "previousWork",
@@ -86,6 +86,17 @@ export async function PATCH(
     "findingsNotes", "productionNotes", "gateCode",
     "hasPets", "accessIssues", "hoaRestrictions", "hoaDetails", "colorSelected",
     "specialRequests", "followUpNotes",
+    // Qntum fields
+    "northStar", "focusDrivers", "timeInHome", "yearBuilt", "ageOfRoof",
+    "lastReplacedBy", "pastRepairs", "otherProjects", "hoaPresent", "hoaName",
+    "issuesConcerns", "issueDuration", "issueImpact", "rootCauseBeliefBefore",
+    "triggerMoment", "priorMeetingHad", "priorMeetingWho", "priorMeetingRecommended",
+    "priorMeetingWhyNotFixed", "noPriorMeetingReason", "winDefinition",
+    "personalFamily", "personalOccupation", "personalRecreation", "personalIdentity",
+    "decisionMakers", "decisionMakersWho", "appointmentAt", "setterName",
+    "problemAwarenessBefore", "problemAwarenessAfter",
+    "intakePass1Complete", "intakePass2Complete",
+    "repNotes", "diagnosis", "warningSignsCovered", "qntumExportedAt",
   ];
 
   const updateData: Record<string, unknown> = {};

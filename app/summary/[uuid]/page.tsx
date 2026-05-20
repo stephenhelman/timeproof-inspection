@@ -1,22 +1,38 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/src/lib/prisma";
-import { DAMAGE_GROUPS } from "@/src/lib/findings";
-import { detectPackageId } from "@/src/lib/packages";
+import { WARNING_SIGNS } from "@/src/lib/warning-signs";
 import ReportSection from "@/src/components/report/ReportSection";
 import SectionTracker from "@/src/components/report/SectionTracker";
-import PhotoReveal from "@/src/components/inspection/PhotoReveal";
-import PackageCard from "@/src/components/report/PackageCard";
 
-function fmt(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+// PRESERVED — not active in Qntum build
+// import { DAMAGE_GROUPS } from "@/src/lib/findings";
+// import { detectPackageId } from "@/src/lib/packages";
+// import PhotoReveal from "@/src/components/inspection/PhotoReveal";
+// import PackageCard from "@/src/components/report/PackageCard";
+// function fmt(n: number) { ... }
+// function fmtLinear(decimal: number | null | undefined): string { ... }
+
+interface DiagnosisFinding {
+  id: string;
+  label: string;
+  explanation: string;
+  severity: "critical" | "high" | "medium";
+  status: "confirmed" | "suspected";
+  matchedRoofTags: string[];
+  matchedAtticTags: string[];
 }
 
-function fmtLinear(decimal: number | null | undefined): string {
-  if (decimal == null) return "—";
-  const ft = Math.floor(decimal);
-  const ins = Math.round((decimal - ft) * 12);
-  return ins > 0 ? `${ft}' ${ins}"` : `${ft}'`;
-}
+const SEVERITY_STYLES: Record<string, string> = {
+  critical: "bg-red-50 border-red-200 text-red-700",
+  high:     "bg-amber-50 border-amber-200 text-amber-700",
+  medium:   "bg-yellow-50 border-yellow-200 text-yellow-700",
+};
+
+const SEVERITY_BADGE: Record<string, string> = {
+  critical: "bg-red-100 text-red-700",
+  high:     "bg-amber-100 text-amber-700",
+  medium:   "bg-yellow-100 text-yellow-700",
+};
 
 export default async function SummaryPage({
   params,
@@ -28,30 +44,31 @@ export default async function SummaryPage({
   const inspection = await prisma.inspection.findUnique({
     where: { reportUuid: uuid },
     include: {
-      structures: {
-        where: { inScope: true },
-        orderBy: { order: "asc" },
-      },
       photos: { orderBy: { photoNumber: "asc" } },
-      packages: { orderBy: { order: "asc" } },
-      quote: true,
       reportVisits: true,
     },
   });
 
   if (!inspection) notFound();
 
-  const findings = (inspection.findings as Record<string, boolean>) || {};
   const customerName = inspection.customerName || "";
   const address = inspection.address || "";
-  const repName = inspection.repName || "TIMEPROOF";
+  const repName = inspection.repName || "Qntum Roofing";
+  const firstName = customerName.split(" ")[0] || "You";
   const date = new Date(inspection.date).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
 
-  const checkedFindings = Object.entries(findings).filter(([, v]) => v === true);
+  const diagnosis = (Array.isArray(inspection.diagnosis) ? inspection.diagnosis : []) as unknown as DiagnosisFinding[];
+  const warningSignsCovered = (inspection.warningSignsCovered as string[]) || [];
+  const coveredSigns = WARNING_SIGNS.filter((s) => warningSignsCovered.includes(s.id));
+
+  const roofPhotos = inspection.photos.filter((p) => p.photoSection === "roof");
+  const atticPhotos = inspection.photos.filter((p) => p.photoSection === "attic");
+
+  const pass2Complete = inspection.intakePass2Complete;
 
   return (
     <div className="min-h-screen bg-report-bg">
@@ -61,9 +78,12 @@ export default async function SummaryPage({
           {/* Header */}
           <ReportSection sectionKey="header">
             <div className="flex items-center gap-4">
-              <div className="w-32 h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white">
-                <img src="/logo.png" alt="TIMEPROOF" className="h-8 w-auto px-2" />
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/qntum-logo.svg"
+                alt="Qntum Roofing"
+                style={{ height: "28px", width: "auto", filter: "brightness(0) saturate(100%)" }}
+              />
               <div>
                 <h1 className="text-report-text font-semibold text-xl">Roof Inspection Report</h1>
                 <p className="text-gray-500 text-sm">{date} · {repName}</p>
@@ -79,100 +99,34 @@ export default async function SummaryPage({
             </div>
           </ReportSection>
 
-          {/* Findings */}
-          {checkedFindings.length > 0 && (
-            <ReportSection sectionKey="findings" title="Inspection Findings">
-              <p className="text-gray-600 text-sm">{checkedFindings.length} area{checkedFindings.length !== 1 ? "s" : ""} of concern identified</p>
+          {/* Diagnosis */}
+          {diagnosis.length > 0 && (
+            <ReportSection sectionKey="diagnosis" title="Inspection Findings">
+              <p className="text-gray-600 text-sm mb-4">
+                {diagnosis.length} finding{diagnosis.length !== 1 ? "s" : ""} identified
+              </p>
               <div className="flex flex-col gap-4">
-                {DAMAGE_GROUPS.map((group) => {
-                  const groupItems = group.items.filter((item) => findings[item.key] === true);
-                  if (groupItems.length === 0) return null;
-                  return (
-                    <div key={group.group}>
-                      <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">{group.group}</p>
-                      <ul className="flex flex-col gap-1">
-                        {groupItems.map((item) => (
-                          <li key={item.key} className="flex items-center gap-2 text-gray-700">
-                            <span className="text-report-heading">•</span>
-                            {item.label}
-                          </li>
-                        ))}
-                      </ul>
+                {diagnosis.map((f) => (
+                  <div
+                    key={f.id}
+                    className={`border rounded-xl p-4 ${SEVERITY_STYLES[f.severity] || "bg-gray-50 border-gray-200"}`}
+                  >
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${SEVERITY_BADGE[f.severity]}`}>
+                        {f.severity.toUpperCase()}
+                      </span>
+                      <h3 className="font-semibold text-base">{f.label}</h3>
+                      <span className="text-xs capitalize text-gray-500">({f.status})</span>
                     </div>
-                  );
-                })}
-              </div>
-            </ReportSection>
-          )}
-
-          {/* Photo Reveal */}
-          {inspection.photos.length > 0 && (
-            <ReportSection sectionKey="photo-reveal" title="Photo Documentation">
-              <PhotoReveal
-                mode="report"
-                photos={inspection.photos}
-                findings={findings}
-                address={address}
-                repName={repName}
-                customerName={customerName}
-              />
-            </ReportSection>
-          )}
-
-          {/* Structures */}
-          {inspection.structures.length > 0 && (
-            <ReportSection sectionKey="structures" title="Roof Structures">
-              <div className="flex flex-col gap-6">
-                {inspection.structures.map((s) => (
-                  <div key={s.id}>
-                    <h3 className="text-report-text font-semibold mb-2">{s.name}</h3>
-                    <table className="w-full text-sm">
-                      <tbody>
-                        {[
-                          ["Sq Ft", s.sqft != null ? s.sqft.toLocaleString() : null],
-                          ["Pitch", s.pitch],
-                          ["Ridge", fmtLinear(s.ridge)],
-                          ["Hip", fmtLinear(s.hip)],
-                          ["Valley", fmtLinear(s.valley)],
-                          ["Rake", fmtLinear(s.rake)],
-                          ["Eave", fmtLinear(s.eave)],
-                          ["Flashing", fmtLinear(s.flashing)],
-                          ["Step Flashing", fmtLinear(s.stepFlashing)],
-                          ["Parapets", fmtLinear(s.parapets)],
-                          ["Other", fmtLinear(s.other)],
-                        ]
-                          .filter(([, v]) => v != null && v !== "—")
-                          .map(([label, value], i) => (
-                            <tr key={String(label)} className={i % 2 === 0 ? "bg-report-surface" : "bg-report-bg"}>
-                              <td className="py-1.5 px-3 text-gray-500">{label}</td>
-                              <td className="py-1.5 px-3 text-report-text font-medium">{String(value)}</td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                    {/* Penetrations */}
-                    {(s.pipeBoots || s.skylights || s.chimneys || s.boxVents || s.turbines || s.atticFans) && (
-                      <div className="mt-3">
-                        <p className="text-gray-400 text-xs uppercase tracking-wider mb-1.5">Penetrations</p>
-                        <table className="w-full text-sm">
-                          <tbody>
-                            {[
-                              ["Pipe Boots", s.pipeBoots],
-                              ["Skylights", s.skylights],
-                              ["Chimneys", s.chimneys],
-                              ["Box Vents", s.boxVents],
-                              ["Turbines", s.turbines],
-                              ["Attic Fans", s.atticFans],
-                            ]
-                              .filter(([, v]) => v != null && Number(v) > 0)
-                              .map(([label, value], i) => (
-                                <tr key={String(label)} className={i % 2 === 0 ? "bg-report-surface" : "bg-report-bg"}>
-                                  <td className="py-1.5 px-3 text-gray-500">{label}</td>
-                                  <td className="py-1.5 px-3 text-report-text font-medium">{String(value)}</td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
+                    <p className="text-sm leading-relaxed">{f.explanation}</p>
+                    {(f.matchedRoofTags.length > 0 || f.matchedAtticTags.length > 0) && (
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+                        {f.matchedRoofTags.map((t) => (
+                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
+                        ))}
+                        {f.matchedAtticTags.map((t) => (
+                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -181,129 +135,159 @@ export default async function SummaryPage({
             </ReportSection>
           )}
 
-          {/* Packages */}
-          {inspection.packages.length > 0 && (
-            <ReportSection sectionKey="packages" title="Investment Options">
-              <div className="flex flex-col gap-5">
-                {[...inspection.packages]
-                  .sort((a, b) => (a.recommended === b.recommended ? 0 : a.recommended ? -1 : 1))
-                  .map((p) => {
-                    const npDiscount = p.basePrice * (p.nationalPromo ? 0.05 : 0);
-                    const lpDiscount = (p.basePrice - npDiscount) * (p.localPromo ? 0.1 : 0);
-                    const fspDiscount = (p.basePrice - npDiscount - lpDiscount) * (p.fsp ? 0.1 : 0);
-                    return (
-                      <div
+          {/* Photos */}
+          {(roofPhotos.length > 0 || atticPhotos.length > 0) && (
+            <ReportSection sectionKey="photos" title="Photo Documentation">
+              {roofPhotos.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Roof ({roofPhotos.length})</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {roofPhotos.map((p) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
                         key={p.id}
-                        className={`rounded-xl overflow-hidden border ${
-                          p.recommended
-                            ? "border-amber-400 shadow-md shadow-amber-100"
-                            : "border-report-border"
-                        }`}
-                      >
-                        {/* Card header */}
-                        <div className={`px-4 py-3 flex items-center justify-between ${
-                          p.recommended ? "bg-amber-400" : "bg-report-heading"
-                        }`}>
-                          <h3 className={`font-bold text-base ${p.recommended ? "text-amber-900" : "text-white"}`}>
-                            {p.name}
-                          </h3>
-                          {p.recommended && (
-                            <span className="text-amber-900 text-xs font-bold uppercase tracking-wider bg-amber-300 px-2.5 py-1 rounded-full">
-                              ⭐ Recommended
-                            </span>
-                          )}
-                        </div>
-                        {/* Line items */}
-                        <div className="divide-y divide-report-border">
-                          {p.basePrice > 0 && (
-                            <div className="flex justify-between px-4 py-2 bg-report-bg">
-                              <span className="text-gray-600 text-sm">Base Price</span>
-                              <span className="text-report-text text-sm font-medium">{fmt(p.basePrice)}</span>
-                            </div>
-                          )}
-                          {p.nationalPromo && (
-                            <div className="flex justify-between px-4 py-2 bg-report-bg">
-                              <span className="text-gray-600 text-sm">National Promotion (5%)</span>
-                              <span className="text-red-500 text-sm">−{fmt(npDiscount)}</span>
-                            </div>
-                          )}
-                          {p.localPromo && (
-                            <div className="flex justify-between px-4 py-2 bg-report-bg">
-                              <span className="text-gray-600 text-sm">Local Promotion (10%)</span>
-                              <span className="text-red-500 text-sm">−{fmt(lpDiscount)}</span>
-                            </div>
-                          )}
-                          {p.fsp && (
-                            <div className="flex justify-between px-4 py-2 bg-report-bg">
-                              <span className="text-gray-600 text-sm">FSP (10%)</span>
-                              <span className="text-red-500 text-sm">−{fmt(fspDiscount)}</span>
-                            </div>
-                          )}
-                          {p.nisi != null && (
-                            <div className={`flex justify-between px-4 py-3 ${p.recommended ? "bg-amber-50" : "bg-report-surface"}`}>
-                              <span className="text-report-text font-bold">Total Investment</span>
-                              <span className={`font-bold text-lg ${p.recommended ? "text-amber-700" : "text-report-heading"}`}>
-                                {fmt(p.nisi)}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
+                        src={p.r2Url}
+                        alt={`Roof photo ${p.photoNumber}`}
+                        className="w-full aspect-square object-cover rounded-lg border border-report-border"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {atticPhotos.length > 0 && (
+                <div>
+                  <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Attic ({atticPhotos.length})</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {atticPhotos.map((p) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={p.id}
+                        src={p.r2Url}
+                        alt={`Attic photo ${p.photoNumber}`}
+                        className="w-full aspect-square object-cover rounded-lg border border-report-border"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </ReportSection>
           )}
 
-          {/* Package details */}
-          {(() => {
-            const recommended = inspection.packages.find((p) => p.recommended);
-            const configId = recommended ? detectPackageId(recommended.name) : null;
-            if (!configId) return null;
-            return (
-              <ReportSection sectionKey="package-details" title="Your Package">
-                <PackageCard packageId={configId} isRecommended={true} />
-              </ReportSection>
-            );
-          })()}
-
-          {/* Production notes (visible items only) */}
-          {(inspection.gateCode || inspection.hasPets || inspection.accessIssues || inspection.colorSelected || inspection.specialRequests) && (
-            <ReportSection sectionKey="production-notes" title="Project Details">
+          {/* Property Background */}
+          {(inspection.timeInHome || inspection.yearBuilt || inspection.ageOfRoof || inspection.lastReplacedBy || inspection.pastRepairs) && (
+            <ReportSection sectionKey="property-background" title="Property Background">
               <div className="flex flex-col gap-2 text-sm">
-                {inspection.gateCode && (
+                {inspection.timeInHome && (
                   <div className="flex gap-3">
-                    <span className="text-gray-500 w-28">Gate Code</span>
-                    <span className="text-report-text">{inspection.gateCode}</span>
+                    <span className="text-gray-500 w-36">Time in home</span>
+                    <span className="text-report-text">{inspection.timeInHome}</span>
                   </div>
                 )}
-                {inspection.hasPets != null && (
+                {inspection.yearBuilt && (
                   <div className="flex gap-3">
-                    <span className="text-gray-500 w-28">Pets on property</span>
-                    <span className="text-report-text">{inspection.hasPets ? "Yes" : "No"}</span>
+                    <span className="text-gray-500 w-36">Year built</span>
+                    <span className="text-report-text">{inspection.yearBuilt}</span>
                   </div>
                 )}
-                {inspection.accessIssues && (
+                {inspection.ageOfRoof && (
                   <div className="flex gap-3">
-                    <span className="text-gray-500 w-28">Access Issues</span>
-                    <span className="text-report-text">{inspection.accessIssues}</span>
+                    <span className="text-gray-500 w-36">Age of roof</span>
+                    <span className="text-report-text">{inspection.ageOfRoof}</span>
                   </div>
                 )}
-                {inspection.colorSelected && (
+                {inspection.lastReplacedBy && (
                   <div className="flex gap-3">
-                    <span className="text-gray-500 w-28">Color Selected</span>
-                    <span className="text-report-text">{inspection.colorSelected}</span>
+                    <span className="text-gray-500 w-36">Last replaced by</span>
+                    <span className="text-report-text">{inspection.lastReplacedBy}</span>
                   </div>
                 )}
-                {inspection.specialRequests && (
+                {inspection.pastRepairs && (
                   <div className="flex gap-3">
-                    <span className="text-gray-500 w-28">Special Requests</span>
-                    <span className="text-report-text">{inspection.specialRequests}</span>
+                    <span className="text-gray-500 w-36">Past repairs</span>
+                    <span className="text-report-text">{inspection.pastRepairs}</span>
+                  </div>
+                )}
+                {inspection.hoaPresent && (
+                  <div className="flex gap-3">
+                    <span className="text-gray-500 w-36">HOA</span>
+                    <span className="text-report-text">{inspection.hoaName || "Yes"}</span>
                   </div>
                 )}
               </div>
             </ReportSection>
           )}
+
+          {/* Issues & Concerns */}
+          {(inspection.issuesConcerns || inspection.issueDuration || inspection.issueImpact) && (
+            <ReportSection sectionKey="issues" title="Issues & Concerns">
+              <div className="flex flex-col gap-2 text-sm">
+                {inspection.issuesConcerns && (
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Concerns</p>
+                    <p className="text-report-text">{inspection.issuesConcerns}</p>
+                  </div>
+                )}
+                {inspection.issueDuration && (
+                  <div className="flex gap-3">
+                    <span className="text-gray-500 w-36">Duration</span>
+                    <span className="text-report-text">{inspection.issueDuration}</span>
+                  </div>
+                )}
+                {inspection.issueImpact && (
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mt-2 mb-1">Impact</p>
+                    <p className="text-report-text">{inspection.issueImpact}</p>
+                  </div>
+                )}
+              </div>
+            </ReportSection>
+          )}
+
+          {/* Problem Awareness */}
+          {(inspection.problemAwarenessBefore || (pass2Complete && inspection.problemAwarenessAfter)) && (
+            <ReportSection sectionKey="problem-awareness" title="Problem Awareness">
+              {inspection.problemAwarenessBefore && (
+                <div className="mb-4">
+                  <p className="text-gray-600 text-sm mb-2">
+                    At the start of our visit, {firstName} described their concerns as:
+                  </p>
+                  <blockquote className="border-l-3 border-report-heading pl-4 text-report-text text-sm italic leading-relaxed bg-report-surface rounded-r-xl py-3 pr-3">
+                    {inspection.problemAwarenessBefore}
+                  </blockquote>
+                </div>
+              )}
+              {pass2Complete && inspection.problemAwarenessAfter && (
+                <div>
+                  <p className="text-gray-600 text-sm mb-2">
+                    After reviewing the inspection findings, {firstName} shared:
+                  </p>
+                  <blockquote className="border-l-3 border-gray-400 pl-4 text-report-text text-sm italic leading-relaxed bg-report-surface rounded-r-xl py-3 pr-3">
+                    {inspection.problemAwarenessAfter}
+                  </blockquote>
+                </div>
+              )}
+            </ReportSection>
+          )}
+
+          {/* Topics Reviewed */}
+          {coveredSigns.length > 0 && (
+            <ReportSection sectionKey="warning-signs-covered" title="Topics Reviewed">
+              <ul className="flex flex-col gap-1.5">
+                {coveredSigns.map((s) => (
+                  <li key={s.id} className="flex items-center gap-2 text-report-text text-sm">
+                    <span className="text-green-600">✓</span>
+                    {s.title}
+                  </li>
+                ))}
+              </ul>
+            </ReportSection>
+          )}
+
+          {/* PRESERVED — not active in Qntum build */}
+          {/* structures section */}
+          {/* packages section */}
+          {/* package-details section */}
+          {/* production-notes section */}
 
         </div>
       </SectionTracker>

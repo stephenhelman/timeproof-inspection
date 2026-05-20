@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
-import Logo from "@/src/components/ui/Logo";
 import { isWorkEmail, ALLOWED_EMAIL_DOMAIN } from "@/src/lib/auth-constants";
 
 // ── Step 1: Enter work email ──────────────────────────────
@@ -54,7 +53,7 @@ function EmailStep({
   return (
     <>
       <h1 className="text-text-primary text-2xl font-bold mb-1">Sign in</h1>
-      <p className="text-text-secondary text-base mb-8">TIMEPROOF Inspection Reports</p>
+      <p className="text-text-secondary text-base mb-8">Scope Reports — Qntum Roofing</p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
@@ -269,7 +268,8 @@ function LoginForm() {
     <div className="min-h-screen bg-bg-base flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-10">
-          <Logo height={52} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/qntum-logo.svg" alt="Qntum Roofing" style={{ height: "40px", width: "auto" }} />
         </div>
 
         <div className="bg-bg-surface border border-border rounded-3xl p-8">

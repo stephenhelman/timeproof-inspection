@@ -88,17 +88,15 @@ function CardPreview({ profile }: { profile: ProfileData }) {
   const cardUrl = `${appUrl}/card/${profile.id}`;
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg overflow-hidden max-w-sm w-full">
-      {/* Header with logo */}
-      <div className="bg-brand-blue flex items-center justify-center py-3">
-        <div className="bg-white rounded-lg px-3 py-1.5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="Timeproof USA" style={{ height: "20px", width: "auto" }} />
-        </div>
+    <div className="bg-bg-surface rounded-2xl border border-border overflow-hidden max-w-sm w-full shadow-xl">
+      {/* Header — logo on dark */}
+      <div className="bg-bg-elevated border-b border-border flex items-center justify-center py-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/qntum-logo.svg" alt="Qntum Roofing" style={{ height: "26px", width: "auto" }} />
       </div>
 
-      <div className="p-6 flex flex-col gap-4">
-        {/* Photo + name — centered, photo above name */}
+      <div className="p-5 flex flex-col gap-4">
+        {/* Photo + name — centered */}
         <div className="flex flex-col items-center gap-3 pb-1">
           {profile.cardShowProfileImage && profile.profileImageUrl ? (
             <Image
@@ -106,44 +104,44 @@ function CardPreview({ profile }: { profile: ProfileData }) {
               alt={profile.name ?? ""}
               width={96}
               height={96}
-              className="w-24 h-24 rounded-full object-cover ring-4 ring-gray-100 shadow-md"
+              className="w-24 h-24 rounded-full object-cover ring-4 ring-border shadow-md"
             />
           ) : profile.cardShowProfileImage ? (
-            <div className="w-24 h-24 rounded-full bg-brand-blue flex items-center justify-center text-white text-3xl font-bold shadow-md">
+            <div className="w-24 h-24 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-text-primary text-3xl font-bold shadow-md">
               {(profile.name ?? "?")[0]?.toUpperCase()}
             </div>
           ) : null}
           <div className="text-center">
-            <p className="text-gray-900 font-bold text-xl leading-tight">
+            <p className="text-text-primary font-bold text-xl leading-tight">
               {profile.name || "Your Name"}
             </p>
-            <p className="text-gray-500 text-sm mt-0.5">Roofing Specialist</p>
+            <p className="text-text-secondary text-sm mt-0.5">Roofing Specialist</p>
           </div>
         </div>
 
         {/* Contact details */}
-        <div className="flex flex-col gap-2 border-t border-gray-100 pt-4">
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
           {profile.cardShowPhone && profile.phone && (
-            <div className="flex items-center gap-2 text-gray-700 text-sm">
-              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            <div className="flex items-center gap-2 text-text-secondary text-sm">
+              <svg className="w-4 h-4 text-text-hint shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
               </svg>
               {profile.phone}
             </div>
           )}
           {profile.cardShowEmail && (
-            <div className="flex items-center gap-2 text-gray-700 text-sm">
-              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            <div className="flex items-center gap-2 text-text-secondary text-sm">
+              <svg className="w-4 h-4 text-text-hint shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
               {profile.email}
             </div>
           )}
           {profile.cardShowArea && profile.area && (
-            <div className="flex items-center gap-2 text-gray-700 text-sm">
-              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            <div className="flex items-center gap-2 text-text-secondary text-sm">
+              <svg className="w-4 h-4 text-text-hint shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               {profile.area}
             </div>
@@ -152,25 +150,24 @@ function CardPreview({ profile }: { profile: ProfileData }) {
 
         {/* Report link placeholder */}
         {profile.cardShowReportLink && (
-          <div className="bg-gray-50 rounded-xl px-4 py-3 text-gray-500 text-sm border border-gray-100">
+          <div className="bg-brand-blue/10 border border-brand-blue/25 rounded-xl px-4 py-3 text-text-secondary text-sm">
             View scope report — link appears when shared with a customer
           </div>
         )}
 
         {/* QR placeholder */}
         {profile.cardShowQr && (
-          <div className="flex justify-center pt-2">
-            <div className="w-20 h-20 bg-gray-100 rounded-xl flex items-center justify-center text-gray-300 text-xs text-center leading-tight">
-              QR code<br />({cardUrl.replace("http://", "").replace("https://", "")})
+          <div className="flex justify-center pt-2 border-t border-border">
+            <div className="w-20 h-20 bg-bg-elevated border border-border rounded-xl flex items-center justify-center text-text-hint text-xs text-center leading-tight">
+              QR<br />preview
             </div>
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div className="border-t border-gray-100 py-2.5 flex items-center justify-center gap-1.5">
-        <span className="text-gray-300 text-xs">Powered by</span>
-        <span className="text-gray-400 text-xs font-semibold tracking-wide">TimeproofUSA</span>
+      <div className="border-t border-border py-2.5 flex items-center justify-center">
+        <span className="text-text-hint text-xs tracking-wide">Qntum Roofing</span>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-export const ALLOWED_EMAIL_DOMAIN = "operationprofitllc.com";
+export const ALLOWED_EMAIL_DOMAIN = "qntum.com";
 
 export const isWorkEmail = (email: string): boolean => {
   return email.toLowerCase().trim().endsWith(`@${ALLOWED_EMAIL_DOMAIN}`);

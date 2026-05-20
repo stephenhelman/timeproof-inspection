@@ -8,11 +8,11 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export type CodePurpose = "registration" | "forgot-password" | "2fa" | "email-change" | "magic-login";
 
 const PURPOSE_SUBJECTS: Record<CodePurpose, string> = {
-  registration: "Your TIMEPROOF verification code",
-  "forgot-password": "Reset your TIMEPROOF password",
-  "2fa": "Your TIMEPROOF login code",
-  "email-change": "Confirm your new TIMEPROOF email",
-  "magic-login": "Your TIMEPROOF sign-in code",
+  registration: "Your Scope Reports verification code",
+  "forgot-password": "Reset your Scope Reports password",
+  "2fa": "Your Scope Reports login code",
+  "email-change": "Confirm your new Scope Reports email",
+  "magic-login": "Your Scope Reports sign-in code",
 };
 
 const PURPOSE_MESSAGES: Record<CodePurpose, string> = {
@@ -20,7 +20,7 @@ const PURPOSE_MESSAGES: Record<CodePurpose, string> = {
   "forgot-password": "Use this code to reset your password.",
   "2fa": "Use this code to complete your sign in.",
   "email-change": "Use this code to confirm your new email address.",
-  "magic-login": "Use this code to sign in to your TIMEPROOF account.",
+  "magic-login": "Use this code to sign in to Scope Reports.",
 };
 
 export async function sendVerificationCode(
@@ -30,7 +30,7 @@ export async function sendVerificationCode(
   if (purpose !== "2fa" && !isWorkEmail(email)) {
     return {
       success: false,
-      error: "Only @operationprofitllc.com email addresses are allowed",
+      error: "Only @qntumroofing.com email addresses are allowed",
     };
   }
 
@@ -68,16 +68,16 @@ export async function sendVerificationCode(
       subject: PURPOSE_SUBJECTS[purpose],
       html: `
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-          <h2 style="color: #1B3A7A;">TIMEPROOF Inspection</h2>
+          <h2 style="color: #1a1a2e;">Qntum Roofing — Scope Reports</h2>
           <p>${PURPOSE_MESSAGES[purpose]}</p>
           <div style="font-size: 48px; font-weight: bold; letter-spacing: 12px;
-                      color: #1B3A7A; padding: 24px 0; text-align: center;">
+                      color: #1a1a2e; padding: 24px 0; text-align: center;">
             ${code}
           </div>
           <p style="color: #666;">This code expires in 30 minutes.</p>
           <p style="color: #666;">If you did not request this, ignore this email.</p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-          <p style="color: #999; font-size: 12px;">TIMEPROOF Inspection · scopereports.com</p>
+          <p style="color: #999; font-size: 12px;">Qntum Roofing · Scope Reports · scopereports.com</p>
         </div>
       `,
     });
