@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canViewInspection, canEditInspection, canDeleteInspection } from "@/src/lib/permissions";
 
-async function getOwnedInspection(id: string, userId: string) {
-  const inspection = await prisma.inspection.findUnique({
+async function fetchInspection(id: string) {
+  return prisma.inspection.findUnique({
     where: { id },
     include: {
       structures: {
@@ -16,24 +17,20 @@ async function getOwnedInspection(id: string, userId: string) {
       reportVisits: { include: { sections: true } },
     },
   });
-  if (!inspection || inspection.userId !== userId) return null;
-  return inspection;
 }
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const { id } = await params;
-  const inspection = await getOwnedInspection(id, session.user.id);
-  if (!inspection) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  const inspection = await fetchInspection(id);
+  if (!inspection) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  if (!canViewInspection(user.id, user.role, inspection)) return forbidden();
 
   return NextResponse.json(inspection);
 }
@@ -42,21 +39,18 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const { id } = await params;
-  const existing = await getOwnedInspection(id, session.user.id);
-  if (!existing) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  const existing = await fetchInspection(id);
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  if (!canEditInspection(user.id, user.role, existing)) return forbidden();
 
   const body = await req.json().catch(() => ({}));
   const { quote: quoteData, ...inspectionData } = body;
 
-  // Legacy quote upsert
   if (quoteData) {
     const { basePrice, nationalPromo, localPromo, fsp, estMonthly } = quoteData;
     const bp = basePrice ?? existing.quote?.basePrice ?? 0;
@@ -86,7 +80,6 @@ export async function PATCH(
     "findingsNotes", "productionNotes", "gateCode",
     "hasPets", "accessIssues", "hoaRestrictions", "hoaDetails", "colorSelected",
     "specialRequests", "followUpNotes",
-    // Qntum fields
     "northStar", "focusDrivers", "timeInHome", "yearBuilt", "ageOfRoof",
     "lastReplacedBy", "pastRepairs", "otherProjects", "hoaPresent", "hoaName",
     "issuesConcerns", "issueDuration", "issueImpact", "rootCauseBeliefBefore",
@@ -119,7 +112,6 @@ export async function PATCH(
     },
   });
 
-  // When inspection is marked complete, advance lead status
   if (updateData.status === "complete" && existing.leadId) {
     const lead = await prisma.lead.findUnique({ where: { id: existing.leadId }, select: { status: true } });
     if (lead && ["NEW", "INSPECTION_SCHEDULED", "REVIVAL_PENDING"].includes(lead.status)) {
@@ -127,7 +119,6 @@ export async function PATCH(
     }
   }
 
-  // When inspection is marked sold, update lead to SOLD
   if (updateData.status === "sold" && existing.leadId) {
     await prisma.lead.update({ where: { id: existing.leadId }, data: { status: "SOLD" } });
   }
@@ -139,16 +130,14 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const { id } = await params;
   const existing = await prisma.inspection.findUnique({ where: { id } });
-  if (!existing || existing.userId !== session.user.id) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  if (!canDeleteInspection(user.id, user.role, existing)) return forbidden();
 
   await prisma.inspection.delete({ where: { id } });
   return NextResponse.json({ ok: true });

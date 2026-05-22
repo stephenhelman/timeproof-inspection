@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canCreateLead, canViewAllLeads, buildLeadScope } from "@/src/lib/permissions";
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
+  if (!canCreateLead(user.role)) return forbidden("Your role cannot create leads");
 
   const body = await req.json().catch(() => ({}));
   const {
@@ -23,6 +23,8 @@ export async function POST(req: Request) {
     appointmentDate,
     jobCompletionDate,
     status,
+    assignedUserId,
+    setterUserId,
   } = body;
 
   if (!customerName || !streetAddress) {
@@ -47,7 +49,8 @@ export async function POST(req: Request) {
       appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
       jobCompletionDate: jobCompletionDate ? new Date(jobCompletionDate) : null,
       status: status || "NEW",
-      assignedUserId: session.user.id,
+      assignedUserId: assignedUserId || user.id,
+      setterUserId: setterUserId || null,
     },
     include: { inspections: true },
   });
@@ -56,15 +59,18 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
+  // Resolve subordinate IDs for SETTER_MANAGER scoping
+  let subordinateIds: string[] | undefined;
+  if (user.role === "SETTER_MANAGER") {
+    const reports = await prisma.user.findMany({
+      where: { managerId: user.id },
+      select: { id: true },
+    });
+    subordinateIds = reports.map((r) => r.id);
+  }
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
@@ -78,22 +84,24 @@ export async function GET(req: Request) {
   const sortDir = (searchParams.get("sortDir") || "asc") as "asc" | "desc";
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: Record<string, any> = {};
+  const scope = buildLeadScope(user.id, user.role, subordinateIds) as Record<string, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const filters: Record<string, any> = {};
 
-  if (user?.role === "REP") {
-    where.assignedUserId = session.user.id;
-  }
-
-  if (status) where.status = status;
-  if (revivalStatus) where.revivalStatus = revivalStatus;
-  if (assignedTech) where.assignedTech = { contains: assignedTech, mode: "insensitive" };
-  if (source) where.source = source;
-  if (zip) where.zip = { contains: zip, mode: "insensitive" };
+  if (status) filters.status = status;
+  if (revivalStatus) filters.revivalStatus = revivalStatus;
+  if (assignedTech) filters.assignedTech = { contains: assignedTech, mode: "insensitive" };
+  if (source) filters.source = source;
+  if (zip) filters.zip = { contains: zip, mode: "insensitive" };
   if (dateFrom || dateTo) {
-    where.createdAt = {};
-    if (dateFrom) where.createdAt.gte = new Date(dateFrom);
-    if (dateTo) where.createdAt.lte = new Date(dateTo);
+    filters.createdAt = {};
+    if (dateFrom) filters.createdAt.gte = new Date(dateFrom);
+    if (dateTo) filters.createdAt.lte = new Date(dateTo);
   }
+
+  const where = Object.keys(scope).length > 0
+    ? { AND: [scope, filters] }
+    : filters;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let orderBy: Record<string, any> = { updatedAt: "desc" };

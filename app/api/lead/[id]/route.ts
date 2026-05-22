@@ -1,43 +1,30 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { autoFlagRevival } from "@/src/lib/leads";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canViewLead, canEditLead, canDeleteLead } from "@/src/lib/permissions";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const { id } = await params;
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
 
   const lead = await prisma.lead.findUnique({
     where: { id },
     include: {
-      inspections: {
-        orderBy: { createdAt: "desc" },
-      },
+      inspections: { orderBy: { createdAt: "desc" } },
       assignedUser: { select: { id: true, name: true, email: true } },
       notes: { orderBy: { createdAt: "desc" } },
     },
   });
 
-  if (!lead) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // REP can only see their assigned leads
-  if (user?.role === "REP" && lead.assignedUserId !== session.user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  if (!canViewLead(user.id, user.role, lead)) return forbidden();
 
   return NextResponse.json(lead);
 }
@@ -46,26 +33,15 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const { id } = await params;
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
-
   const existing = await prisma.lead.findUnique({ where: { id } });
-  if (!existing) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (user?.role === "REP" && existing.assignedUserId !== session.user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  if (!canEditLead(user.id, user.role, existing)) return forbidden();
 
   const body = await req.json().catch(() => ({}));
 
@@ -93,6 +69,7 @@ export async function PATCH(
     "appointmentDate",
     "jobCompletionDate",
     "assignedUserId",
+    "setterUserId",
   ];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -113,7 +90,6 @@ export async function PATCH(
     }
   }
 
-  // Auto-set revivalOutcome when status is set to REVIVAL_RECOVERED
   if (
     updateData.status === "REVIVAL_RECOVERED" &&
     !updateData.revivalOutcome &&
@@ -126,13 +102,10 @@ export async function PATCH(
     where: { id },
     data: updateData,
     include: {
-      inspections: {
-        orderBy: { createdAt: "desc" },
-      },
+      inspections: { orderBy: { createdAt: "desc" } },
     },
   });
 
-  // Auto-flag for revival when applicable
   await autoFlagRevival(id);
 
   return NextResponse.json(updated);
@@ -142,19 +115,14 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
+  if (!canDeleteLead(user.role)) return forbidden("Only admins can delete leads");
 
   const { id } = await params;
   const existing = await prisma.lead.findUnique({ where: { id } });
-  if (!existing) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Cascade: delete all inspections (and their children) before deleting the lead
-  // The lead relation on Inspection uses onDelete: SetNull, so we manually delete first
   await prisma.inspection.deleteMany({ where: { leadId: id } });
   await prisma.lead.delete({ where: { id } });
 

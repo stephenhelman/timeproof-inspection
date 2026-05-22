@@ -3,8 +3,6 @@ import { prisma } from "@/src/lib/prisma";
 
 // ============================================================
 // TERROS PAYLOAD MAP — UPDATE THIS WHEN YOU HAVE THE REAL SHAPE
-// All field mappings live here. Nothing below this block needs
-// to change when Terros updates their webhook format.
 // ============================================================
 function normalizeTerrosPayload(raw: Record<string, unknown>) {
   return {
@@ -15,12 +13,11 @@ function normalizeTerrosPayload(raw: Record<string, unknown>) {
     appointmentAt: (raw.appointment_at  ?? raw.scheduled_at ?? null) as string | null,
     setterName:    (raw.setter_name     ?? raw.assigned_to ?? null) as string | null,
     externalId:    (raw.id              ?? raw.job_id      ?? null) as string | null,
-  }
+  };
 }
 // ============================================================
 
 export async function POST(req: Request) {
-  // Validate shared secret
   const secret = req.headers.get("x-terros-secret");
   if (!secret || secret !== process.env.TERROS_WEBHOOK_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -53,10 +50,29 @@ export async function POST(req: Request) {
       },
     });
 
+    await prisma.webhookLog.create({
+      data: {
+        source: "terros",
+        payload: raw as object,
+        status: "success",
+        leadId: lead.id,
+      },
+    });
+
     return NextResponse.json({ leadId: lead.id, created: true });
   } catch (err) {
-    console.error("Terros webhook error:", err instanceof Error ? err.message : err);
-    // Return 200 to prevent webhook retries on app errors
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("Terros webhook error:", errorMessage);
+
+    await prisma.webhookLog.create({
+      data: {
+        source: "terros",
+        payload: raw as object,
+        status: "error",
+        errorMessage,
+      },
+    }).catch(() => {});
+
     return NextResponse.json({ error: "Internal error — lead not created", created: false });
   }
 }

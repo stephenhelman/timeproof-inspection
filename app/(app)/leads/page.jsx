@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
+import { usePermissions } from "@/src/lib/use-permissions";
 
 const STATUS_OPTIONS = [
   "NEW",
@@ -361,6 +362,7 @@ function ImportModal({ onClose, onImported }) {
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function LeadsPage() {
+  const perms = usePermissions();
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
@@ -491,18 +493,22 @@ export default function LeadsPage() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-[#f0f4ff] text-3xl font-bold">Leads</h1>
           <div className="flex gap-3">
-            <button
-              onClick={() => setShowImport(true)}
-              className="bg-[#1a2236] border border-[#2a3a5c] hover:border-[#1B3A7A] text-[#f0f4ff] font-medium rounded-xl px-5 py-2.5 text-sm transition-colors min-h-[44px]"
-            >
-              Import CSV
-            </button>
-            <button
-              onClick={() => setShowAdd(true)}
-              className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 text-white font-medium rounded-xl px-5 py-2.5 text-sm transition-colors min-h-[44px]"
-            >
-              + Add Lead
-            </button>
+            {perms.canImportLeads && (
+              <button
+                onClick={() => setShowImport(true)}
+                className="bg-[#1a2236] border border-[#2a3a5c] hover:border-[#1B3A7A] text-[#f0f4ff] font-medium rounded-xl px-5 py-2.5 text-sm transition-colors min-h-[44px]"
+              >
+                Import CSV
+              </button>
+            )}
+            {perms.canCreateLead && (
+              <button
+                onClick={() => setShowAdd(true)}
+                className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 text-white font-medium rounded-xl px-5 py-2.5 text-sm transition-colors min-h-[44px]"
+              >
+                + Add Lead
+              </button>
+            )}
           </div>
         </div>
 

@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 // PRESERVED — not active in Qntum build (revival)
 // import CallScriptModal from "@/src/components/revival/CallScriptModal";
-import { MessageSquare, Send, ChevronDown } from "lucide-react";
+import { MessageSquare, Send, ChevronDown, Lock } from "lucide-react";
+import { usePermissions } from "@/src/lib/use-permissions";
 
 const LEAD_STATUS_OPTIONS = [
   "NEW",
@@ -60,6 +61,7 @@ function fmtDateFull(val) {
 export default function LeadDetailPage() {
   const { id } = useParams();
   const router = useRouter();
+  const perms = usePermissions();
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -146,6 +148,8 @@ export default function LeadDetailPage() {
 
   if (!lead) return null;
 
+  // A user can view but not edit if they're a SETTER or SETTER_MANAGER seeing a non-assigned lead
+  const canEdit = perms.isAtLeastManager || lead.assignedUserId === perms.userId;
   const showRevival = lead.status === "REVIVAL_PENDING" || lead.status === "REVIVAL_RECOVERED";
 
   return (
@@ -166,6 +170,14 @@ export default function LeadDetailPage() {
       */}
 
       <div className="max-w-6xl mx-auto space-y-6">
+        {/* Read-only banner */}
+        {!canEdit && (
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-amber-300 text-sm">
+            <Lock size={14} />
+            <span>You have view-only access to this lead.</span>
+          </div>
+        )}
+
         {/* Breadcrumb */}
         <div className="flex items-center gap-2">
           <a href="/leads" className="text-[#8fa3c8] hover:text-[#f0f4ff] text-sm transition-colors">
@@ -193,12 +205,14 @@ export default function LeadDetailPage() {
                 </div>
                 <div className="flex gap-2">
                   {saving && <span className="text-[#8fa3c8] text-xs self-center">Saving…</span>}
-                  <button
-                    onClick={handleDelete}
-                    className="text-red-400 hover:text-red-300 text-sm px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
-                  >
-                    Delete
-                  </button>
+                  {perms.canDeleteLead && (
+                    <button
+                      onClick={handleDelete}
+                      className="text-red-400 hover:text-red-300 text-sm px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -241,7 +255,8 @@ export default function LeadDetailPage() {
                 <select
                   value={lead.status}
                   onChange={handleStatusChange}
-                  className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[48px] px-4 text-base focus:outline-none focus:border-blue-500 transition-colors max-w-xs"
+                  disabled={!canEdit}
+                  className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[48px] px-4 text-base focus:outline-none focus:border-blue-500 transition-colors max-w-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {LEAD_STATUS_OPTIONS.map((s) => (
                     <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
@@ -419,12 +434,14 @@ export default function LeadDetailPage() {
             <div className="bg-[#111827] border border-[#2a3a5c] rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-[#f0f4ff] font-semibold">Reports</h3>
-                <a
-                  href={`/inspection/new?leadId=${id}`}
-                  className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 text-white text-sm font-medium rounded-xl px-4 py-2 transition-colors min-h-[44px] flex items-center"
-                >
-                  + Generate Report
-                </a>
+                {canEdit && (
+                  <a
+                    href={`/inspection/new?leadId=${id}`}
+                    className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 text-white text-sm font-medium rounded-xl px-4 py-2 transition-colors min-h-[44px] flex items-center"
+                  >
+                    + Generate Report
+                  </a>
+                )}
               </div>
 
               {lead.inspections && lead.inspections.length === 0 ? (

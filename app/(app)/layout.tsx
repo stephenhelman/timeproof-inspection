@@ -9,6 +9,7 @@ import {
   // PhoneCall,  // PRESERVED — not active in Qntum build (revival)
   CreditCard,
   LogOut,
+  ShieldCheck,
 } from "lucide-react";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -25,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const dbUser = await prisma.user.findUniqueOrThrow({
     where: { id: session.user.id },
-    select: { profileImageUrl: true, role: true },
+    select: { profileImageUrl: true, role: true, isActive: true },
   });
 
   // PRESERVED — not active in Qntum build (revival queue)
@@ -38,9 +39,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const cardUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/card/${session.user.id}`;
 
+  const isAdmin = dbUser.role === "ADMIN" || dbUser.role === "REGIONAL";
+
   const navLinks = [
     { href: "/inspections", label: "Inspections", icon: ClipboardList },
     { href: "/leads", label: "Leads", icon: Users },
+    ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
   ];
 
   return (

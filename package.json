@@ -7,7 +7,8 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "seed:user": "node --env-file=.env.local scripts/seed-user.js"
+    "seed:user": "node --env-file=.env.local scripts/seed-user.js",
+    "seed:admin": "node --env-file=.env.local --experimental-strip-types scripts/seed-admin.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",

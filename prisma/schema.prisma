@@ -38,6 +38,10 @@ enum RevivalOutcome {
 
 enum UserRole {
   ADMIN
+  REGIONAL
+  SALES_MANAGER
+  SETTER_MANAGER
+  SETTER
   REP
 }
 
@@ -61,13 +65,18 @@ model User {
   cardShowQr          Boolean         @default(true)
   cardShowProfileImage Boolean        @default(true)
 
-  role           UserRole        @default(ADMIN)
+  role           UserRole        @default(REP)
+  isActive       Boolean         @default(true)
+  managerId      String?
+  manager        User?           @relation("UserManager", fields: [managerId], references: [id])
+  reports        User[]          @relation("UserManager")
 
   inspections    Inspection[]
   sessions       Session[]
   accounts       Account[]
   trustedDevices TrustedDevice[]
-  leads          Lead[]
+  leads          Lead[]          @relation("LeadAssigned")
+  setLeads       Lead[]          @relation("LeadSetter")
 }
 
 model Account {
@@ -129,7 +138,9 @@ model Lead {
   appointmentDate      DateTime?
   jobCompletionDate    DateTime?
   assignedUserId       String?
-  assignedUser         User?           @relation(fields: [assignedUserId], references: [id])
+  assignedUser         User?           @relation("LeadAssigned", fields: [assignedUserId], references: [id])
+  setterUserId         String?
+  setterUser           User?           @relation("LeadSetter", fields: [setterUserId], references: [id])
   ghlContactId         String?         // GHL contact ID written back after export
   inspections          Inspection[]
   notes                LeadNote[]
@@ -417,4 +428,17 @@ model BotThread {
   messages  Json     @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model WebhookLog {
+  id           String   @id @default(cuid())
+  source       String   // e.g. "terros"
+  payload      Json
+  status       String   // "success" | "error"
+  errorMessage String?
+  leadId       String?  // set if a lead was created
+  createdAt    DateTime @default(now())
+
+  @@index([source])
+  @@index([createdAt])
 }

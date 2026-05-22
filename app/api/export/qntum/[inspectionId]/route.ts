@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canViewInspection } from "@/src/lib/permissions";
 
 // ============================================================
 // QNTUM EXPORT PAYLOAD MAP — UPDATE THIS WHEN YOU HAVE THE
@@ -70,10 +71,8 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ inspectionId: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const { inspectionId } = await params;
 
@@ -82,9 +81,8 @@ export async function POST(
     include: { photos: { orderBy: { photoNumber: "asc" } } },
   });
 
-  if (!inspection || inspection.userId !== session.user.id) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (!inspection) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canViewInspection(user.id, user.role, inspection)) return forbidden();
 
   if (inspection.status !== "complete") {
     return NextResponse.json(

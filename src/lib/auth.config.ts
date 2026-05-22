@@ -46,6 +46,15 @@ export const authConfig: NextAuthConfig = {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 
+      // Admin routes — require REGIONAL or higher
+      if (pathname.startsWith("/admin") || pathname.startsWith("/api/admin")) {
+        const role = (auth?.user as { role?: string } | undefined)?.role;
+        const adminRoles = ["ADMIN", "REGIONAL"];
+        if (!role || !adminRoles.includes(role)) {
+          return Response.redirect(new URL("/dashboard", nextUrl));
+        }
+      }
+
       return true;
     },
   },

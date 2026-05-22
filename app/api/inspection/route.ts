@@ -1,21 +1,31 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { getSessionUser, unauthorized } from "@/src/lib/require-permission";
+import { canViewInspection } from "@/src/lib/permissions";
 
 export async function GET(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
 
+  // Admins and managers can see all; others see only their own
+  const where = {
+    ...(canViewInspection(user.id, user.role, { userId: "" })
+      ? {}
+      : { userId: user.id }),
+    ...(status ? { status } : {}),
+  };
+
+  // For roles that can view all, don't restrict by userId
+  const scopedWhere =
+    user.role === "ADMIN" || user.role === "REGIONAL" || user.role === "SALES_MANAGER"
+      ? status ? { status } : {}
+      : { userId: user.id, ...(status ? { status } : {}) };
+
   const inspections = await prisma.inspection.findMany({
-    where: {
-      userId: session.user.id,
-      ...(status ? { status } : {}),
-    },
+    where: scopedWhere,
     orderBy: { updatedAt: "desc" },
     include: {
       quote: true,
@@ -27,17 +37,15 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const body = await req.json().catch(() => ({}));
   const { repName } = body;
 
   const inspection = await prisma.inspection.create({
     data: {
-      userId: session.user.id,
+      userId: user.id,
       repName: repName || null,
     },
     include: {
