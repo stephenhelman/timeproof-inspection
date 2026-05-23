@@ -8,8 +8,11 @@ import { usePermissions } from "@/src/lib/use-permissions";
 const STATUS_OPTIONS = [
   "NEW",
   "INSPECTION_SCHEDULED",
+  "EN_ROUTE",
+  "INSPECTION_IN_PROGRESS",
   "INSPECTION_COMPLETE",
   "QUOTED",
+  "PENDING_SOLD_CONFIRMATION",
   "SOLD",
   "DENIED",
   "NO_SHOW",
@@ -22,8 +25,11 @@ const STATUS_OPTIONS = [
 const STATUS_BADGE = {
   NEW: "bg-blue-500/20 text-blue-300",
   INSPECTION_SCHEDULED: "bg-purple-500/20 text-purple-300",
+  EN_ROUTE: "bg-violet-500/20 text-violet-300",
+  INSPECTION_IN_PROGRESS: "bg-indigo-500/20 text-indigo-300",
   INSPECTION_COMPLETE: "bg-indigo-500/20 text-indigo-300",
   QUOTED: "bg-cyan-500/20 text-cyan-300",
+  PENDING_SOLD_CONFIRMATION: "bg-teal-500/20 text-teal-300",
   SOLD: "bg-green-500/20 text-green-300",
   DENIED: "bg-red-500/20 text-red-300",
   NO_SHOW: "bg-orange-500/20 text-orange-300",
@@ -32,6 +38,37 @@ const STATUS_BADGE = {
   REVIVAL_RECOVERED: "bg-emerald-500/20 text-emerald-300",
   DEAD: "bg-zinc-500/20 text-zinc-400",
 };
+
+function getUrgencyBadge(lead) {
+  if (lead.status !== "INSPECTION_SCHEDULED") return null;
+  const apptAt = lead.inspections?.[0]?.appointmentAt;
+  if (!apptAt) return null;
+  const appt = new Date(apptAt);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart.getTime() + 86400000);
+  const dayAfterStart = new Date(tomorrowStart.getTime() + 86400000);
+  if (appt < todayStart) return { label: "Overdue", cls: "bg-red-500/20 text-red-400 border border-red-500/30" };
+  if (appt < tomorrowStart) return { label: "Today", cls: "bg-green-500/20 text-green-400 border border-green-500/30" };
+  if (appt < dayAfterStart) return { label: "Tomorrow", cls: "bg-blue-500/20 text-blue-400 border border-blue-500/30" };
+  return null;
+}
+
+function sortLeadsUrgencyFirst(leads) {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart.getTime() + 86400000);
+  function urgencyWeight(lead) {
+    if (lead.status !== "INSPECTION_SCHEDULED") return 3;
+    const apptAt = lead.inspections?.[0]?.appointmentAt;
+    if (!apptAt) return 3;
+    const appt = new Date(apptAt);
+    if (appt < todayStart) return 0; // overdue
+    if (appt < tomorrowStart) return 1; // today
+    return 2; // tomorrow or later
+  }
+  return [...leads].sort((a, b) => urgencyWeight(a) - urgencyWeight(b));
+}
 
 function fmtCurrency(val) {
   if (val === null || val === undefined) return "—";
@@ -553,6 +590,7 @@ export default function LeadsPage() {
             className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[44px] px-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
           >
             <option value="">All Sources</option>
+            <option value="facebook">Facebook</option>
             <option value="manual">Manual</option>
             <option value="servicetitan_import">ServiceTitan Import</option>
           </select>
@@ -614,7 +652,7 @@ export default function LeadsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {leads.map((lead) => (
+                  {sortLeadsUrgencyFirst(leads).map((lead) => (
                     <tr
                       key={lead.id}
                       onClick={() => (window.location.href = `/leads/${lead.id}`)}
@@ -628,19 +666,41 @@ export default function LeadsPage() {
                           className="w-4 h-4 rounded accent-[#1B3A7A] cursor-pointer"
                         />
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[#f0f4ff] font-medium">{lead.customerName}</span>
-                          {lead.ghlContactId && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30 leading-none">
-                              GHL
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[#f0f4ff] font-medium whitespace-nowrap">{lead.customerName}</span>
+                            {lead.ghlContactId && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30 leading-none">
+                                GHL
+                              </span>
+                            )}
+                            {lead.revivalStatus === "PENDING" && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 leading-none">
+                                DRIP
+                              </span>
+                            )}
+                            {(() => { const u = getUrgencyBadge(lead); return u ? (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none ${u.cls}`}>
+                                {u.label}
+                              </span>
+                            ) : null; })()}
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none ${lead.source === "facebook" ? "bg-blue-500/20 text-blue-300" : "bg-zinc-500/20 text-zinc-400"}`}>
+                              {lead.source === "facebook" ? "Facebook" : lead.source === "servicetitan_import" ? "ST Import" : "Manual"}
                             </span>
-                          )}
-                          {lead.revivalStatus === "PENDING" && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 leading-none">
-                              DRIP
-                            </span>
-                          )}
+                            {lead.sourceTier && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none ${lead.sourceTier === "primary" ? "bg-amber-500/20 text-amber-300" : lead.sourceTier === "secondary" ? "bg-zinc-500/20 text-zinc-400" : "bg-red-500/20 text-red-400"}`}>
+                                {lead.sourceTier === "primary" ? "Tier 1" : lead.sourceTier === "secondary" ? "Tier 2" : "Out of Area"}
+                              </span>
+                            )}
+                            {lead.sourceTier && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none ${lead.qualifyCompletedAt ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
+                                {lead.qualifyCompletedAt ? "Qualified" : "Pending"}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-[#8fa3c8] max-w-[180px] truncate">

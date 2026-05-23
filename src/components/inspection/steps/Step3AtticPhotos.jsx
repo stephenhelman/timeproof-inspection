@@ -3,6 +3,17 @@
 import { useState, useRef, useEffect } from "react";
 import { ATTIC_TAGS } from "@/src/lib/damage-tags";
 
+const CITY_AREA_OPTIONS = [
+  "East El Paso",
+  "Northeast El Paso",
+  "Central El Paso",
+  "West El Paso",
+  "Horizon City / Socorro",
+  "Las Cruces, NM",
+  "Alamogordo, NM",
+  "Other",
+];
+
 export default function Step3AtticPhotos({ inspectionId, initialData }) {
   const [photos, setPhotos] = useState(
     (initialData?.photos || []).filter((p) => p.photoSection === "attic")
@@ -64,6 +75,28 @@ export default function Step3AtticPhotos({ inspectionId, initialData }) {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ damageTags: newTags }),
+    });
+  };
+
+  const handleGalleryToggle = async (photoId, enabled) => {
+    setPhotos((prev) =>
+      prev.map((p) => (p.id === photoId ? { ...p, galleryEligible: enabled, cityArea: enabled ? p.cityArea : null } : p))
+    );
+    await fetch(`/api/photo/${photoId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ galleryEligible: enabled, cityArea: enabled ? photos.find((p) => p.id === photoId)?.cityArea : null }),
+    });
+  };
+
+  const handleCityAreaChange = async (photoId, area) => {
+    setPhotos((prev) =>
+      prev.map((p) => (p.id === photoId ? { ...p, cityArea: area } : p))
+    );
+    await fetch(`/api/photo/${photoId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cityArea: area }),
     });
   };
 
@@ -142,6 +175,40 @@ export default function Step3AtticPhotos({ inspectionId, initialData }) {
                   </label>
                 ))}
               </div>
+            </div>
+
+            {/* Gallery toggle */}
+            <div className="border-t border-border pt-3 flex flex-col gap-2">
+              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                <span className="text-text-secondary text-sm">Add to public gallery</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!photo.galleryEligible}
+                  onClick={() => handleGalleryToggle(photo.id, !photo.galleryEligible)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors ${
+                    photo.galleryEligible ? "bg-brand-blue" : "bg-bg-elevated"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      photo.galleryEligible ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </label>
+              {photo.galleryEligible && (
+                <select
+                  value={photo.cityArea || ""}
+                  onChange={(e) => handleCityAreaChange(photo.id, e.target.value)}
+                  className="w-full bg-bg-elevated border border-border text-text-secondary rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent-blue"
+                >
+                  <option value="">Select city area…</option>
+                  {CITY_AREA_OPTIONS.map((area) => (
+                    <option key={area} value={area}>{area}</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <button

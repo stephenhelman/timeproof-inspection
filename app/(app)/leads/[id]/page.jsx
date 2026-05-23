@@ -4,14 +4,19 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 // PRESERVED — not active in Qntum build (revival)
 // import CallScriptModal from "@/src/components/revival/CallScriptModal";
-import { MessageSquare, Send, ChevronDown, Lock } from "lucide-react";
+import { MessageSquare, Send, Lock } from "lucide-react";
 import { usePermissions } from "@/src/lib/use-permissions";
+import DispoModal from "@/src/components/inspection/DispoModal";
+import RescheduleWizard from "@/src/components/inspection/RescheduleWizard";
 
 const LEAD_STATUS_OPTIONS = [
   "NEW",
   "INSPECTION_SCHEDULED",
+  "EN_ROUTE",
+  "INSPECTION_IN_PROGRESS",
   "INSPECTION_COMPLETE",
   "QUOTED",
+  "PENDING_SOLD_CONFIRMATION",
   "SOLD",
   "DENIED",
   "NO_SHOW",
@@ -27,8 +32,11 @@ const REVIVAL_OUTCOME_OPTIONS = ["RECOVERED", "REVIEW_REQUESTED", "REFERRAL_GIVE
 const STATUS_BADGE = {
   NEW: "bg-blue-500/20 text-blue-300",
   INSPECTION_SCHEDULED: "bg-purple-500/20 text-purple-300",
+  EN_ROUTE: "bg-violet-500/20 text-violet-300",
+  INSPECTION_IN_PROGRESS: "bg-indigo-500/20 text-indigo-300",
   INSPECTION_COMPLETE: "bg-indigo-500/20 text-indigo-300",
   QUOTED: "bg-cyan-500/20 text-cyan-300",
+  PENDING_SOLD_CONFIRMATION: "bg-teal-500/20 text-teal-300",
   SOLD: "bg-green-500/20 text-green-300",
   DENIED: "bg-red-500/20 text-red-300",
   NO_SHOW: "bg-orange-500/20 text-orange-300",
@@ -75,6 +83,11 @@ export default function LeadDetailPage() {
   const [revivalOutcome, setRevivalOutcome] = useState("");
   const [revivalNotes, setRevivalNotes] = useState("");
 
+  // Dispatch / arrived / dispo / reschedule
+  const [dispoOpen, setDispoOpen] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [actionSaving, setActionSaving] = useState(false);
+
   const fetchLead = useCallback(async () => {
     setLoading(true);
     const res = await fetch(`/api/lead/${id}`);
@@ -111,6 +124,28 @@ export default function LeadDetailPage() {
   }, [id]);
 
   const handleStatusChange = (e) => patch({ status: e.target.value });
+
+  const handleDispatch = async () => {
+    setActionSaving(true);
+    try {
+      const res = await fetch(`/api/lead/${id}/dispatch`, { method: "POST" });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); showToast(d.error || "Dispatch failed."); return; }
+      await fetchLead();
+      showToast("Inspector marked en route — homeowner notified.");
+    } catch { showToast("Dispatch failed."); }
+    finally { setActionSaving(false); }
+  };
+
+  const handleArrived = async () => {
+    setActionSaving(true);
+    try {
+      const res = await fetch(`/api/lead/${id}/arrived`, { method: "POST" });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); showToast(d.error || "Failed."); return; }
+      await fetchLead();
+      showToast("Arrived — inspection in progress.");
+    } catch { showToast("Failed."); }
+    finally { setActionSaving(false); }
+  };
 
   const handleMarkCalled = async () => {
     const updates = {
@@ -168,6 +203,22 @@ export default function LeadDetailPage() {
         leadId={id}
       />
       */}
+
+      {dispoOpen && (
+        <DispoModal
+          leadId={id}
+          onClose={() => setDispoOpen(false)}
+          onComplete={() => { setDispoOpen(false); fetchLead(); showToast("Disposition saved."); }}
+        />
+      )}
+
+      {rescheduleOpen && (
+        <RescheduleWizard
+          leadId={id}
+          onClose={() => setRescheduleOpen(false)}
+          onComplete={() => { setRescheduleOpen(false); fetchLead(); showToast("Inspection rescheduled."); }}
+        />
+      )}
 
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Read-only banner */}
@@ -263,7 +314,104 @@ export default function LeadDetailPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Inspection action buttons — dispatch / arrived / dispo */}
+              {canEdit && (
+                <div className="flex flex-wrap gap-3 pt-1">
+                  {lead.status === "INSPECTION_SCHEDULED" && (
+                    <>
+                      <button
+                        onClick={handleDispatch}
+                        disabled={actionSaving}
+                        className="bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors min-h-[44px]"
+                      >
+                        {actionSaving ? "Saving…" : "Dispatch →"}
+                      </button>
+                      <button
+                        onClick={() => setRescheduleOpen(true)}
+                        className="border border-[#2a3a5c] hover:border-[#1B3A7A] text-[#8fa3c8] hover:text-[#f0f4ff] text-sm font-medium rounded-xl px-5 py-2.5 transition-colors min-h-[44px]"
+                      >
+                        Reschedule
+                      </button>
+                    </>
+                  )}
+                  {lead.status === "EN_ROUTE" && (
+                    <button
+                      onClick={handleArrived}
+                      disabled={actionSaving}
+                      className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors min-h-[44px]"
+                    >
+                      {actionSaving ? "Saving…" : "Arrived ✓"}
+                    </button>
+                  )}
+                  {(lead.status === "INSPECTION_IN_PROGRESS" || lead.status === "INSPECTION_COMPLETE") && (
+                    <button
+                      onClick={() => setDispoOpen(true)}
+                      className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors min-h-[44px]"
+                    >
+                      DISPO
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
+
+            {/* Funnel Info — only shown for Facebook / funnel-sourced leads */}
+            {(lead.sourceTier || lead.facebookLeadId) && (
+              <div className="bg-[#111827] border border-[#2a3a5c] rounded-2xl p-6 space-y-4">
+                <h3 className="text-[#f0f4ff] font-semibold">Funnel Info</h3>
+
+                {lead.decisionMakerHome && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3">
+                    <span className="text-amber-300 text-xs font-semibold uppercase tracking-wider block mb-1">Decision Maker Home?</span>
+                    <span className="text-[#f0f4ff] text-base font-semibold">{lead.decisionMakerHome}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <InfoRow label="Source">
+                    <span className={`px-2 py-1 rounded-md text-xs font-medium w-fit ${lead.source === "facebook" ? "bg-blue-500/20 text-blue-300" : "bg-zinc-500/20 text-zinc-400"}`}>
+                      {lead.source === "facebook" ? "Facebook Lead Ad" : lead.source}
+                    </span>
+                  </InfoRow>
+                  {lead.sourceTier && (
+                    <InfoRow label="Tier">
+                      <span className={`px-2 py-1 rounded-md text-xs font-medium w-fit ${lead.sourceTier === "primary" ? "bg-amber-500/20 text-amber-300" : lead.sourceTier === "secondary" ? "bg-zinc-500/20 text-zinc-400" : "bg-red-500/20 text-red-400"}`}>
+                        {lead.sourceTier === "primary" ? "Primary (Tier 1)" : lead.sourceTier === "secondary" ? "Secondary (Tier 2)" : "Out of Area"}
+                      </span>
+                    </InfoRow>
+                  )}
+                  {lead.sourceZip && (
+                    <InfoRow label="Source ZIP">
+                      <span className="text-[#f0f4ff]">{lead.sourceZip}</span>
+                    </InfoRow>
+                  )}
+                  <InfoRow label="Qualify Status">
+                    {lead.qualifyCompletedAt ? (
+                      <div>
+                        <span className="px-2 py-1 rounded-md text-xs font-medium bg-green-500/20 text-green-400 w-fit block mb-1">Qualified</span>
+                        <span className="text-[#8fa3c8] text-xs">{fmtDateFull(lead.qualifyCompletedAt)}</span>
+                      </div>
+                    ) : (
+                      <span className="px-2 py-1 rounded-md text-xs font-medium bg-yellow-500/20 text-yellow-400 w-fit">Pending</span>
+                    )}
+                  </InfoRow>
+                </div>
+
+                {lead.smsConsentAt && (
+                  <div className="border-t border-[#2a3a5c] pt-3 space-y-1">
+                    <span className="text-[#8fa3c8] text-xs font-medium uppercase tracking-wider">SMS Consent</span>
+                    <p className="text-[#8fa3c8] text-xs">
+                      {fmtDateFull(lead.smsConsentAt)}
+                      {lead.smsConsentIp ? ` · ${lead.smsConsentIp}` : ""}
+                    </p>
+                    {lead.smsConsentText && (
+                      <p className="text-[#8fa3c8] text-xs italic">{lead.smsConsentText}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Meta info */}
             <div className="bg-[#111827] border border-[#2a3a5c] rounded-2xl p-6">

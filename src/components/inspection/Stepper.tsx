@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import DispoModal from "./DispoModal";
 import Step1CustomerInfo from "./steps/Step1CustomerInfo";
 import Step2RoofPhotos from "./steps/Step2RoofPhotos";
 import Step3AtticPhotos from "./steps/Step3AtticPhotos";
@@ -80,6 +81,8 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const [dispoOpen, setDispoOpen] = useState(false);
 
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => {
     const initial = buildInitialStepData();
@@ -175,8 +178,18 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
   // The standard Next/Back buttons still work for free navigation.
   const hideNextButton = currentStep === 4; // IntakeForm handles its own advance
 
+  const leadId = initialData?.leadId ?? initialData?.lead?.id ?? null;
+  const inspectionComplete = initialData?.status === "complete";
+
   return (
     <div className="h-dvh bg-bg-base flex overflow-hidden">
+      {dispoOpen && leadId && (
+        <DispoModal
+          leadId={leadId}
+          onClose={() => setDispoOpen(false)}
+          onComplete={() => { setDispoOpen(false); router.push(`/leads/${leadId}`); }}
+        />
+      )}
 
       {/* ── Sidebar ── */}
       <aside
@@ -279,6 +292,19 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
             </svg>
             {sidebarOpen && "Save & Exit"}
           </button>
+
+          {inspectionComplete && leadId && (
+            <button
+              type="button"
+              onClick={() => setDispoOpen(true)}
+              title={!sidebarOpen ? "DISPO" : undefined}
+              className={`flex items-center justify-center gap-2 rounded-xl min-h-10 text-sm font-semibold transition-colors bg-brand-blue hover:bg-accent-blue-hover text-text-primary ${
+                sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+              }`}
+            >
+              {sidebarOpen ? "DISPO" : "D"}
+            </button>
+          )}
         </div>
       </aside>
 

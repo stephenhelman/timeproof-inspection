@@ -62,6 +62,9 @@ export async function sendVerificationCode(
   });
 
   try {
+    // TODO Phase 1: replace hardcoded "scopereports.com" in the email footer below with
+    // process.env.MARKETING_URL once that env var is defined. Do not use NEXT_PUBLIC_APP_URL
+    // here — that points to the app subdomain, not the marketing site.
     await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL!,
       to: email,

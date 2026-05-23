@@ -1,0 +1,135 @@
+{
+  "nav": {
+    "home": "Home",
+    "howItWorks": "How It Works",
+    "whyQntum": "Why Qntum",
+    "serviceArea": "Service Area",
+    "gallery": "Gallery",
+    "reviews": "Reviews",
+    "faq": "FAQ",
+    "about": "About",
+    "contact": "Contact",
+    "checkArea": "Check My Area →",
+    "langEn": "EN",
+    "langEs": "ES"
+  },
+  "cta": {
+    "checkArea": "Check If We Service Your Area",
+    "checkAreaArrow": "Check If We Service Your Area →",
+    "seeInArea": "See If We're In Your Area →",
+    "bookInspection": "Book Your Free Inspection →",
+    "requestInspection": "Request Your Free Inspection →",
+    "seeFullProcess": "See the full process →",
+    "seeAllReviews": "See all reviews →",
+    "viewGallery": "View the full gallery →",
+    "seeAllQuestions": "See all questions →",
+    "mobileBanner": "Check If We Service Your Area — It's Free →"
+  },
+  "gate": {
+    "title": "Is your home in our service area?",
+    "homeownerQuestion": "Are you the homeowner?",
+    "yes": "Yes",
+    "no": "No",
+    "zipLabel": "Your ZIP code",
+    "zipPlaceholder": "Enter your ZIP",
+    "submit": "Check My Area →",
+    "submitting": "Checking…",
+    "notHomeownerMsg": "Our inspections are for homeowners only. If you're a renter, share this with your landlord — they may qualify.",
+    "inArea": "Great — we're in your area.",
+    "inAreaSub": "Tell us a bit about yourself so we can get you scheduled.",
+    "namePlaceholder": "Jane Smith",
+    "phonePlaceholder": "(915) 555-0100",
+    "emailPlaceholder": "jane@example.com",
+    "smsConsent": "By providing your phone number, you consent to receive text messages from Qntum Roofing regarding your inspection request. Message and data rates may apply. Reply STOP at any time to opt out.",
+    "privacyConsent": "By clicking \"Continue\" you agree to our Privacy Policy and consent to be contacted via SMS.",
+    "continue": "Continue →",
+    "continuing": "Submitting…",
+    "outOfArea": "We're not in your area yet — but we're expanding.",
+    "outOfAreaSub": "Leave your info and we'll let you know when we reach your area.",
+    "notify": "Notify Me",
+    "notifying": "Saving…",
+    "waitlistSuccess": "You're on the list.",
+    "waitlistSuccessSub": "We'll be in touch when we expand to your area."
+  },
+  "common": {
+    "poweredBy": "Powered by",
+    "qntumRoofing": "Qntum Roofing",
+    "copyright": "© 2026 Operation Profit LLC. All rights reserved.",
+    "privacyPolicy": "Privacy Policy",
+    "networkError": "Network error. Please try again.",
+    "genericError": "Something went wrong. Please try again."
+  },
+  "hero": {
+    "home": {
+      "headline": "Your Roof Could Be Failing Right Now — And You'd Never Know It",
+      "sub": "Most roof damage starts in the attic, invisible from the outside. A Scope Report documents everything — roof and attic — with photos, a written diagnosis, and a report you keep. Free, same day."
+    },
+    "howItWorks": {
+      "headline": "Here's Exactly What Happens When You Book a Scope Report",
+      "sub": "No surprises. No sales pressure. Just a thorough documented inspection."
+    },
+    "whyQntum": {
+      "headline": "Why Qntum Roofing",
+      "sub": "There are a lot of roofing contractors in El Paso. Here's what makes this different."
+    },
+    "serviceArea": {
+      "headline": "Where We Work",
+      "sub": "We currently serve El Paso, Las Cruces, and Alamogordo. We're expanding — enter your ZIP to see if you're covered."
+    },
+    "gallery": {
+      "headline": "Real Inspections. Real Findings.",
+      "sub": "Every photo in this gallery came from an actual roof inspection in the El Paso area. No stock photos. No staged damage."
+    },
+    "reviews": {
+      "headline": "What El Paso Homeowners Are Saying",
+      "sub": "4.9 stars · 47 reviews on Google"
+    },
+    "faq": {
+      "headline": "Questions We Hear All The Time",
+      "sub": "Honest answers. No sales pitch."
+    },
+    "about": {
+      "headline": "We Built This Because Homeowners Deserve Better",
+      "sub": "A professional inspection with a written report shouldn't be rare. We made it standard."
+    },
+    "contact": {
+      "headline": "Get In Touch",
+      "sub": "Prefer to reach out directly? We're here."
+    }
+  },
+  "trustStrip": {
+    "item1": "No cost, no obligation",
+    "item2": "Roof AND attic inspection",
+    "item3": "Written report same day",
+    "item4": "Owens Corning Preferred Contractor"
+  },
+  "gallery": {
+    "filterAll": "All",
+    "noPhotos": "No gallery photos yet — check back soon.",
+    "loading": "Loading photos…",
+    "areaLabel": "Area:"
+  },
+  "contact": {
+    "namePlaceholder": "Your name",
+    "phonePlaceholder": "(915) 555-0100",
+    "emailPlaceholder": "Email address",
+    "cityZipPlaceholder": "City / ZIP code",
+    "messagePlaceholder": "How can we help?",
+    "hearAbout": "How did you hear about us?",
+    "hearAboutOptions": ["Google Search", "Facebook Ad", "Referral from a friend", "Door-to-door", "Other"],
+    "submit": "Send Message",
+    "submitting": "Sending…",
+    "successTitle": "Thanks — we'll be in touch within one business day.",
+    "faqLink": "Have a specific question? Check our FAQ →"
+  },
+  "serviceArea": {
+    "zipLabel": "Enter your ZIP code",
+    "zipPlaceholder": "Enter ZIP",
+    "checkButton": "Check",
+    "inArea": "We service your area — request your inspection →",
+    "outOfArea": "We're not in your area yet — join the waitlist →",
+    "expandNote": "Don't see your area? We're growing. Leave your email and we'll notify you when we reach your neighborhood.",
+    "emailPlaceholder": "Email address",
+    "notifyMe": "Notify Me"
+  }
+}

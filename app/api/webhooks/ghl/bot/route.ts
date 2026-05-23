@@ -1,3 +1,13 @@
+// ============================================================
+// INACTIVE — Superseded by Phase 4 bot routes:
+//   /api/webhooks/ghl/qualify  → Qualification bot
+//   /api/webhooks/ghl/book     → Booking bot
+//   /api/webhooks/ghl/revival  → Revival bot
+//
+// This file is preserved for reference. Do not delete.
+// Remove the GHL webhook pointing here before going live.
+// ============================================================
+
 import { NextResponse } from 'next/server';
 import { buildContext } from '@/lib/bot/context';
 import { getOrCreateThread, updateThread } from '@/lib/bot/thread';

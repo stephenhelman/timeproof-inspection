@@ -10,8 +10,11 @@ datasource db {
 enum LeadStatus {
   NEW
   INSPECTION_SCHEDULED
+  EN_ROUTE
+  INSPECTION_IN_PROGRESS
   INSPECTION_COMPLETE
   QUOTED
+  PENDING_SOLD_CONFIRMATION
   SOLD
   DENIED
   NO_SHOW
@@ -19,6 +22,8 @@ enum LeadStatus {
   REVIVAL_PENDING
   REVIVAL_RECOVERED
   DEAD
+  OUT_OF_AREA
+  WAITLIST
 }
 
 enum RevivalStatus {
@@ -64,6 +69,8 @@ model User {
   cardShowReportLink  Boolean         @default(true)
   cardShowQr          Boolean         @default(true)
   cardShowProfileImage Boolean        @default(true)
+
+  ghlContactId   String?         // GHL contact ID for rep SMS notifications via bot-engine
 
   role           UserRole        @default(REP)
   isActive       Boolean         @default(true)
@@ -142,6 +149,45 @@ model Lead {
   setterUserId         String?
   setterUser           User?           @relation("LeadSetter", fields: [setterUserId], references: [id])
   ghlContactId         String?         // GHL contact ID written back after export
+  facebookLeadId       String?         // Facebook Lead Ad form submission ID
+  qualifyToken         String?         // JWT sent in tier_1 SMS; used to pre-auth /qualify
+  qualifyTokenExp      DateTime?       // Token expiry (48hr from issuance)
+
+  // Qualify funnel fields — populated when lead enters via scopereports.com
+  roofAge              String?
+  knownIssues          Json?
+  lastInspected        String?
+  bestTime             String?
+  decisionMakerHome    String?
+  qualifyCompletedAt   DateTime?
+  sourceZip            String?         // ZIP entered in gate form (may differ from address zip after rep update)
+  sourceTier           String?         // 'primary' | 'secondary' | 'out_of_area'
+
+  // SMS consent — TCPA compliance
+  smsConsentAt         DateTime?
+  smsConsentIp         String?
+  smsConsentText       String?
+
+  // Bot state
+  lastBotMessage       DateTime?
+  lastBotType          String?
+  botOptedOut          Boolean   @default(false)
+  calendarConflict     Boolean   @default(false)
+
+  // Dispo fields — written by DispoModal after demo
+  dispoDecisionMakerPresent Boolean?
+  dispoPrimaryObjection     String?
+  dispoNotes                String?
+  rescheduleReason          String?
+  lenderAttempted           Boolean?
+
+  // SOLD confirmation
+  pendingSoldAt             DateTime?
+  pendingSoldConfirmedBy    String?
+
+  // Contact form — populated when lead enters via /contact page
+  contactFormMessage        String?  @db.Text
+
   inspections          Inspection[]
   notes                LeadNote[]
 }
@@ -255,6 +301,13 @@ model Inspection {
   // Warning signs covered
   warningSignsCovered    String[]  @default([])
 
+  // Dispatch / arrival tracking
+  dispatchedAt           DateTime?
+  arrivedAt              DateTime?
+
+  // Post-demo outcome
+  outcome                String?   // SOLD | PENDING_SOLD_CONFIRMATION | DEMO_NOT_SOLD | DENIED | NO_SHOW | DEAD | QUOTED | REVIVAL_PENDING
+
   // Export tracking
   qntumExportedAt        DateTime?
 
@@ -329,16 +382,18 @@ model Facet {
 }
 
 model Photo {
-  id            String     @id @default(cuid())
-  inspectionId  String
-  inspection    Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  photoNumber   Int
-  r2Key         String
-  r2Url         String
-  damageTags    String[]
-  description   String?
-  photoSection  String     @default("roof")  // "roof" | "attic"
-  createdAt     DateTime   @default(now())
+  id               String     @id @default(cuid())
+  inspectionId     String
+  inspection       Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  photoNumber      Int
+  r2Key            String
+  r2Url            String
+  damageTags       String[]
+  description      String?
+  photoSection     String     @default("roof")  // "roof" | "attic"
+  galleryEligible  Boolean    @default(false)
+  cityArea         String?    // "East El Paso" | "Las Cruces" | etc — rep sets in wizard
+  createdAt        DateTime   @default(now())
 }
 
 // PRESERVED — not active in Qntum build
@@ -420,24 +475,41 @@ model TrustedDevice {
   @@index([deviceToken])
 }
 
-// Run after adding this model:
-//   npx prisma migrate dev --name add_bot_thread
 model BotThread {
+  id            String    @id @default(cuid())
+  ghlContactId  String
+  botType       String    // 'qualify' | 'book' | 'revival' | 'reschedule' | 'finance'
+  messages      Json      @default("[]")
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([ghlContactId, botType])
+}
+
+model SlotLock {
   id        String   @id @default(cuid())
-  contactId String   @unique
-  messages  Json     @default("[]")
+  date      DateTime
+  time      String
+  zone      String
+  leadId    String   @unique
+  expiresAt DateTime
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  @@index([date, zone])
+  @@index([expiresAt])
 }
 
 model WebhookLog {
-  id           String   @id @default(cuid())
-  source       String   // e.g. "terros"
-  payload      Json
-  status       String   // "success" | "error"
-  errorMessage String?
-  leadId       String?  // set if a lead was created
-  createdAt    DateTime @default(now())
+  id               String   @id @default(cuid())
+  source           String   // e.g. "terros" | "ghl_facebook" | "ghl_bot_qualify"
+  payload          Json
+  normalized       Json?    // normalized payload shape written alongside raw
+  status           String   // "success" | "error"
+  errorMessage     String?
+  leadId           String?  // set if a lead was created
+  idempotencyKey   String?  @unique
+  createdAt        DateTime @default(now())
 
   @@index([source])
   @@index([createdAt])

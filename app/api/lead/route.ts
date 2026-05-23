@@ -114,6 +114,12 @@ export async function GET(req: Request) {
     orderBy,
     include: {
       _count: { select: { inspections: true } },
+      inspections: {
+        where: { status: "scheduled" },
+        orderBy: { appointmentAt: "asc" },
+        take: 1,
+        select: { appointmentAt: true },
+      },
     },
   });
 

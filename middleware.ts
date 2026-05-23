@@ -1,9 +1,61 @@
 import NextAuth from "next-auth";
 import { authConfig } from "@/src/lib/auth.config";
+import { NextRequest, NextResponse } from "next/server";
 
-// Middleware uses ONLY the edge-safe config — no Prisma, no adapter.
-// Session is checked via JWT; the authorized() callback in authConfig handles routing.
-export const { auth: middleware } = NextAuth(authConfig);
+// Edge-safe NextAuth handler — no Prisma, no adapter (same config as before).
+// Cast to a plain middleware signature so it can be called from within our custom middleware.
+const { auth } = NextAuth(authConfig);
+const appAuthMiddleware = auth as unknown as (req: NextRequest) => Response | undefined;
+
+export async function middleware(request: NextRequest) {
+  const hostname = request.headers.get("host") ?? "";
+  const { pathname } = request.nextUrl;
+
+  // ── Marketing surface ─────────────────────────────────────────────────────
+  // www.scopereports.com → scopereports.com (301 canonical redirect)
+  if (hostname === "www.scopereports.com") {
+    const target = request.nextUrl.clone();
+    target.hostname = "scopereports.com";
+    return NextResponse.redirect(target, { status: 301 });
+  }
+
+  if (hostname === "scopereports.com") {
+    // scopereports.com/app/* → app.scopereports.com/* (301)
+    if (pathname.startsWith("/app")) {
+      const target = request.nextUrl.clone();
+      target.hostname = "app.scopereports.com";
+      target.pathname = pathname.replace(/^\/app/, "") || "/";
+      return NextResponse.redirect(target, { status: 301 });
+    }
+
+    // API calls from the marketing domain pass through to Next.js routing directly.
+    // These are same-origin fetch calls from the landing/qualify pages (e.g. /api/qualify/*).
+    // They must NOT be rewritten to /marketing/api/... which would 404.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.next();
+    }
+
+    // All other paths on the marketing domain: rewrite to /marketing/* prefix.
+    // Pages live at app/marketing/... and are never served directly by URL.
+    // No auth check runs on this branch.
+    const rewrite = request.nextUrl.clone();
+    rewrite.pathname = `/marketing${pathname === "/" ? "" : pathname}`;
+    return NextResponse.rewrite(rewrite);
+  }
+
+  // ── App surface (app.scopereports.com or localhost) ───────────────────────
+
+  // /api/qualify/* is public — no auth required regardless of hostname.
+  // These endpoints are called by the marketing funnel and must be accessible
+  // from both scopereports.com (marketing) and app.scopereports.com (testing/local dev).
+  if (pathname.startsWith("/api/qualify/")) {
+    return NextResponse.next();
+  }
+
+  // All other app paths: delegate to existing NextAuth authorized() callback.
+  // All role checks, login redirects, and admin protection remain exactly as-is.
+  return appAuthMiddleware(request);
+}
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.png|.*\\.jpg|.*\\.jpeg|.*\\.svg|.*\\.ico|.*\\.webp|.*\\.gif).*)"],
