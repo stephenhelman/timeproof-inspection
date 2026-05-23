@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Reviews",
   description:
-    "Read what El Paso homeowners say about Qntum Roofing's free Scope Report inspections. 4.9 stars on Google.",
+    "Read what El Paso homeowners say about their free Scope Report inspections. 4.9 stars on Google.",
   openGraph: {
-    title: "Homeowner Reviews | Scope Reports — Qntum Roofing",
+    title: "Homeowner Reviews | Scope Reports",
     description: "Real reviews from El Paso, Las Cruces, and Alamogordo homeowners.",
   },
 };

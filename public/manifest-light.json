@@ -4,8 +4,8 @@
   "description": "Scope Reports — roof and attic inspection documentation.",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#0a0e1a",
-  "theme_color": "#0a0e1a",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "orientation": "portrait",
   "icons": [
     {
@@ -18,13 +18,7 @@
       "src": "/sr_monicle_light.png",
       "sizes": "250x300",
       "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/sr_monicle_dark.png",
-      "sizes": "250x300",
-      "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     }
   ]
 }

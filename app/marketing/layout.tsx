@@ -6,11 +6,11 @@ import MobileCTABanner from "@/src/components/marketing/MobileCTABanner";
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | Scope Reports — Qntum Roofing",
-    default: "Scope Reports — Free Roof Inspection | Qntum Roofing El Paso",
+    template: "%s | Scope Reports",
+    default: "Scope Reports — Free Roof & Attic Inspection | El Paso · Las Cruces · Alamogordo",
   },
   description:
-    "Qntum Roofing offers free roof and attic inspections with a same-day written Scope Report. Serving El Paso, Las Cruces, and Alamogordo. No cost, no obligation.",
+    "Free roof and attic inspections with a same-day written Scope Report. Serving El Paso, Las Cruces, and Alamogordo. No cost, no obligation.",
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_MARKETING_URL || "https://scopereports.com"
   ),
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
     <LanguageProvider>
-      <div className="min-h-screen flex flex-col bg-[#0a0e1a] text-white">
+      <div className="min-h-screen flex flex-col bg-bg-base text-text-primary">
         <Header />
         <main className="flex-1 pb-16 sm:pb-0">{children}</main>
         <Footer />

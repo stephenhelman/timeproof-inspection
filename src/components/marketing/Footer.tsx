@@ -24,9 +24,8 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-10">
           {/* Brand */}
           <div>
-            <a href="/" className="flex items-center gap-2 mb-3">
-              <img src="/qntum-logo.svg" alt="Scope Reports" className="h-7 w-auto" />
-              <span className="text-text-primary font-bold text-base tracking-tight">Scope Reports</span>
+            <a href="/" className="flex items-center mb-3">
+              <img src="/sr_logo_light_transparent.svg" alt="Scope Reports" className="h-8 w-auto" />
             </a>
             <p className="text-text-hint text-sm">
               {t("common.poweredBy")}{" "}

@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "About",
   description:
-    "The story behind Scope Reports and Qntum Roofing — why we built a documentation tool for every inspection and why the attic matters.",
+    "The story behind Scope Reports — why we built a documentation tool for every inspection and why the attic matters.",
   openGraph: {
-    title: "About Scope Reports | Qntum Roofing",
+    title: "About Scope Reports",
     description: "We built this because homeowners deserve better. A professional inspection with a written report shouldn't be rare.",
   },
 };

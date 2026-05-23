@@ -9,22 +9,16 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/sr_monicle_light.svg",
+      "src": "/sr_monicle_dark.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     },
     {
-      "src": "/sr_monicle_light.png",
-      "sizes": "250x300",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
       "src": "/sr_monicle_dark.png",
       "sizes": "250x300",
       "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     }
   ]
 }

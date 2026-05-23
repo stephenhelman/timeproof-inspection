@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { addGhlTag, notifyManager } from "@/src/lib/ghl-sms";
 

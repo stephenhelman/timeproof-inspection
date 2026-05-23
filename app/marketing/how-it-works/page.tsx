@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description:
     "Learn exactly what happens during a Scope Report inspection — from booking to your written report. No surprises, no sales pressure.",
   openGraph: {
-    title: "How a Scope Report Works | Qntum Roofing",
+    title: "How a Scope Report Works | Scope Reports",
     description: "A step-by-step look at the free roof and attic inspection process.",
   },
 };
