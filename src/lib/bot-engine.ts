@@ -34,7 +34,7 @@ export async function getOrCreateThread(
   if (existing) {
     return {
       id: existing.id,
-      messages: (existing.messages as BotMessage[]) ?? [],
+      messages: (existing.messages as unknown as BotMessage[]) ?? [],
       isNew: false,
     };
   }
@@ -51,11 +51,11 @@ export async function appendMessage(
 ): Promise<void> {
   const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
   if (!thread) return;
-  const messages = (thread.messages as BotMessage[]) ?? [];
+  const messages = (thread.messages as unknown as BotMessage[]) ?? [];
   messages.push({ role, content, timestamp: new Date().toISOString() });
   await prisma.botThread.update({
     where: { id: threadId },
-    data: { messages, lastMessageAt: new Date() },
+    data: { messages: messages as unknown as never, lastMessageAt: new Date() },
   });
 }
 

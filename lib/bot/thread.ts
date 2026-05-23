@@ -13,23 +13,28 @@ export type ClaudeMessage = {
  * with an empty message history. Returns the thread ID, the message
  * history array for Claude, and whether the thread was newly created.
  */
-export async function getOrCreateThread(contactId: string): Promise<{
+export async function getOrCreateThread(
+  ghlContactId: string,
+  botType = "qualify"
+): Promise<{
   threadId: string;
   messages: ClaudeMessage[];
   isNew: boolean;
 }> {
-  const existing = await prisma.botThread.findUnique({ where: { contactId } });
+  const existing = await prisma.botThread.findUnique({
+    where: { ghlContactId_botType: { ghlContactId, botType } },
+  });
 
   if (existing) {
     return {
       threadId: existing.id,
-      messages: existing.messages as ClaudeMessage[],
+      messages: (existing.messages as unknown as ClaudeMessage[]) ?? [],
       isNew: false,
     };
   }
 
   const created = await prisma.botThread.create({
-    data: { contactId, messages: [] },
+    data: { ghlContactId, botType, messages: [] },
   });
 
   return {
