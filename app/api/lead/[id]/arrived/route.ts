@@ -1,23 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const lead = await prisma.lead.findUnique({
     where: { id: params.id },
-    include: { inspections: { where: { status: "scheduled" }, orderBy: { createdAt: "desc" }, take: 1 } },
+    include: {
+      inspections: {
+        where: { status: "scheduled" },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
   });
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const inspection = lead.inspections[0];
-  if (!inspection) return NextResponse.json({ error: "No scheduled inspection found" }, { status: 400 });
-  if (inspection.arrivedAt) return NextResponse.json({ error: "Already marked arrived" }, { status: 409 });
+  if (!inspection)
+    return NextResponse.json(
+      { error: "No scheduled inspection found" },
+      { status: 400 },
+    );
+  if (inspection.arrivedAt)
+    return NextResponse.json(
+      { error: "Already marked arrived" },
+      { status: 409 },
+    );
 
   const [, updatedLead] = await prisma.$transaction([
     prisma.inspection.update({
