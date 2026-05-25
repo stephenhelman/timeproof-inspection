@@ -1,3 +1,7 @@
+// Trigger: sr_booking tag added to GHL contact (qualified_handoff),
+//          or inbound SMS while tag is active,
+//          or stall_followup from GHL 24hr workflow.
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { sendGhlSms, addGhlTag } from "@/src/lib/ghl-sms";
@@ -22,38 +26,40 @@ import {
   isDuplicate,
   logWebhookHit,
 } from "@/src/lib/bot-webhook-utils";
-import { SERVICE_ZONES, isDistanceZone } from "@/src/lib/service-zones";
+import { getZoneForZip, SERVICE_ZONES, isDistanceZone } from "@/src/lib/service-zones";
+import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
+import type { BookContext, BookLastMessageContext } from "@/src/lib/prompts/qntum/types";
 
-type Slot = { date: string; time: string; label: string };
+type BotMessage = { role: string; content: string; timestamp: string };
 
-function buildBookingSystemPrompt(leadName: string, slots: Slot[]): string {
-  const slotStr = slots.map((s) => s.label).join(" | ");
-  return `You are Alex, a scheduling assistant for Qntum Roofing.
-The homeowner has already been qualified and is ready to book
-their free roof inspection.
-Your only job is to find a time that works for them.
-Available slots: ${slotStr || "checking for availability now"}
-Guidelines:
+function detectBookLastMessageContext(message: string): BookLastMessageContext {
+  if (!message) return 'none';
+  const t = message.toLowerCase().trim();
 
-Offer the slots naturally, not as a numbered list
-If none of the offered times work, say you'll check for more
-options and end your message with [CHECK_MORE_SLOTS]
-When they confirm a time, repeat it back clearly and end with
-[BOOKED: YYYY-MM-DD HH:MM] (use 24h time in the signal)
-If a slot is no longer available, apologize naturally and
-offer alternatives — end with [SLOT_CONFLICT]
-Keep messages short — 2-3 sentences max
-Never explain why certain times aren't available
-Never mention geography, zones, or scheduling constraints
+  if (/speak (to|with) (someone|a person|manager)|call me|want a human/.test(t) ||
+    /that('s| is) (ridiculous|unacceptable)|waste of (my )?time/.test(t))
+    return 'escalation_needed';
 
-Lead name: ${leadName}`;
+  if (/check (with|my|the)|need to (ask|check|see)|have to (check|see|ask)|schedule|busy|can't (do it|commit)|not sure (yet|about)/.test(t))
+    return 'stall';
+
+  if (/^(yes|yeah|yep|sure|confirmed|that works|perfect|ok|okay|sounds good|let'?s do it)\.?$/.test(t) ||
+    /that work(s)?|confirmed|all set|book it|let'?s do|go ahead/.test(t))
+    return 'confirmed';
+
+  if (/can('t| not)|won't work|not (available|free|good)|different (time|day)|other (time|day)|prefer|earlier|later/.test(t))
+    return 'slot_rejected';
+
+  return 'none';
 }
 
 function stripSignals(text: string): string {
   return text
-    .replace(/\[BOOKED:[^\]]*\]/g, "")
-    .replace(/\[CHECK_MORE_SLOTS\]/g, "")
-    .replace(/\[SLOT_CONFLICT\]/g, "")
+    .replace(/\[BOOKED:[^\]]*\]/g, '')
+    .replace(/\[CHECK_MORE_SLOTS\]/g, '')
+    .replace(/\[SLOT_CONFLICT\]/g, '')
+    .replace(/\[STALL\]/g, '')
+    .replace(/\[ESCALATE\]/g, '')
     .trim();
 }
 
@@ -61,26 +67,20 @@ function extractBookedSignal(text: string): { date: Date; time: string } | null 
   const match = text.match(/\[BOOKED:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]/);
   if (!match) return null;
   const [, dateStr, time] = match;
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
-  return { date, time };
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  return { date: new Date(year, month - 1, day, hour, minute, 0, 0), time };
 }
 
-function buildConfirmationSms(datetime: Date, zone: string | null): string {
-  const tz = process.env.BOT_TIMEZONE ?? "America/Denver";
-  const zoneMeta = zone ? SERVICE_ZONES[zone] : null;
-  const dayLabel = new Intl.DateTimeFormat("en-US", {
-    weekday: "long", month: "long", day: "numeric", timeZone: tz,
+function buildConfirmationSms(datetime: Date): string {
+  const tz = process.env.BOT_TIMEZONE ?? 'America/Denver';
+  const dayLabel = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', timeZone: tz,
   }).format(datetime);
-  const timeLabel = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric", minute: "2-digit", hour12: true, timeZone: tz,
+  const timeLabel = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz,
   }).format(datetime);
-  void zoneMeta; // zone label used in rep notification, not homeowner SMS
-  return (
-    `You're all set! Your inspection is confirmed for ${dayLabel} at ${timeLabel.toLowerCase()}.\n` +
-    `Our inspector will reach out the morning of with a heads up. See you then!`
-  );
+  return `You're all set — got you down for ${dayLabel} at ${timeLabel.toLowerCase()}. Our inspector will reach out the morning of with a heads up.`;
 }
 
 function buildRepNotification(
@@ -88,218 +88,244 @@ function buildRepNotification(
   datetime: Date,
   zone: string | null
 ): string {
-  const tz = process.env.BOT_TIMEZONE ?? "America/Denver";
+  const tz = process.env.BOT_TIMEZONE ?? 'America/Denver';
   const zoneMeta = zone ? SERVICE_ZONES[zone] : null;
-  const dayLabel = new Intl.DateTimeFormat("en-US", {
-    weekday: "long", month: "long", day: "numeric", timeZone: tz,
+  const dayLabel = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', timeZone: tz,
   }).format(datetime);
-  const timeLabel = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric", minute: "2-digit", hour12: true, timeZone: tz,
+  const timeLabel = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz,
   }).format(datetime);
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.scopereports.com";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.scopereports.com';
   return (
     `New inspection booked!\n` +
     `Homeowner: ${lead.customerName}\n` +
     `Date/Time: ${dayLabel} at ${timeLabel.toLowerCase()}\n` +
-    `Zone:      ${zoneMeta?.label ?? zone ?? "unknown"}\n` +
-    `Phone:     ${lead.phone ?? "not on file"}\n` +
+    `Zone:      ${zoneMeta?.label ?? zone ?? 'unknown'}\n` +
+    `Phone:     ${lead.phone ?? 'not on file'}\n` +
     `${appUrl}/leads/${lead.id}`
   );
 }
 
 export async function POST(request: NextRequest) {
-  // 1. Validate secret
   const authError = validateWebhookSecret(request);
   if (authError) return authError;
 
-  // 2. Parse body
   let rawBody: unknown = null;
   try { rawBody = await request.json(); } catch { /* fall through */ }
 
   const parsed = parseInboundSms(rawBody);
-  if (!parsed) {
-    return NextResponse.json({ ok: true, warning: "unparseable_payload" });
-  }
+  if (!parsed) return NextResponse.json({ ok: true, warning: 'unparseable_payload' });
 
   const { ghlContactId, inboundMessage, idempotencyKey } = parsed;
 
-  // 3. Idempotency check
-  if (await isDuplicate(idempotencyKey)) {
-    return NextResponse.json({ ok: true, duplicate: true });
-  }
+  if (await isDuplicate(idempotencyKey)) return NextResponse.json({ ok: true, duplicate: true });
 
-  // 4. Load lead
   const lead = await loadLead(ghlContactId);
   if (!lead) {
-    console.warn(`[book] no lead found for ghlContactId=${ghlContactId}`);
-    await logWebhookHit({ source: "ghl_bot_book", payload: rawBody, success: false, error: "lead_not_found", idempotencyKey });
-    return NextResponse.json({ ok: true, warning: "lead_not_found" });
+    await logWebhookHit({ source: 'ghl_bot_book', payload: rawBody, success: false, error: 'lead_not_found', idempotencyKey });
+    return NextResponse.json({ ok: true, warning: 'lead_not_found' });
   }
 
   try {
-    // 5. DND / opted-out check
-    if (lead.botOptedOut) {
-      return NextResponse.json({ ok: true, skipped: "opted_out" });
-    }
+    if (lead.botOptedOut) return NextResponse.json({ ok: true, skipped: 'opted_out' });
 
-    // 6. Opt-out keyword
     if (isOptOut(inboundMessage)) {
-      await addGhlTag(ghlContactId, "sr_opted_out");
-      await transitionLead(lead.id, ghlContactId, "sr_booking", "sr_dead", "DEAD", {
-        sr_status: "DEAD",
-        sr_bot_stage: "silent",
-        sr_opted_out: true,
+      await addGhlTag(ghlContactId, 'sr_opted_out');
+      await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_dead', 'DEAD', {
+        sr_status: 'DEAD', sr_bot_stage: 'silent', sr_opted_out: true,
       });
       await prisma.lead.update({ where: { id: lead.id }, data: { botOptedOut: true } });
-      await logWebhookHit({ source: "ghl_bot_book", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
+      await logWebhookHit({ source: 'ghl_bot_book', payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
       return NextResponse.json({ ok: true });
     }
 
-    // 7. Cancellation check
     if (isCancellation(inboundMessage)) {
       const activeInspection = await prisma.inspection.findFirst({
-        where: { leadId: lead.id, status: "scheduled" },
+        where: { leadId: lead.id, status: 'scheduled' },
       });
       if (activeInspection) {
         await prisma.inspection.update({
           where: { id: activeInspection.id },
-          data: { status: "cancelled", repNotes: "Cancelled by homeowner via SMS before inspection" },
+          data: { status: 'cancelled', repNotes: 'Cancelled by homeowner via SMS before inspection' },
         });
-        await transitionLead(lead.id, ghlContactId, "sr_booking", "sr_cancelled", "DEMO_NOT_SOLD", {
-          sr_status: "DEMO_NOT_SOLD",
-          sr_bot_stage: "silent",
+        await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_cancelled', 'DEMO_NOT_SOLD', {
+          sr_status: 'DEMO_NOT_SOLD', sr_bot_stage: 'silent',
         });
         const fn = lead.customerName.trim().split(/\s+/)[0];
-        await sendGhlSms(
-          ghlContactId,
-          `No problem, ${fn}. We've cancelled your inspection. If things change, reach out anytime.`
-        );
-        await logWebhookHit({ source: "ghl_bot_book", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
+        await sendGhlSms(ghlContactId, `No problem, ${fn}. We've cancelled your inspection. If things change, reach out anytime.`);
+        await logWebhookHit({ source: 'ghl_bot_book', payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
         return NextResponse.json({ ok: true });
       }
     }
 
-    // 8. Purge expired slot locks
     await purgeExpiredSlotLocks();
 
-    // 9. Load or create thread
-    const { id: threadId, messages } = await getOrCreateThread(ghlContactId, "book");
-
-    // 10. Append inbound
-    await appendMessage(threadId, "user", inboundMessage);
-
-    // 11. Check last assistant message for pending signals
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-    const hasCheckMore = lastAssistant?.content?.includes("[CHECK_MORE_SLOTS]");
-    const hasConflict = lastAssistant?.content?.includes("[SLOT_CONFLICT]");
-
-    // 12. Get available slots if no active lock or if CHECK_MORE_SLOTS/SLOT_CONFLICT
-    const leadZone = lead.sourceZip
-      ? (await import("@/src/lib/service-zones")).getZoneForZip(lead.sourceZip)
-      : null;
+    const leadZone = lead.sourceZip ? (getZoneForZip(lead.sourceZip) ?? null) : null;
     const distanceZone = leadZone ? isDistanceZone(leadZone) : false;
+    const zone = leadZone ?? 'el_paso_central';
 
     const existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
-    let slots: Slot[] = [];
 
-    if (!existingLock || hasCheckMore || hasConflict) {
-      slots = await getAvailableSlots(leadZone ?? "el_paso_central", distanceZone);
-      if (slots.length > 0) {
-        const [dateStr, time, zone] = [slots[0].date, slots[0].time, leadZone ?? "el_paso_central"];
-        const [y, m, d] = dateStr.split("-").map(Number);
-        await createSlotLock({ date: new Date(y, m - 1, d), time, zone, leadId: lead.id });
+    let rawSlots: Array<{ date: string; time: string; label: string }> = [];
+    if (!existingLock || inboundMessage === 'qualified_handoff' || inboundMessage === 'stall_followup') {
+      rawSlots = await getAvailableSlots(zone, distanceZone);
+      if (rawSlots.length > 0) {
+        const [y, m, d] = rawSlots[0].date.split('-').map(Number);
+        await createSlotLock({ date: new Date(y, m - 1, d), time: rawSlots[0].time, zone, leadId: lead.id });
       }
     }
 
-    // 13. Build system prompt
-    const systemPrompt = buildBookingSystemPrompt(lead.customerName, slots);
+    const { id: threadId, messages } = await getOrCreateThread(ghlContactId, 'book');
+
+    // Determine trigger type
+    type Trigger = BookContext['trigger'];
+    const triggerMap: Record<string, Trigger> = {
+      qualified_handoff: 'qualified_handoff',
+      stall_followup: 'stall_followup',
+    };
+    const trigger: Trigger = triggerMap[inboundMessage] ?? 'inbound_reply';
+
+    // Build BookContext
+    const lockedSlotRaw = existingLock
+      ? { date: existingLock.date?.toString() ?? '', time: existingLock.time ?? '', label: rawSlots[0]?.label ?? '' }
+      : null;
+
+    const knownIssues = Array.isArray(lead.knownIssues) ? (lead.knownIssues as string[]) : [];
+    const activeIssues = knownIssues.filter(i => i !== "I haven't noticed anything");
 
     // Reload messages
     const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-    const currentMessages = (thread?.messages as Array<{ role: string; content: string; timestamp: string }>) ?? [];
+    const currentMessages = (thread?.messages as BotMessage[]) ?? [];
 
-    // 14. Run bot
-    const botMessages = currentMessages.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-      timestamp: m.timestamp,
+    const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
+
+    const context: BookContext = {
+      bot_type: 'book',
+      homeowner_name: lead.customerName,
+      first_name: lead.customerName.trim().split(/\s+/)[0],
+      source_zip: lead.sourceZip ?? '',
+      zone: leadZone ?? '',
+      message_history_count: currentMessages.length,
+      last_message_context: detectBookLastMessageContext(lastUserMsg?.content ?? inboundMessage),
+      available_slots: rawSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
+      locked_slot: lockedSlotRaw,
+      qualify_summary: {
+        problem_confirmed: activeIssues.length > 0,
+        specific_issue: activeIssues[0]?.toLowerCase() ?? null,
+        roof_age: lead.roofAge ?? null,
+        decision_maker_confirmed: lead.decisionMakerHome === 'Yes',
+      },
+      trigger,
+    };
+
+    const systemPrompt = assembleBookPrompt(context);
+
+    // For qualified_handoff — run with empty messages (proactive opener)
+    if (trigger === 'qualified_handoff' && (messages.length === 0)) {
+      const openerMessages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }> = [
+        { role: 'user', content: 'qualified_handoff', timestamp: new Date().toISOString() },
+      ];
+      const openerRaw = await runBot(systemPrompt, openerMessages);
+      if (openerRaw !== null) {
+        const openerClean = stripSignals(openerRaw);
+        await sendGhlSms(ghlContactId, openerClean);
+        await appendMessage(threadId, 'assistant', openerRaw);
+      }
+      await logWebhookHit({ source: 'ghl_bot_book', payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
+      return NextResponse.json({ ok: true });
+    }
+
+    // Append inbound message
+    if (inboundMessage && !['qualified_handoff', 'stall_followup'].includes(inboundMessage)) {
+      await appendMessage(threadId, 'user', inboundMessage);
+    }
+
+    // Stall followup — run with synthetic trigger
+    if (trigger === 'stall_followup') {
+      const stalledThread = await prisma.botThread.findUnique({ where: { id: threadId } });
+      const stalledMessages = (stalledThread?.messages as BotMessage[]) ?? [];
+      const botMessages = stalledMessages.map(m => ({
+        role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp,
+      }));
+      botMessages.push({ role: 'user', content: 'stall_followup', timestamp: new Date().toISOString() });
+      const rawResponse = await runBot(systemPrompt, botMessages);
+      if (rawResponse !== null) {
+        const smsText = stripSignals(rawResponse);
+        await sendGhlSms(ghlContactId, smsText);
+        await appendMessage(threadId, 'assistant', rawResponse);
+        if (rawResponse.includes('[STALL]')) {
+          await addGhlTag(ghlContactId, 'booking_stall_exhausted');
+          await addGhlTag(ghlContactId, 'sr_follow_up');
+        }
+      }
+      await logWebhookHit({ source: 'ghl_bot_book', payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
+      return NextResponse.json({ ok: true });
+    }
+
+    // Normal inbound reply
+    const reloadedThread = await prisma.botThread.findUnique({ where: { id: threadId } });
+    const reloadedMessages = (reloadedThread?.messages as BotMessage[]) ?? [];
+    const botMessages = reloadedMessages.map(m => ({
+      role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp,
     }));
+
     const rawResponse = await runBot(systemPrompt, botMessages);
 
-    // 15. Null = escalated — notification already sent by bot-engine
     if (rawResponse === null) {
-      await logWebhookHit({ source: "ghl_bot_book", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
+      await logWebhookHit({ source: 'ghl_bot_book', payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
       return NextResponse.json({ ok: true });
     }
 
     const bookedSignal = extractBookedSignal(rawResponse);
-    const checkMore = rawResponse.includes("[CHECK_MORE_SLOTS]");
-    const slotConflict = rawResponse.includes("[SLOT_CONFLICT]");
+    const checkMore = rawResponse.includes('[CHECK_MORE_SLOTS]');
+    const stall = rawResponse.includes('[STALL]');
 
     if (bookedSignal) {
       const { date, time } = bookedSignal;
-      const zone = leadZone ?? "el_paso_central";
       const validation = await validateSlotBeforeConfirm(lead.id, date, time, zone);
 
       if (!validation.ok) {
-        // Re-offer slots
         const newSlots = await getAvailableSlots(zone, distanceZone);
-        const newSystemPrompt = buildBookingSystemPrompt(lead.customerName, newSlots);
-        const retryResponse = await runBot(newSystemPrompt, botMessages);
-        const cleanRetry = stripSignals(retryResponse ?? "");
+        const freshContext: BookContext = { ...context, available_slots: newSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })) };
+        const retryResponse = await runBot(assembleBookPrompt(freshContext), botMessages);
+        const cleanRetry = stripSignals(retryResponse ?? '');
         await sendGhlSms(ghlContactId, cleanRetry);
-        if (retryResponse) await appendMessage(threadId, "assistant", retryResponse);
+        if (retryResponse) await appendMessage(threadId, 'assistant', retryResponse);
       } else {
-        // Confirm booking
         await confirmBooking(lead.id, ghlContactId, date);
-        await transitionLead(
-          lead.id,
-          ghlContactId,
-          "sr_booking",
-          "sr_appointment_set",
-          "INSPECTION_SCHEDULED",
-          {
-            sr_status: "INSPECTION_SCHEDULED",
-            sr_appointment_at: date.toISOString(),
-            sr_bot_stage: "silent",
-          }
-        );
-
-        // Notify rep
+        await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_appointment_set', 'INSPECTION_SCHEDULED', {
+          sr_status: 'INSPECTION_SCHEDULED', sr_appointment_at: date.toISOString(), sr_bot_stage: 'silent',
+        });
         if (lead.assignedUserId) {
-          const repMsg = buildRepNotification(
-            { customerName: lead.customerName, phone: lead.phone, id: lead.id },
-            date,
-            leadZone
-          );
+          const repMsg = buildRepNotification({ customerName: lead.customerName, phone: lead.phone, id: lead.id }, date, leadZone);
           await notifyRep(lead.assignedUserId, lead.id, repMsg);
         }
-
-        // Confirmation SMS to homeowner
-        const confirmSms = buildConfirmationSms(date, leadZone);
-        await sendGhlSms(ghlContactId, confirmSms);
-        await appendMessage(threadId, "assistant", rawResponse);
-        await logWebhookHit({ source: "ghl_bot_book", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
-        return NextResponse.json({ ok: true });
+        await sendGhlSms(ghlContactId, buildConfirmationSms(date));
+        await appendMessage(threadId, 'assistant', rawResponse);
       }
-    } else if (checkMore || slotConflict) {
-      // Re-fetch and re-offer — response already handles messaging
-      const cleanResponse = stripSignals(rawResponse);
-      await sendGhlSms(ghlContactId, cleanResponse);
-      await appendMessage(threadId, "assistant", rawResponse);
+    } else if (stall) {
+      const smsText = stripSignals(rawResponse);
+      await sendGhlSms(ghlContactId, smsText);
+      await appendMessage(threadId, 'assistant', rawResponse);
+      await addGhlTag(ghlContactId, 'booking_stall');
+    } else if (checkMore) {
+      const smsText = stripSignals(rawResponse);
+      await sendGhlSms(ghlContactId, smsText);
+      await appendMessage(threadId, 'assistant', rawResponse);
     } else {
-      // Normal conversational response
-      const cleanResponse = stripSignals(rawResponse);
-      await sendGhlSms(ghlContactId, cleanResponse);
-      await appendMessage(threadId, "assistant", rawResponse);
+      const smsText = stripSignals(rawResponse);
+      await sendGhlSms(ghlContactId, smsText);
+      await appendMessage(threadId, 'assistant', rawResponse);
     }
 
-    await logWebhookHit({ source: "ghl_bot_book", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
+    await logWebhookHit({ source: 'ghl_bot_book', payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
     return NextResponse.json({ ok: true });
+
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[book] uncaught error:", message);
-    await logWebhookHit({ source: "ghl_bot_book", payload: rawBody, success: false, error: message, leadId: lead.id, idempotencyKey });
+    console.error('[book] uncaught error:', message);
+    await logWebhookHit({ source: 'ghl_bot_book', payload: rawBody, success: false, error: message, leadId: lead.id, idempotencyKey });
     return NextResponse.json({ ok: true });
   }
 }

@@ -17,66 +17,137 @@ import {
   logWebhookHit,
 } from "@/src/lib/bot-webhook-utils";
 import { getZoneForZip } from "@/src/lib/service-zones";
+import { assembleQualifyPrompt } from "@/src/lib/prompts/qntum/assemblers/qualify";
+import type { QualifyContext, ConversationTrack, QualifyLastMessageContext } from "@/src/lib/prompts/qntum/types";
+
+// ── QUALIFY BOT SIGNALS ──────────────────────────────────────────────────────
+// [QUALIFIED]        → homeowner confirmed genuine, decision maker confirmed,
+//                      financial readiness not flagged as a hard constraint
+// [NOT_INTERESTED]   → homeowner clearly does not want to proceed
+// [SOFT_CLOSE]       → conversation ended warmly but without qualification
+//                      (timing issue, not ready, etc.) — no appointment,
+//                      no revival tag, just close and log
+// [ESCALATE]         → human needed — route as per escalation config
+// ────────────────────────────────────────────────────────────────────────────
 
 const QUALIFY_OPENER =
-  "Hey {firstName}! This is Alex with Qntum Roofing. " +
-  "Just wanted to confirm we got your inspection request — " +
-  "are you still interested in getting your roof checked out?";
+  "Hey {firstName} — this is Alex with Qntum Roofing. " +
+  "Following up on your inspection request. " +
+  "What made you want to get your roof looked at?";
 
-function buildQualifySystemPrompt(lead: {
-  customerName: string;
-  sourceZip: string | null;
-  zone: string | null;
+type BotMessage = { role: string; content: string; timestamp: string };
+
+function detectConversationTrack(messages: BotMessage[]): ConversationTrack {
+  const userMessages = messages.filter((m) => m.role === "user");
+  if (userMessages.length === 0) return "problem_unaware";
+
+  const userText = userMessages.map((m) => m.content.toLowerCase()).join(" ");
+
+  const recentUser = userMessages.slice(-3);
+  const avgLength =
+    recentUser.reduce((sum, m) => sum + m.content.trim().length, 0) /
+    recentUser.length;
+
+  // Resistant: guarded/negative language or consistently short replies (2+ messages)
+  const resistantPatterns =
+    /not interested|leave me alone|stop texting|don't (want|need|call)|go away/;
+  if (resistantPatterns.test(userText)) return "resistant";
+  if (userMessages.length >= 2 && avgLength < 15) return "resistant";
+
+  // Problem-aware: explicit mention of damage or known issues
+  const problemPatterns =
+    /leak|leaking|drip|missing shingle|crack|damage|hail|storm|water stain|sagging|rot|blow off|ice dam/;
+  if (problemPatterns.test(userText)) return "problem_aware";
+
+  // Warm: long, engaged, detailed replies
+  if (avgLength > 60) return "warm";
+
+  return "problem_unaware";
+}
+
+function detectLastMessageContext(message: string): QualifyLastMessageContext {
+  if (!message || message === "new_lead") return "none";
+
+  const t = message.toLowerCase();
+
+  // Escalation triggers
+  if (
+    /speak (to|with) (someone|a person|your manager|the owner)|call me back|want a human|need to talk to someone/.test(t) ||
+    /that('s| is) (ridiculous|unacceptable|a scam|bs)|you('re| are) (scamming|lying)|waste of my time/.test(t)
+  ) return "escalation_needed";
+
+  // Insurance
+  if (/insurance|claim|adjuster|deductible|supplement/.test(t)) return "insurance_mention";
+
+  // Competitor
+  if (
+    /other (company|roofer|contractor)|another (company|roofer)|got a (quote|bid)|someone else (is|came|already)/.test(t)
+  ) return "competitor_mention";
+
+  // Financial signal
+  if (
+    /how much|what('s| does) it cost|afford|tight on|budget|financing|payment plan|loan|fixed income/.test(t)
+  ) return "financial_signal";
+
+  // Decision maker issue
+  if (
+    /husband|wife|spouse|partner|not here|need to (ask|check with|talk to)|she('s| is)|he('s| is) (not|the one)/.test(t)
+  ) return "decision_maker_issue";
+
+  // Timing objection
+  if (
+    /not (right now|a good time)|too busy|next (month|year|season)|later|can't (right now|do it)|not ready/.test(t)
+  ) return "timing_objection";
+
+  // Problem confirmed
+  if (
+    /leak|drip|missing|damage|hail|storm|crack|stain|rot|blow off|sagging/.test(t)
+  ) return "problem_confirmed";
+
+  // Negative experience
+  if (
+    /last (time|company|roofer)|bad experience|they (messed|screwed|didn't)|never again/.test(t)
+  ) return "negative_experience";
+
+  // Expressed interest
+  if (
+    /^(yes|yeah|yep|sure|sounds good|ok|okay|go ahead|let'?s do it|interested|absolutely|definitely)\.?$/.test(
+      t.trim()
+    ) ||
+    /yes[,.]?\s|yeah[,.]?\s|sure[,.]?\s|sounds good|i('m| am) (interested|in)|want to (schedule|do it|move forward)/.test(t)
+  ) return "expressed_interest";
+
+  // Problem denied
+  if (
+    /no (issues|problems|damage)|looks fine|seems fine|everything('s| is) (fine|ok|good)|don't (think|see) any/.test(t)
+  ) return "problem_denied";
+
+  return "stalling";
+}
+
+function detectStrongSignal(lead: {
   roofAge: string | null;
   knownIssues: unknown;
-  decisionMakerHome: string | null;
-}): string {
-  const knownIssuesStr = Array.isArray(lead.knownIssues)
-    ? lead.knownIssues.join(", ")
-    : "none reported";
-
-  return `You are a friendly, professional assistant for Qntum Roofing.
-Your name is Alex. You are having an SMS conversation with a homeowner
-who just requested a free roof inspection.
-Your goal is to confirm two things naturally in conversation:
-
-They genuinely want the inspection (not just browsing)
-All decision makers will be present at the inspection
-
-Note: homeownership was already confirmed on the Facebook form.
-Do not ask about homeownership — it is already verified.
-NEPQ principles — never pitch, never push:
-
-Ask about their situation, not what you can sell them
-Use consequence questions: "what happens if you keep putting it off?"
-If they're hesitant, ask what their concern is — don't overcome objections,
-understand them
-Frame the inspection as their win: they either get a clean bill of health
-or they catch a problem before it gets expensive
-
-Tone: warm, human, conversational. 2-3 sentences max per message.
-Never use exclamation points more than once per message.
-Never say "I'd be happy to" or "Absolutely!"
-Sound like a real person, not a chatbot.
-When both gates are confirmed, end your message with exactly:
-[QUALIFIED]
-If they are not interested, end with: [NOT_INTERESTED]
-Lead context:
-Name: ${lead.customerName}
-ZIP: ${lead.sourceZip ?? "unknown"}
-Zone: ${lead.zone ?? "unknown"}
-Roof age: ${lead.roofAge ?? "unknown"}
-Known issues: ${knownIssuesStr}
-Decision maker answer from form: ${lead.decisionMakerHome ?? "not answered"}`;
+  lastInspected: string | null;
+}): boolean {
+  const issues = Array.isArray(lead.knownIssues) ? (lead.knownIssues as string[]) : [];
+  const activeIssues = issues.filter((i) => i !== "I haven't noticed anything");
+  return activeIssues.length > 0 || lead.roofAge === "20+ years" || lead.lastInspected === "Never, as far as I know";
 }
 
 function stripSignals(text: string): string {
-  return text.replace(/\[(QUALIFIED|NOT_INTERESTED)\]/g, "").trim();
+  return text
+    .replace(/\[(QUALIFIED|NOT_INTERESTED|SOFT_CLOSE|ESCALATE)\]/g, "")
+    .trim();
 }
 
-function extractSignal(text: string): "QUALIFIED" | "NOT_INTERESTED" | null {
+function extractSignal(
+  text: string
+): "QUALIFIED" | "NOT_INTERESTED" | "SOFT_CLOSE" | "ESCALATE" | null {
   if (text.includes("[QUALIFIED]")) return "QUALIFIED";
   if (text.includes("[NOT_INTERESTED]")) return "NOT_INTERESTED";
+  if (text.includes("[SOFT_CLOSE]")) return "SOFT_CLOSE";
+  if (text.includes("[ESCALATE]")) return "ESCALATE";
   return null;
 }
 
@@ -130,7 +201,6 @@ export async function POST(request: NextRequest) {
         sr_opted_out: true,
       });
       await prisma.lead.update({ where: { id: lead.id }, data: { botOptedOut: true } });
-      // Do NOT reply — GHL handles STOP at carrier level
       await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
       return NextResponse.json({ ok: true });
     }
@@ -157,19 +227,17 @@ export async function POST(request: NextRequest) {
         await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
         return NextResponse.json({ ok: true });
       }
-      // No active inspection — treat as possible disinterest, let the bot handle it naturally
     }
 
     // 8–9. Load or create thread, append inbound
     const { id: threadId, messages, isNew } = await getOrCreateThread(ghlContactId, "qualify");
 
-    // 16. Proactive opener: if brand new thread, send opener first
+    // Proactive opener: if brand new thread, send opener first
     if (isNew || messages.length === 0) {
       const fn = lead.customerName.trim().split(/\s+/)[0];
       const opener = QUALIFY_OPENER.replace("{firstName}", fn);
       await sendGhlSms(ghlContactId, opener);
       await appendMessage(threadId, "assistant", opener);
-      // If this is the GHL synthetic trigger (no real inbound), return after opener
       if (!inboundMessage || inboundMessage === "new_lead") {
         await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
         return NextResponse.json({ ok: true });
@@ -183,18 +251,59 @@ export async function POST(request: NextRequest) {
 
     // Reload messages after appending
     const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-    const currentMessages = (thread?.messages as Array<{ role: string; content: string; timestamp: string }>) ?? [];
+    const currentMessages = (thread?.messages as BotMessage[]) ?? [];
 
-    // 10. Build system prompt
-    const zone = lead.sourceZip ? getZoneForZip(lead.sourceZip) : null;
-    const systemPrompt = buildQualifySystemPrompt({
-      customerName: lead.customerName,
-      sourceZip: lead.sourceZip,
-      zone,
-      roofAge: lead.roofAge,
-      knownIssues: lead.knownIssues,
-      decisionMakerHome: lead.decisionMakerHome,
+    // 10. Build QualifyContext and assemble prompt
+    const zone = lead.sourceZip ? (getZoneForZip(lead.sourceZip) ?? "") : "";
+    const knownIssues = Array.isArray(lead.knownIssues)
+      ? (lead.knownIssues as string[])
+      : null;
+
+    // Detect source type from lead.source field
+    const rawSource = (lead as unknown as { source?: string }).source ?? null;
+    const sourceMap: Record<string, QualifyContext['source']> = {
+      'facebook-inspection': 'facebook-inspection',
+      'facebook-guide': 'facebook-guide',
+      'door': 'door',
+      'card': 'card',
+    };
+    const source: QualifyContext['source'] = rawSource && rawSource in sourceMap
+      ? sourceMap[rawSource]
+      : (rawSource === 'facebook' || rawSource === 'ghl_facebook') ? 'facebook-inspection' : null;
+
+    // came_from_nurture: true if the lead had a nurture thread before this qualify thread
+    const nurtureThread = await prisma.botThread.findFirst({
+      where: { ghlContactId, botType: 'nurture' },
     });
+    const came_from_nurture = nurtureThread !== null;
+
+    // scheduling_approved_pause: true if this message was triggered by the scheduling_approved webhook
+    const scheduling_approved_pause = inboundMessage === 'scheduling_approved';
+
+    const context: QualifyContext = {
+      bot_type: "qualify",
+      homeowner_name: lead.customerName,
+      first_name: lead.customerName.trim().split(/\s+/)[0],
+      source_zip: lead.sourceZip ?? "",
+      zone,
+      message_history_count: currentMessages.length,
+      last_message_context: detectLastMessageContext(inboundMessage),
+      conversation_track: detectConversationTrack(currentMessages),
+      roof_age: lead.roofAge,
+      known_issues: knownIssues,
+      last_inspected: lead.lastInspected,
+      decision_maker_home: lead.decisionMakerHome,
+      has_strong_signal: detectStrongSignal({
+        roofAge: lead.roofAge,
+        knownIssues: lead.knownIssues,
+        lastInspected: lead.lastInspected,
+      }),
+      source,
+      came_from_nurture,
+      scheduling_approved_pause,
+    };
+
+    const systemPrompt = assembleQualifyPrompt(context);
 
     // 11. Run bot
     const botMessages = currentMessages.map((m) => ({
@@ -204,7 +313,7 @@ export async function POST(request: NextRequest) {
     }));
     const rawResponse = await runBot(systemPrompt, botMessages);
 
-    // 12. Null = escalated — notification already sent by bot-engine
+    // 12. Null = [ESCALATE] handled by bot-engine (notifyManager already called)
     if (rawResponse === null) {
       await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
       return NextResponse.json({ ok: true });
@@ -226,11 +335,20 @@ export async function POST(request: NextRequest) {
         sr_bot_stage: "booking",
       });
       await addGhlTag(ghlContactId, "sr_booking");
+
     } else if (signal === "NOT_INTERESTED") {
       await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_dead", "DEAD", {
         sr_status: "DEAD",
         sr_bot_stage: "silent",
       });
+
+    } else if (signal === "SOFT_CLOSE") {
+      // Warm close — not qualified, not dead. Remove qualifying tag, go silent.
+      // No revival tag added. Preserves goodwill for future outreach.
+      await transitionLead(lead.id, ghlContactId, "sr_qualifying", null, "NEW", {
+        sr_bot_stage: "silent",
+      });
+      await addGhlTag(ghlContactId, "sr_soft_close");
     }
 
     await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });

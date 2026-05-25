@@ -1,0 +1,262 @@
+{
+  "meta": {
+    "version": "1.0.0",
+    "market": "El Paso, TX",
+    "company": "Qntum Roofing",
+    "platform": "Scope Reports",
+    "scope": "shingle",
+    "notes": "Flat roof content to be added in future update. Used by Alex Nurture Bot to select one contextually relevant insight per exchange. Claude should never repeat an insight already used in the current thread. Claude should select the insight most relevant to what the homeowner just said or revealed."
+  },
+
+  "elPasoClimate": {
+    "id": "el_paso_climate",
+    "category": "climate",
+    "title": "El Paso climate impact on roof lifespan",
+    "summary": "El Paso's UV index and heat cycling reduce standard shingle lifespan significantly faster than national manufacturer ratings account for.",
+    "insights": [
+      {
+        "id": "climate_uv",
+        "stat": "Top 3 UV index nationally",
+        "explanation": "El Paso ranks among the top three cities in the country for UV index. Manufacturer lifespan ratings are based on national averages — El Paso is not average.",
+        "conversationHook": "Use when homeowner mentions roof age or asks how long a roof should last.",
+        "naturalLanguage": "One thing most people don't realize about El Paso specifically — our UV index is one of the highest in the country. The lifespan ratings on shingles are based on national averages, so what's rated for 25 years somewhere else isn't getting 25 years here."
+      },
+      {
+        "id": "climate_sunny_days",
+        "stat": "297 sunny days per year",
+        "explanation": "El Paso averages 297 sunny days per year versus the national average of 205. Every one of those days is UV exposure breaking down granule adhesion.",
+        "conversationHook": "Use when homeowner seems skeptical about urgency or thinks their roof looks fine.",
+        "naturalLanguage": "We get about 297 sunny days a year here — compared to around 205 nationally. Every one of those days is the sun working on your shingles. It adds up faster than people expect."
+      },
+      {
+        "id": "climate_surface_temp",
+        "stat": "Roof surface temps reach 150-172°F in summer",
+        "explanation": "While air temps hit 104°F, roof surface temperatures reach 150-172°F in peak summer months. Daily heat cycling between extreme highs and cooler nights expands and contracts shingle material — breaking down granule adhesion and stressing every seam.",
+        "conversationHook": "Use when homeowner mentions the heat or asks why their shingles look aged.",
+        "naturalLanguage": "The air temp gets to about 104 in summer, but the actual surface of your roof is hitting 150 to 170 degrees. Then it cools down at night. That expansion and contraction every single day is what really breaks shingles down over time."
+      },
+      {
+        "id": "climate_lifespan_reduction",
+        "stat": "Standard shingles lose up to 40% of rated lifespan in El Paso",
+        "explanation": "A 3-tab shingle rated for 15-20 years realistically performs 10-15 years in El Paso. This is why Qntum installs 50-year warranted architectural shingles.",
+        "conversationHook": "Use when homeowner asks about lifespan or mentions how old their current roof is.",
+        "naturalLanguage": "Standard shingles lose up to 40% of their rated lifespan here because of the climate. That's why we only install 50-year warranted architectural shingles — they're actually built for this."
+      }
+    ]
+  },
+
+  "hiddenDamageTimeline": {
+    "id": "hidden_damage_timeline",
+    "category": "awareness",
+    "title": "Hidden damage timeline",
+    "summary": "Roof damage progresses invisibly for years before becoming visible from the street or inside the home. By the time a homeowner sees a ceiling stain, the problem has typically been active for years.",
+    "insights": [
+      {
+        "id": "timeline_invisible_progression",
+        "explanation": "From year one, UV exposure begins weakening granule bonding. By years three to five granule loss is accelerating. By years seven to ten decking moisture begins and ventilation starts failing. Interior stains don't appear until year twelve to fifteen — by which point damage has been active for years.",
+        "conversationHook": "Use when homeowner says their roof looks fine or they haven't noticed any problems.",
+        "naturalLanguage": "The thing about roofs is the damage is usually happening long before you can see it. Granules start breaking down in the first few years, moisture can get into the decking years before you'd ever see a stain on your ceiling. By the time it shows up inside, it's been going on for a while."
+      },
+      {
+        "id": "timeline_ceiling_stain",
+        "explanation": "Interior ceiling stains appear at the lowest point of water travel — not at the point of entry. By the time water is visible inside, it has typically been penetrating the roof assembly for months or years at a completely different location.",
+        "conversationHook": "Use when homeowner mentions a ceiling stain or interior water damage.",
+        "naturalLanguage": "Water stains on the ceiling actually show up at the lowest point water travels to — not where it's getting in. So if you're seeing a stain in one spot, the actual entry point could be somewhere completely different on the roof. And it's usually been happening for a while before you notice it."
+      },
+      {
+        "id": "timeline_borrowed_time",
+        "explanation": "A roof that looks fine from the street can have active decking damage, failing ventilation, and compromised underlayment — none of which are visible without getting up on the roof and into the attic.",
+        "conversationHook": "Use when homeowner says the roof looks okay or they had it checked recently from the ground.",
+        "naturalLanguage": "Most roofs that are in trouble don't look like it from the street. The shingles can look okay while the decking underneath is absorbing moisture. That's actually the most common thing we find — the surface looks passable but there's something going on underneath."
+      }
+    ]
+  },
+
+  "failureZones": {
+    "id": "failure_zones",
+    "category": "education",
+    "title": "5 failure zones most inspectors miss",
+    "summary": "Most inspections only check field shingles and sometimes the ridge. There are 5 zones where roofs actually fail — and most of the serious ones are invisible from the ground.",
+    "insights": [
+      {
+        "id": "zone_attic_ventilation",
+        "zone": 5,
+        "name": "Attic Ventilation",
+        "explanation": "Poor ventilation traps heat and moisture — accelerating failure in every other zone simultaneously. It also voids most manufacturer warranties. This is the most overlooked failure zone on every roof.",
+        "conversationHook": "Use when homeowner mentions warranty, age of roof, or asks why roofs fail.",
+        "naturalLanguage": "The thing most people don't know is that poor attic ventilation actually voids most manufacturer warranties. And it accelerates failure in every other part of the roof at the same time. It's the most overlooked thing — and it's completely invisible from the outside."
+      },
+      {
+        "id": "zone_flashing",
+        "zone": 3,
+        "name": "Flashing",
+        "explanation": "Where the roof meets walls, vents, and chimneys. The single most common active leak point on any roof — and almost never included in a standard inspection.",
+        "conversationHook": "Use when homeowner mentions leaks, water near a wall, or chimney area.",
+        "naturalLanguage": "The most common place roofs actually leak is the flashing — that's the metal sealing where your roof meets a wall or vent or chimney. Most companies don't specifically check those points. That's usually where water finds its way in."
+      },
+      {
+        "id": "zone_decking",
+        "zone": 4,
+        "name": "Roof Decking",
+        "explanation": "The structural layer beneath everything else. Moisture here means the problem has been building for months or years. This is what we find when we go into the attic.",
+        "conversationHook": "Use when homeowner asks about structural concerns or mentions soft spots.",
+        "naturalLanguage": "The decking is the structural wood layer under everything. Once moisture gets in there it's been working for a while. We check it from inside the attic — that's where you can actually see what's happening."
+      },
+      {
+        "id": "zone_ridge_cap",
+        "zone": 2,
+        "name": "Ridge Cap",
+        "explanation": "The highest heat point on the entire roof. Deteriorated or improperly installed ridge caps allow moisture in at the peak — and poor ventilation starts here.",
+        "conversationHook": "Use when homeowner mentions the peak of the roof or asks about visible damage at the top.",
+        "naturalLanguage": "The ridge cap is at the very peak and it takes the most heat of anything on the roof. It's usually the first thing to deteriorate and the last thing people check."
+      },
+      {
+        "id": "zone_shingles",
+        "zone": 1,
+        "name": "Shingles",
+        "explanation": "Cracked, curled, or missing shingles are the first visible sign — but rarely the only problem. Surface damage almost always means something deeper has already started.",
+        "conversationHook": "Use when homeowner describes visible shingle damage.",
+        "naturalLanguage": "When you start seeing shingle damage on the surface — cracking, curling, missing pieces — that's usually a sign something else has already been going on underneath. The shingles are the last line of defense, not the first thing to fail."
+      }
+    ]
+  },
+
+  "ventilationWarranty": {
+    "id": "ventilation_warranty",
+    "category": "warranty",
+    "title": "Ventilation and warranty connection",
+    "summary": "Poor attic ventilation is the single most common reason manufacturer warranties are voided — and most homeowners have no idea their warranty was never valid.",
+    "insights": [
+      {
+        "id": "warranty_voided_ventilation",
+        "explanation": "Manufacturer warranties require specific ventilation standards to remain valid. If the attic does not meet those standards — either due to improper installation or blocked vents — the warranty is void from day one regardless of shingle age.",
+        "conversationHook": "Use when homeowner mentions warranty or asks how long their roof should last.",
+        "naturalLanguage": "Most people assume their roof is under warranty. But manufacturer warranties require specific ventilation standards — if the attic doesn't meet those, the warranty was never valid to begin with. It's one of those things that almost never gets explained at the time of installation."
+      },
+      {
+        "id": "warranty_installation_spec",
+        "explanation": "Warranties are also voided by improper installation — specific nail patterns, underlayment requirements, and ventilation standards must all be met. Most installations during El Paso's fast-build era were never inspected post-install.",
+        "conversationHook": "Use when homeowner asks about their current warranty or mentions when their roof was installed.",
+        "naturalLanguage": "The warranty also requires the shingles to be installed exactly to the manufacturer's spec — nail patterns, underlayment, all of it. A lot of roofs that went up during the building boom here were never inspected after the fact. So the warranty may have never been valid."
+      },
+      {
+        "id": "warranty_50_year",
+        "explanation": "Qntum installs 50-year warranted architectural shingles. The if-not-voided qualifier applies — which is why Qntum's installation process is designed to meet ventilation and installation spec requirements that keep the warranty intact.",
+        "conversationHook": "Use when homeowner asks what Qntum installs or how your product is different.",
+        "naturalLanguage": "We install 50-year warranted architectural shingles. The warranty is only good if the installation is done right — which is exactly why we go into the attic first. We want to make sure everything we put on stays warranted."
+      }
+    ]
+  },
+
+  "shingleComparison": {
+    "id": "shingle_comparison",
+    "category": "technology",
+    "title": "Old technology vs. current shingle standards",
+    "summary": "3-tab shingles — the old standard — are significantly inferior to modern architectural shingles in wind rating, lifespan, UV resistance, and warranty terms. What was standard 15 years ago is not standard anymore.",
+    "insights": [
+      {
+        "id": "shingle_3tab_profile",
+        "explanation": "3-tab shingles are flat, single-layer, and rated for 15-20 years nationally — 10-15 years in El Paso. They have a 60-70 mph wind rating, standard granules that degrade rapidly under UV, and warranties frequently voided by improper installation or poor ventilation.",
+        "conversationHook": "Use when homeowner describes flat or uniform-looking shingles, or mentions an older roof.",
+        "naturalLanguage": "The old standard shingle — 3-tab — is a flat single layer. They're rated for maybe 15-20 years nationally but realistically 10-15 here. And they're only rated to about 60-70 mph wind. A lot of the roofs in El Paso that are 10-15 years old have those."
+      },
+      {
+        "id": "shingle_architectural_profile",
+        "explanation": "Architectural dimensional shingles are multi-layer laminate, rated for 50 years, with 130+ mph wind rating and UV-reflective algae-resistant granules. The dimensional profile creates shadow lines that make them visually distinguishable from 3-tab.",
+        "conversationHook": "Use when homeowner asks what a good roof looks like or what Qntum installs.",
+        "naturalLanguage": "Architectural shingles are a completely different product — multi-layer, dimensional profile, 130 mph wind rating, and 50-year warranty. You can actually tell the difference just by looking — they have a shadow line and texture that the old flat ones don't."
+      },
+      {
+        "id": "shingle_technology_gap",
+        "explanation": "A roof installed 12-15 years ago with 3-tab shingles is now significantly behind current standards in every measurable category — and is likely approaching or past the end of its functional life in El Paso's climate.",
+        "conversationHook": "Use when homeowner mentions their roof is 10-15 years old.",
+        "naturalLanguage": "If the roof is 10-15 years old, it was probably installed with the old standard shingle. The gap between that and what's available now is pretty significant — wind rating, lifespan, warranty, everything. It's not just cosmetic."
+      }
+    ]
+  },
+
+  "dontTellYou": {
+    "id": "dont_tell_you",
+    "category": "awareness",
+    "title": "What they don't tell you",
+    "summary": "Three things most roofing contractors don't volunteer at the point of sale — warranty validity, climate-adjusted lifespan, and the true source of interior water damage.",
+    "insights": [
+      {
+        "id": "dtty_warranty_validity",
+        "explanation": "Most homeowners assume their roof is under warranty. In the majority of cases it isn't — if shingles were not installed precisely to manufacturer specification the warranty was never valid from day one.",
+        "conversationHook": "Use when homeowner mentions their warranty or assumes they are covered.",
+        "naturalLanguage": "One thing that almost never gets mentioned at the time of installation — if the shingles weren't put down exactly to the manufacturer's spec, the warranty was never valid. Most homeowners assume they have one. A lot of them don't."
+      },
+      {
+        "id": "dtty_borrowed_time",
+        "explanation": "A roof that looks fine from the street can already be past its functional life. UV degradation, decking moisture, and ventilation failure all progress invisibly. The street view tells you almost nothing about the actual condition.",
+        "conversationHook": "Use when homeowner says the roof looks okay or they are not sure if it needs attention.",
+        "naturalLanguage": "A roof can look completely fine from the street and already be past the point where it should have been replaced. The stuff that actually matters — decking condition, ventilation, underlayment — none of that is visible from the ground."
+      },
+      {
+        "id": "dtty_stain_source",
+        "explanation": "Interior ceiling stains appear at the lowest point of water travel — not at the entry point. The source is almost always somewhere else on the roof entirely. By the time staining is visible inside, the problem has been active for months or years.",
+        "conversationHook": "Use when homeowner mentions a stain, drip, or any interior water evidence.",
+        "naturalLanguage": "Water stains inside the house show up at the lowest point the water travels to — not where it came in. So the actual problem on the roof is usually in a completely different spot. And by the time you're seeing it inside, it's been going on for a while."
+      }
+    ]
+  },
+
+  "atticImportance": {
+    "id": "attic_importance",
+    "category": "differentiator",
+    "title": "Why the attic inspection matters",
+    "summary": "Most roofing companies never go into the attic. The attic is where the real condition of the roof is visible — moisture staining on decking, ventilation failure, insulation damage, and rafter condition are all only visible from inside.",
+    "insights": [
+      {
+        "id": "attic_most_companies_skip",
+        "explanation": "Most roofing companies do a surface inspection — they look at the shingles from the ground or from the roof surface and call it done. They never go into the attic. The attic is where moisture staining, ventilation failure, and decking damage are actually visible.",
+        "conversationHook": "Use when homeowner mentions a prior inspection or asks what the inspection involves.",
+        "naturalLanguage": "Most companies do a surface inspection — look at the shingles, maybe walk the roof, and that's it. We go into the attic because that's where you can actually see what's happening. Moisture staining on the decking underside, ventilation issues, insulation condition — none of that shows up from outside."
+      },
+      {
+        "id": "attic_decking_underside",
+        "explanation": "Moisture staining on the underside of the roof decking is the most reliable indicator of active or prior water intrusion. It is completely invisible from the exterior and only visible from inside the attic.",
+        "conversationHook": "Use when homeowner asks what we actually look for during an inspection.",
+        "naturalLanguage": "The first thing we look at in the attic is the underside of the decking. If there's moisture staining up there — even old staining — that tells us water has been getting in somewhere. You'd never see that from outside the house."
+      },
+      {
+        "id": "attic_vapor_barrier",
+        "explanation": "A vapor barrier prevents condensation from forming inside the attic. It is missing in a large percentage of older El Paso homes — and its absence accelerates moisture damage to decking and insulation even without active roof leaks.",
+        "conversationHook": "Use when homeowner mentions an older home or asks about attic condition.",
+        "naturalLanguage": "A lot of older homes in El Paso don't have a vapor barrier in the attic — it's something that gets missed and it causes moisture to build up even when the roof itself isn't leaking. We check for that specifically."
+      },
+      {
+        "id": "attic_scope_reports",
+        "explanation": "Every Qntum inspection includes a full digital condition report generated through Scope Reports — photo documentation by zone, condition ratings, attic findings, all delivered digitally. Not a verbal summary — a documented report the homeowner keeps.",
+        "conversationHook": "Use when homeowner asks what happens after the inspection or what they receive.",
+        "naturalLanguage": "After every inspection we generate a full digital condition report through our platform — photos of everything we found, condition rating by zone, attic findings, all of it. You get a real document you can keep, not just a guy telling you what he saw."
+      }
+    ]
+  },
+
+  "usageRules": {
+    "maxInsightsPerThread": 6,
+    "maxInsightsPerExchange": 1,
+    "neverRepeatInsight": true,
+    "selectionPriority": "Select the insight most directly relevant to what the homeowner just said or revealed. If multiple are relevant, prefer insights the homeowner has not yet encountered in this thread. Prioritize ventilationWarranty and atticImportance insights when the homeowner shows any sign of inspection interest — these are the highest-converting awareness points.",
+    "toneGuidance": "All insights should be delivered in natural conversational language — not read verbatim from the naturalLanguage field. Use the naturalLanguage field as a directional guide only. Alex should make it sound like something a knowledgeable neighbor would say, not a prepared script.",
+    "prohibitedTopics": [
+      "insurance claims",
+      "insurance coverage",
+      "price or cost",
+      "financing",
+      "best time to call",
+      "decision maker availability"
+    ],
+    "handoffTriggers": [
+      "Homeowner mentions a specific problem they have noticed",
+      "Homeowner asks what an inspection involves",
+      "Homeowner asks how long it takes or when you could come out",
+      "Homeowner expresses worry about their roof",
+      "Homeowner asks about cost or what happens if something is found",
+      "Homeowner mentions a concerning roof age unprompted",
+      "Homeowner asks about warranty on their current roof"
+    ]
+  }
+}

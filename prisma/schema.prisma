@@ -185,6 +185,11 @@ model Lead {
   pendingSoldAt             DateTime?
   pendingSoldConfirmedBy    String?
 
+  // Nurture / door / card attribution fields
+  roofType                  String?  // Shingle / Flat / Both — from guide form
+  issuesNoticed             String?  // Comma-separated checkbox values from guide form
+  rep                       String?  // Rep slug (stephen/adam/etc.) for door/card attribution
+
   // Contact form — populated when lead enters via /contact page
   contactFormMessage        String?  @db.Text
 
@@ -480,6 +485,7 @@ model BotThread {
   ghlContactId  String
   botType       String    // 'qualify' | 'book' | 'revival' | 'reschedule' | 'finance'
   messages      Json      @default("[]")
+  metadata      Json?
   lastMessageAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
