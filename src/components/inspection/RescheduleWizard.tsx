@@ -4,8 +4,11 @@ import { useState, useEffect } from "react";
 
 const RESCHEDULE_REASONS = [
   { value: "homeowner_request", label: "Homeowner requested" },
+  { value: "one_legger", label: "One legger — decision maker not present" },
+  { value: "time_constraint", label: "Time constraint — ran out of time" },
   { value: "rep_conflict", label: "Rep schedule conflict" },
   { value: "weather", label: "Weather / conditions" },
+  { value: "porched", label: "Porched — homeowner dodged" },
   { value: "no_show", label: "No show — rebooking" },
   { value: "other", label: "Other" },
 ] as const;
@@ -22,11 +25,12 @@ interface Props {
   leadId: string;
   onClose: () => void;
   onComplete: () => void;
+  defaultReason?: string;
 }
 
-export default function RescheduleWizard({ leadId, onClose, onComplete }: Props) {
-  const [step, setStep] = useState<1 | 2>(1);
-  const [reason, setReason] = useState<Reason | "">("");
+export default function RescheduleWizard({ leadId, onClose, onComplete, defaultReason }: Props) {
+  const [step, setStep] = useState<1 | 2>(defaultReason ? 2 : 1);
+  const [reason, setReason] = useState<Reason | "">((defaultReason as Reason | undefined) ?? "");
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);

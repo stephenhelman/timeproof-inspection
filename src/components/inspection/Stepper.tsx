@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import DispoModal from "./DispoModal";
+import RescheduleWizard from "./RescheduleWizard";
 import Step1CustomerInfo from "./steps/Step1CustomerInfo";
 import Step2RoofPhotos from "./steps/Step2RoofPhotos";
 import Step3AtticPhotos from "./steps/Step3AtticPhotos";
@@ -31,18 +32,51 @@ const STEPS = [
 ];
 
 const STEP_FIELDS: Record<number, string[]> = {
-  0: ["customerName", "address", "phone", "email", "repName", "setterName", "appointmentAt", "decisionMakers", "decisionMakersWho"],
+  0: [
+    "customerName",
+    "address",
+    "phone",
+    "email",
+    "repName",
+    "setterName",
+    "appointmentAt",
+    "decisionMakers",
+    "decisionMakersWho",
+  ],
   1: [],
   2: [],
   3: ["diagnosis"],
   4: [
-    "northStar", "focusDrivers", "timeInHome", "yearBuilt", "ageOfRoof",
-    "lastReplacedBy", "pastRepairs", "otherProjects", "hoaPresent", "hoaName",
-    "issuesConcerns", "issueDuration", "issueImpact", "rootCauseBeliefBefore",
-    "triggerMoment", "priorMeetingHad", "priorMeetingWho", "priorMeetingRecommended",
-    "priorMeetingWhyNotFixed", "noPriorMeetingReason", "winDefinition", "colorPreference",
-    "personalFamily", "personalOccupation", "personalRecreation", "personalIdentity",
-    "problemAwarenessBefore", "repNotes", "intakePass1Complete", "intakePass2Complete",
+    "northStar",
+    "focusDrivers",
+    "timeInHome",
+    "yearBuilt",
+    "ageOfRoof",
+    "lastReplacedBy",
+    "pastRepairs",
+    "otherProjects",
+    "hoaPresent",
+    "hoaName",
+    "issuesConcerns",
+    "issueDuration",
+    "issueImpact",
+    "rootCauseBeliefBefore",
+    "triggerMoment",
+    "priorMeetingHad",
+    "priorMeetingWho",
+    "priorMeetingRecommended",
+    "priorMeetingWhyNotFixed",
+    "noPriorMeetingReason",
+    "winDefinition",
+    "colorPreference",
+    "personalFamily",
+    "personalOccupation",
+    "personalRecreation",
+    "personalIdentity",
+    "problemAwarenessBefore",
+    "repNotes",
+    "intakePass1Complete",
+    "intakePass2Complete",
   ],
   5: ["warningSignsCovered"],
   6: ["status"],
@@ -52,9 +86,10 @@ interface StepperProps {
   inspectionId: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   initialData?: Record<string, any>;
+  lead?: { id: string; customerName: string } | null;
 }
 
-export default function Stepper({ inspectionId, initialData }: StepperProps) {
+export default function Stepper({ inspectionId, initialData, lead }: StepperProps) {
   const router = useRouter();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,7 +101,11 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stepData: Record<string, any> = {};
       fields.forEach((field) => {
-        if (field in initialData && initialData[field] !== null && initialData[field] !== undefined) {
+        if (
+          field in initialData &&
+          initialData[field] !== null &&
+          initialData[field] !== undefined
+        ) {
           stepData[field] = initialData[field];
         }
       });
@@ -76,17 +115,30 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [stepData, setStepData] = useState<Record<number, Record<string, any>>>(buildInitialStepData);
+  const [stepData, setStepData] =
+    useState<Record<number, Record<string, any>>>(buildInitialStepData);
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const [dispoOpen, setDispoOpen] = useState(false);
+  const [resolvedLeadId, setResolvedLeadId] = useState<string | null>(
+    initialData?.leadId ?? initialData?.lead?.id ?? null,
+  );
+  const [creatingLead, setCreatingLead] = useState(false);
+  const [dispoError, setDispoError] = useState<string | null>(null);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleReason, setRescheduleReason] = useState("");
+  const pendingRescheduleRef = useRef(false);
 
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => {
     const initial = buildInitialStepData();
-    return new Set(Object.keys(initial).map(Number).filter((k) => Object.keys(initial[k] || {}).length > 0));
+    return new Set(
+      Object.keys(initial)
+        .map(Number)
+        .filter((k) => Object.keys(initial[k] || {}).length > 0),
+    );
   });
 
   const mergeStepData = useCallback(
@@ -97,7 +149,7 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
         [step]: { ...(prev[step] || {}), ...updates },
       }));
     },
-    []
+    [],
   );
 
   const getCurrentStepData = useCallback(() => {
@@ -143,18 +195,55 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
     }
   };
 
+  const handleDispoOpen = async () => {
+    if (resolvedLeadId) {
+      setDispoOpen(true);
+      return;
+    }
+    setCreatingLead(true);
+    setDispoError(null);
+    try {
+      const res = await fetch(`/api/inspection/${inspectionId}/create-lead`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create lead");
+      setResolvedLeadId(data.leadId);
+      setDispoOpen(true);
+    } catch (err) {
+      setDispoError(
+        err instanceof Error ? err.message : "Failed to create lead",
+      );
+    } finally {
+      setCreatingLead(false);
+    }
+  };
+
   const stepProps = {
     data: stepData[currentStep] || {},
-    onChange: (updates: Record<string, unknown>) => mergeStepData(currentStep, updates),
+    onChange: (updates: Record<string, unknown>) =>
+      mergeStepData(currentStep, updates),
     inspectionId,
     initialData,
   };
 
   const stepComponents = [
     <Step1CustomerInfo key={0} {...stepProps} />,
-    <Step2RoofPhotos key={1} inspectionId={inspectionId} initialData={initialData} />,
-    <Step3AtticPhotos key={2} inspectionId={inspectionId} initialData={initialData} />,
-    <Step4Diagnosis key={3} inspectionId={inspectionId} initialData={initialData} />,
+    <Step2RoofPhotos
+      key={1}
+      inspectionId={inspectionId}
+      initialData={initialData}
+    />,
+    <Step3AtticPhotos
+      key={2}
+      inspectionId={inspectionId}
+      initialData={initialData}
+    />,
+    <Step4Diagnosis
+      key={3}
+      inspectionId={inspectionId}
+      initialData={initialData}
+    />,
     <Step5IntakeForm
       key={4}
       inspectionId={inspectionId}
@@ -170,7 +259,11 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
       initialData={initialData}
       onReturnToIntake={() => setCurrentStep(4)}
     />,
-    <Step7ReviewShare key={6} {...stepProps} reportUuid={initialData?.reportUuid} />,
+    <Step7ReviewShare
+      key={6}
+      {...stepProps}
+      reportUuid={initialData?.reportUuid}
+    />,
   ];
 
   // Step 5 (IntakeForm) manages its own "Complete Pass 1" button that advances to step 6.
@@ -178,22 +271,45 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
   // The standard Next/Back buttons still work for free navigation.
   const hideNextButton = currentStep === 4; // IntakeForm handles its own advance
 
-  const leadId = initialData?.leadId ?? initialData?.lead?.id ?? null;
-  const inspectionComplete = initialData?.status === "complete";
-
   return (
     <div className="h-dvh bg-bg-base flex overflow-hidden">
-      {dispoOpen && leadId && (
+      {dispoOpen && resolvedLeadId && (
         <DispoModal
-          leadId={leadId}
+          leadId={resolvedLeadId}
+          inspectionId={inspectionId}
+          currentWizardStep={currentStep}
           onClose={() => setDispoOpen(false)}
-          onComplete={() => { setDispoOpen(false); router.push(`/leads/${leadId}`); }}
+          onReschedule={(reason) => {
+            pendingRescheduleRef.current = true;
+            setRescheduleReason(reason);
+          }}
+          onComplete={() => {
+            setDispoOpen(false);
+            if (pendingRescheduleRef.current) {
+              pendingRescheduleRef.current = false;
+              setRescheduleOpen(true);
+            } else {
+              router.push(`/leads/${resolvedLeadId}`);
+            }
+          }}
+        />
+      )}
+
+      {rescheduleOpen && resolvedLeadId && (
+        <RescheduleWizard
+          leadId={resolvedLeadId}
+          defaultReason={rescheduleReason}
+          onClose={() => setRescheduleOpen(false)}
+          onComplete={() => {
+            setRescheduleOpen(false);
+            router.push(`/leads/${resolvedLeadId}`);
+          }}
         />
       )}
 
       {/* ── Sidebar ── */}
       <aside
-        className={`${sidebarOpen ? "w-56" : "w-16"} shrink-0 bg-bg-surface border-r border-border flex flex-col transition-all duration-200 ease-in-out`}
+        className={`${sidebarOpen ? "w-56" : "w-16"} shrink-0 bg-bg-surface border-r border-border flex flex-col transition-all duration-200 ease-in-out relative z-10`}
       >
         <div className="flex items-center justify-between h-16 px-3 border-b border-border shrink-0">
           {sidebarOpen && (
@@ -208,12 +324,32 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
             aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
             {sidebarOpen ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7" />
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M11 19l-7-7 7-7"
+                />
               </svg>
             ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" />
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 5l7 7-7 7"
+                />
               </svg>
             )}
           </button>
@@ -236,28 +372,57 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
                   isCurrent
                     ? "bg-brand-blue text-text-primary shadow-md"
                     : isCompleted
-                    ? "bg-brand-navy/40 text-text-accent hover:bg-brand-navy/60 cursor-pointer"
-                    : "text-text-hint cursor-default"
+                      ? "bg-brand-navy/40 text-text-accent hover:bg-brand-navy/60 cursor-pointer"
+                      : "text-text-hint cursor-default"
                 }`}
               >
                 <span className="text-base leading-none shrink-0 w-5 text-center">
                   {isCompleted && !isCurrent ? "✓" : step.icon}
                 </span>
-                {sidebarOpen && (
-                  <span className="truncate">{step.label}</span>
-                )}
+                {sidebarOpen && <span className="truncate">{step.label}</span>}
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={handleDispoOpen}
+            disabled={creatingLead}
+            title={!sidebarOpen ? "DISPO" : undefined}
+            className={`flex items-center justify-center gap-2 mt-auto rounded-xl min-h-10 text-sm font-semibold transition-colors bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-text-primary ${
+              sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+            }`}
+          >
+            {sidebarOpen ? (creatingLead ? "Creating…" : "DISPO") : "D"}
+          </button>
+          {dispoError && sidebarOpen && (
+            <p className="text-red-400 text-xs px-1 leading-snug">
+              {dispoError}
+            </p>
+          )}
         </nav>
 
         <div className="p-3 border-t border-border shrink-0 flex flex-col gap-2">
           <div className="min-h-5 flex items-center">
             {saving && (
               <span className="flex items-center gap-2 text-text-secondary text-xs">
-                <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                <svg
+                  className="w-3 h-3 animate-spin shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v8z"
+                  />
                 </svg>
                 {sidebarOpen && "Saving…"}
               </span>
@@ -287,31 +452,38 @@ export default function Stepper({ inspectionId, initialData }: StepperProps) {
               sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
             }`}
           >
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <svg
+              className="w-4 h-4 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
             </svg>
             {sidebarOpen && "Save & Exit"}
           </button>
-
-          {inspectionComplete && leadId && (
-            <button
-              type="button"
-              onClick={() => setDispoOpen(true)}
-              title={!sidebarOpen ? "DISPO" : undefined}
-              className={`flex items-center justify-center gap-2 rounded-xl min-h-10 text-sm font-semibold transition-colors bg-brand-blue hover:bg-accent-blue-hover text-text-primary ${
-                sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
-              }`}
-            >
-              {sidebarOpen ? "DISPO" : "D"}
-            </button>
-          )}
         </div>
       </aside>
 
       {/* ── Main area ── */}
       <div className="flex-1 flex flex-col min-w-0">
+        {lead && (
+          <div className="shrink-0 bg-bg-surface/90 backdrop-blur border-b border-border px-6 py-2">
+            <a
+              href={`/leads/${lead.id}`}
+              className="text-text-secondary hover:text-text-primary text-sm transition-colors"
+            >
+              ← Lead: {lead.customerName}
+            </a>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto overscroll-none">
-          <div className="max-w-2xl mx-auto px-6 py-10">
+          <div className="max-w-2xl mx-auto px-6 py-6">
             {stepComponents[currentStep]}
           </div>
         </div>
