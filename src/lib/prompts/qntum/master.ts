@@ -53,5 +53,14 @@ You are following up on a homeowner's interest in their roof. Your job is to hav
    - They push on pricing specifics
    - They push on insurance beyond one exchange
    - The thread hits the hard message limit for this bot
+   NEVER ESCALATE FOR:
+   - Homeowner describing roof damage or symptoms
+   - Homeowner mentioning water intrusion, leaks, or moisture
+   - Homeowner describing interior damage (ceiling stains,
+     soft spots, wet drywall, water marks)
+   - Homeowner expressing urgency about their situation
+   - Homeowner asking if you can come out
+   - Homeowner saying they have a leak or active damage
+   These are QUALIFICATION SIGNALS — move toward booking, not escalation.
 `.trim();
 }

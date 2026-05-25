@@ -42,7 +42,7 @@ import {
   isDuplicate,
   logWebhookHit,
 } from "@/src/lib/bot-webhook-utils";
-import { getSrLeadFromDb } from "@/src/lib/ghl-custom-object";
+import { getSrLeadFromDb, updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
   getZoneForZip,
   getZipTier,
@@ -304,7 +304,11 @@ async function handleQualifyWebhook(ctx: CentralWebhookContext): Promise<void> {
     timestamp: m.timestamp,
   }));
   const rawResponse = await runBot(systemPrompt, botMessages);
-  if (rawResponse === null) return;
+  if (rawResponse === null) {
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
+      .catch(err => console.error("[qualify] updateSrLead silent failed", err));
+    return;
+  }
 
   const signal = rawResponse.includes("[QUALIFIED]")
     ? "QUALIFIED"
@@ -573,13 +577,16 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
       timestamp: new Date().toISOString(),
     });
     const rawResponse = await runBot(systemPrompt, botMessages);
-    if (rawResponse !== null) {
-      await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
-      await appendMessage(threadId, "assistant", rawResponse);
-      if (rawResponse.includes("[STALL]")) {
-        await addGhlTag(ghlContactId, "booking_stall_exhausted");
-        await addGhlTag(ghlContactId, "sr_follow_up");
-      }
+    if (rawResponse === null) {
+      await updateSrLead(lead.id, { sr_bot_stage: "silent" })
+        .catch(err => console.error("[book/stall] updateSrLead silent failed", err));
+      return;
+    }
+    await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
+    await appendMessage(threadId, "assistant", rawResponse);
+    if (rawResponse.includes("[STALL]")) {
+      await addGhlTag(ghlContactId, "booking_stall_exhausted");
+      await addGhlTag(ghlContactId, "sr_follow_up");
     }
     return;
   }
@@ -594,7 +601,11 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     timestamp: m.timestamp,
   }));
   const rawResponse = await runBot(systemPrompt, botMessages);
-  if (rawResponse === null) return;
+  if (rawResponse === null) {
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
+      .catch(err => console.error("[book] updateSrLead silent failed", err));
+    return;
+  }
 
   const bookedMatch = rawResponse.match(
     /\[BOOKED:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]/,
@@ -776,7 +787,11 @@ async function handleNurtureWebhook(ctx: CentralWebhookContext): Promise<void> {
       },
     ];
     const rawResponse = await runBot(systemPrompt, botMessages);
-    if (rawResponse === null) return;
+    if (rawResponse === null) {
+      await updateSrLead(lead.id, { sr_bot_stage: "silent" })
+        .catch(err => console.error("[nurture/drip] updateSrLead silent failed", err));
+      return;
+    }
 
     const insightUsed =
       rawResponse.match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i)?.[1]?.toLowerCase() ??
@@ -878,7 +893,11 @@ async function handleNurtureWebhook(ctx: CentralWebhookContext): Promise<void> {
     timestamp: m.timestamp,
   }));
   const rawResponse = await runBot(systemPrompt, botMessages);
-  if (rawResponse === null) return;
+  if (rawResponse === null) {
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
+      .catch(err => console.error("[nurture] updateSrLead silent failed", err));
+    return;
+  }
 
   const insightUsed =
     rawResponse.match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i)?.[1]?.toLowerCase() ??
@@ -1066,7 +1085,11 @@ async function handleRevivalWebhook(ctx: CentralWebhookContext): Promise<void> {
     timestamp: m.timestamp,
   }));
   const rawResponse = await runBot(systemPrompt, botMessages);
-  if (rawResponse === null) return;
+  if (rawResponse === null) {
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
+      .catch(err => console.error("[revival] updateSrLead silent failed", err));
+    return;
+  }
 
   await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
   await appendMessage(threadId, "assistant", rawResponse);
@@ -1279,7 +1302,11 @@ async function handleRescheduleWebhook(
     timestamp: m.timestamp,
   }));
   const rawResponse = await runBot(systemPrompt, botMessages);
-  if (rawResponse === null) return;
+  if (rawResponse === null) {
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
+      .catch(err => console.error("[reschedule] updateSrLead silent failed", err));
+    return;
+  }
 
   await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
   await appendMessage(threadId, "assistant", rawResponse);
@@ -1479,7 +1506,11 @@ async function handleFinanceWebhook(ctx: CentralWebhookContext): Promise<void> {
       timestamp: m.timestamp,
     })),
   );
-  if (rawResponse === null) return;
+  if (rawResponse === null) {
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
+      .catch(err => console.error("[finance] updateSrLead silent failed", err));
+    return;
+  }
 
   await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
   await appendMessage(threadId, "assistant", rawResponse);
