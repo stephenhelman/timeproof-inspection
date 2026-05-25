@@ -55,7 +55,7 @@ One message. Stop.`;
   const shouldPivot =
     has_pivoted_to_revival ||
     last_message_context === 'wont_rebook' ||
-    (message_history_count >= 3 && last_message_context !== 'confirmed' && !from_booking_stall);
+    (message_history_count >= 3 && (last_message_context as string) !== 'confirmed' && !from_booking_stall);
 
   if (shouldPivot) {
     const findingsHook = inspection_findings

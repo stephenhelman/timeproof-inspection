@@ -139,8 +139,9 @@ export async function POST(request: NextRequest) {
     const threadMeta = (await prisma.botThread.findUnique({ where: { id: threadId } }))?.metadata as Record<string, unknown> ?? {};
     const has_pivoted = Boolean(threadMeta.hasPivotedToRevival);
 
-    const from_booking_stall = String(rawLead.rescheduleReason ?? '').includes('booking_stall') ||
-      (rawLead.ghlTags as string[] | undefined)?.includes('booking_stall_exhausted') ?? false;
+    const from_booking_stall =
+      String(rawLead.rescheduleReason ?? '').includes('booking_stall') ||
+      Boolean((rawLead.ghlTags as string[] | undefined)?.includes('booking_stall_exhausted'));
 
     const rawReason = (rawLead.rescheduleReason as string) ?? 'other';
     const validReasons: RescheduleReason[] = [

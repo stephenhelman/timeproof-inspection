@@ -26,7 +26,7 @@ export interface BotMessage {
 
 export async function getOrCreateThread(
   ghlContactId: string,
-  botType: "qualify" | "book" | "revival" | "reschedule" | "finance"
+  botType: "qualify" | "book" | "revival" | "reschedule" | "finance" | "nurture"
 ): Promise<{ id: string; messages: BotMessage[]; isNew: boolean }> {
   const existing = await prisma.botThread.findUnique({
     where: { ghlContactId_botType: { ghlContactId, botType } },
