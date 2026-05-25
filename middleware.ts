@@ -28,6 +28,14 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(target, { status: 301 });
     }
 
+    // scopereports.com/card/* and /summary/* are app routes, not marketing.
+    // Redirect to the app subdomain so auth and page routing work correctly.
+    if (pathname.startsWith("/card/") || pathname.startsWith("/summary/")) {
+      const target = request.nextUrl.clone();
+      target.hostname = "app.scopereports.com";
+      return NextResponse.redirect(target, { status: 301 });
+    }
+
     // API calls from the marketing domain pass through to Next.js routing directly.
     // These are same-origin fetch calls from the landing/qualify pages (e.g. /api/qualify/*).
     // They must NOT be rewritten to /marketing/api/... which would 404.

@@ -189,7 +189,7 @@ export default async function BusinessCardPage({
 
           {/* Free Roof Health Guide */}
           <a
-            href={`/roof-guide?source=card&rep=${repId}`}
+            href={`${process.env.NEXT_PUBLIC_MARKETING_URL ?? "https://scopereports.com"}/roof-guide?source=card&rep=${repId}`}
             className="flex items-center gap-3 bg-bg-elevated hover:bg-bg-base border border-border hover:border-border-hover rounded-xl px-4 py-3 transition-colors"
           >
             <svg className="w-5 h-5 text-text-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
