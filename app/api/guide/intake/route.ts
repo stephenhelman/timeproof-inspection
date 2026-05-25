@@ -24,6 +24,14 @@ function generateGuideSlug(firstName: string, city: string): string {
   return `${cleanFirst}-${cleanCity}-${suffix}`;
 }
 
+const VALID_SOURCES = ['facebook-guide', 'door', 'card', 'organic'] as const;
+type ValidSource = typeof VALID_SOURCES[number];
+
+function normalizeSource(raw?: string): ValidSource {
+  const trimmed = raw?.trim() ?? '';
+  return (VALID_SOURCES as readonly string[]).includes(trimmed) ? (trimmed as ValidSource) : 'organic';
+}
+
 async function fireGhlWebhook(payload: object) {
   const url = process.env.GHL_LEADS_WEBHOOK_URL;
   if (!url) return;
@@ -103,7 +111,7 @@ export async function POST(request: NextRequest) {
         roofAge: roofAge?.trim() ?? lead.roofAge,
         issuesNoticed: issuesArray.join(","),
         lastInspected: lastInspected?.trim() ?? lead.lastInspected,
-        guideSource: source?.trim() ?? null,
+        guideSource: normalizeSource(source),
         rep: rep?.trim() ?? lead.rep,
         guideUnlockedAt,
         ...(cityVal && { city: cityVal }),
@@ -127,7 +135,7 @@ export async function POST(request: NextRequest) {
         roofAge: roofAge?.trim() ?? null,
         issuesNoticed: issuesArray.join(","),
         lastInspected: lastInspected?.trim() ?? null,
-        guideSource: source?.trim() ?? null,
+        guideSource: normalizeSource(source),
         rep: rep?.trim() ?? null,
         status: "NEW",
         guideUnlockedAt,

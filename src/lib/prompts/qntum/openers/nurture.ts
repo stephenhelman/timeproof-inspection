@@ -22,6 +22,19 @@ Conversation in progress. Do not re-introduce yourself. Pick up naturally. Follo
     !issues_noticed.includes('None of the above');
   const firstIssue = hasIssues ? issues_noticed![0].toLowerCase() : null;
 
+  // Organic — direct/referral, no guide form context, no rep contact
+  if (source === 'organic') {
+    return `OPENER_TYPE: organic_entry
+
+FIRST_MESSAGE_INSTRUCTION:
+This homeowner reached out directly or was referred — they did not come through a Facebook ad or a rep visit. No form data is available. Lead with one El Paso-specific educational insight (prefer climate or aging-roof context). Ask one soft open-ended question about their roof.
+
+Introduce yourself by first name and company. Two sentences max. One question. Keep it warm and low-pressure.
+
+Example direction (do not use verbatim):
+"Hey, this is Alex with Qntum Roofing — one thing most homeowners in El Paso don't expect is how fast UV exposure breaks down roofing materials out here. What do you know about the current condition of yours?"`;
+  }
+
   // Door or card — homeowner met a rep already
   if (source === 'door' || source === 'card') {
     return `OPENER_TYPE: warm_rep_entry

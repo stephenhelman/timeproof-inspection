@@ -149,13 +149,14 @@ export async function POST(request: NextRequest) {
     const issuesRaw = rawLead.issuesNoticed as string | null ?? null;
     const issuesNoticed = issuesRaw ? issuesRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
 
-    const sourceRaw = (rawLead.source as string) ?? 'facebook-guide';
+    const sourceRaw = (rawLead.guideSource as string) ?? (rawLead.source as string) ?? 'organic';
     const sourceMap: Record<string, NurtureContext['source']> = {
       'facebook-guide': 'facebook-guide',
       'door': 'door',
       'card': 'card',
+      'organic': 'organic',
     };
-    const source: NurtureContext['source'] = sourceMap[sourceRaw] ?? 'facebook-guide';
+    const source: NurtureContext['source'] = sourceMap[sourceRaw] ?? 'organic';
 
     const context: NurtureContext = {
       bot_type: 'nurture',

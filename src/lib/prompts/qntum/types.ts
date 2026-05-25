@@ -68,7 +68,7 @@ export interface NurtureContext {
   bot_type: 'nurture';
   homeowner_name: string;
   first_name: string;
-  source: 'facebook-guide' | 'door' | 'card';
+  source: 'facebook-guide' | 'door' | 'card' | 'organic';
   rep: string | null;
   message_history_count: number;
   last_message_context: NurtureLastMessageContext;

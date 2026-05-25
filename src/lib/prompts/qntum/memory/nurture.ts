@@ -24,6 +24,8 @@ export function getNurtureMemoryModule(context: NurtureContext): string {
     memory += `This homeowner scanned a QR code from a physical binder left at their door${rep ? ` by ${rep}` : ''}. They have had prior contact with a Qntum rep. Do not introduce the company as if it's unfamiliar.\n`;
   } else if (source === 'card') {
     memory += `This homeowner tapped a digital business card link${rep ? ` shared by ${rep}` : ''}. They have had prior contact with a Qntum rep. Do not introduce the company as if it's unfamiliar.\n`;
+  } else if (source === 'organic') {
+    memory += `This homeowner reached out directly or was referred — not through a Facebook ad or a rep visit. No guide form data available. Introduce Qntum warmly. No assumptions about prior contact.\n`;
   } else {
     memory += `This homeowner came through a Facebook free guide ad. No prior rep contact. Introduce Qntum warmly but without assuming any prior relationship.\n`;
   }
