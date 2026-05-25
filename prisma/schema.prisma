@@ -198,6 +198,7 @@ model Lead {
   contactFormMessage        String?  @db.Text
 
   ghlRecordId               String?   // GHL SR Lead custom object record ID
+  ghlOpportunityId          String?   // GHL opportunity ID for stage moves
 
   inspections          Inspection[]
   notes                LeadNote[]

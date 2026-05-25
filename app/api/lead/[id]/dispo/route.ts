@@ -3,6 +3,7 @@ import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { addGhlTag, notifyManager } from "@/src/lib/ghl-sms";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
+import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
 
 type Outcome =
   | "sold"
@@ -70,6 +71,7 @@ export async function POST(
       if (ghlId) {
         await addGhlTag(ghlId, "sr_sold").catch(() => {});
         await updateSrLead(ghlId, { sr_status: "SOLD", sr_bot_stage: "silent" }).catch(() => {});
+        lead.ghlOpportunityId && moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_SOLD!).catch(err => console.error("[dispo] moveStage SOLD failed", err));
       }
       await notifyManager(
         `SOLD — ${lead.customerName}\n${lead.streetAddress}, ${lead.city}\n${appUrl}/leads/${params.id}`
@@ -102,6 +104,7 @@ export async function POST(
       if (ghlId) {
         await addGhlTag(ghlId, "sr_follow_up").catch(() => {});
         await updateSrLead(ghlId, { sr_status: "DEMO_NOT_SOLD", sr_bot_stage: "revival" }).catch(() => {});
+        lead.ghlOpportunityId && moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_DEMO_NOT_SOLD!).catch(err => console.error("[dispo] moveStage DEMO_NOT_SOLD failed", err));
       }
     }
 
@@ -129,6 +132,7 @@ export async function POST(
       if (ghlId) {
         await addGhlTag(ghlId, "sr_credit_fail").catch(() => {});
         await updateSrLead(ghlId, { sr_status: "DENIED", sr_bot_stage: "silent" }).catch(() => {});
+        lead.ghlOpportunityId && moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_FINANCE_DISCOVERY!).catch(err => console.error("[dispo] moveStage FINANCE failed", err));
       }
     }
 
@@ -151,6 +155,7 @@ export async function POST(
       if (ghlId) {
         await addGhlTag(ghlId, "sr_follow_up").catch(() => {});
         await updateSrLead(ghlId, { sr_status: "NO_SHOW", sr_bot_stage: "revival" }).catch(() => {});
+        lead.ghlOpportunityId && moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_NO_SHOW!).catch(err => console.error("[dispo] moveStage NO_SHOW failed", err));
       }
     }
 
@@ -185,6 +190,7 @@ export async function POST(
       if (ghlId) {
         await addGhlTag(ghlId, "sr_porched").catch(() => {});
         await updateSrLead(ghlId, { sr_status: "NO_SHOW", sr_bot_stage: "revival" }).catch(() => {});
+        lead.ghlOpportunityId && moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_NO_SHOW!).catch(err => console.error("[dispo] moveStage NO_SHOW (porched) failed", err));
       }
     }
 

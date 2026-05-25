@@ -1,32 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/src/lib/prisma";
+import { upsertGhlContact, createGhlOpportunity, updateGhlContactFields } from "@/src/lib/ghl-contacts";
+import { createSrLead, updateSrLead } from "@/src/lib/ghl-custom-object";
+import { resolveSource } from "@/src/lib/source-utils";
+import { getZoneForZip } from "@/src/lib/service-zones";
 
 const SMS_CONSENT_TEXT =
   "By providing your phone number, you consent to receive text messages from Qntum Roofing regarding your inspection request. Message and data rates may apply. Reply STOP at any time to opt out.";
 
-async function fireGhlWebhook(payload: object) {
-  const url = process.env.GHL_LEADS_WEBHOOK_URL;
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    console.error("[qualify/start] GHL webhook failed:", err);
-  }
-}
-
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const { name, phone, email, zip, tier, token } = body as {
-    name?: string;
+    name?:  string;
     phone?: string;
     email?: string;
-    zip?: string;
-    tier?: string;
+    zip?:   string;
+    tier?:  string;
     token?: string;
   };
 
@@ -44,14 +34,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid or expired token" }, { status: 400 });
   }
 
-  const resolvedZip = (jwtPayload.zip as string) ?? zip ?? "";
+  const resolvedZip  = (jwtPayload.zip  as string) ?? zip  ?? "";
   const resolvedTier = (jwtPayload.tier as string) ?? tier ?? "";
   const smsConsentAt = new Date();
   const smsConsentIp = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "";
 
   let lead;
 
-  // Phase 3: Facebook leads will have a leadId pre-baked in the JWT
+  // Facebook leads have a leadId pre-baked in the JWT
   if (jwtPayload.leadId && typeof jwtPayload.leadId === "string") {
     const existing = await prisma.lead.findUnique({ where: { id: jwtPayload.leadId } });
     if (existing) {
@@ -59,8 +49,8 @@ export async function POST(request: NextRequest) {
         where: { id: existing.id },
         data: {
           customerName: existing.customerName || name,
-          phone: existing.phone || phone,
-          email: existing.email || email,
+          phone:        existing.phone        || phone,
+          email:        existing.email        || email,
           smsConsentAt,
           smsConsentIp,
           smsConsentText: SMS_CONSENT_TEXT,
@@ -72,16 +62,16 @@ export async function POST(request: NextRequest) {
   if (!lead) {
     lead = await prisma.lead.create({
       data: {
-        customerName: name,
+        customerName:   name,
         phone,
         email,
-        streetAddress: "",
-        city: "",
-        state: "",
-        zip: resolvedZip,
-        sourceZip: resolvedZip,
-        sourceTier: resolvedTier,
-        source: "organic",
+        streetAddress:  "",
+        city:           "",
+        state:          "",
+        zip:            resolvedZip,
+        sourceZip:      resolvedZip,
+        sourceTier:     resolvedTier,
+        source:         "organic",
         smsConsentAt,
         smsConsentIp,
         smsConsentText: SMS_CONSENT_TEXT,
@@ -89,11 +79,11 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Issue a new JWT that includes the leadId so /api/qualify/complete can update the record
+  // Issue a new JWT with leadId so /api/qualify/complete can update the record
   const expiryMinutes = parseInt(process.env.QUALIFY_TOKEN_EXPIRY_MINUTES ?? "15", 10);
   const newToken = await new SignJWT({
-    zip: resolvedZip,
-    tier: resolvedTier,
+    zip:    resolvedZip,
+    tier:   resolvedTier,
     leadId: lead.id,
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -101,20 +91,66 @@ export async function POST(request: NextRequest) {
     .setExpirationTime(`${expiryMinutes}m`)
     .sign(secret);
 
-  await fireGhlWebhook({
-    event: "lead_captured",
-    lead_id: lead.id,
-    name,
-    phone,
-    email,
-    zip: resolvedZip,
-    tier: resolvedTier,
-    source: lead.source,
-    captured_at: smsConsentAt.toISOString(),
-    sms_consent: true,
-    sms_consent_at: smsConsentAt.toISOString(),
-    sms_consent_ip: smsConsentIp,
-  });
+  if (lead.ghlContactId) {
+    // Existing Facebook lead returning to fill the form — GHL contact already exists
+    await Promise.allSettled([
+      updateSrLead(lead.id, {
+        sr_bot_stage:      "qualifying",
+        sr_qualify_status: "pending",
+      }),
+      updateGhlContactFields(lead.ghlContactId, {
+        srBotStage: "qualifying",
+      }),
+    ]).catch(err => console.error("[qualify/start] GHL update failed for existing lead:", err));
+  } else {
+    // New organic/card/door lead — create GHL contact, SR Lead, and opportunity
+    try {
+      const resolvedSource = resolveSource(lead.source, "inspection");
+      const firstName      = name.trim().split(" ")[0];
+      const lastName       = name.trim().split(" ").slice(1).join(" ");
+
+      const { ghlContactId } = await upsertGhlContact({
+        firstName,
+        lastName,
+        phone,
+        email,
+        srSource:   resolvedSource,
+        srBotStage: "qualifying",
+        leadId:     lead.id,
+      });
+
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data:  { ghlContactId },
+      });
+
+      await createSrLead(ghlContactId, lead.id, {
+        sr_lead_id:        lead.id,
+        sr_tier:           (resolvedTier as "primary" | "secondary" | "out_of_area") || "primary",
+        sr_zone:           getZoneForZip(resolvedZip) ?? "unknown",
+        sr_status:         "NEW",
+        sr_qualify_status: "pending",
+        sr_bot_stage:      "qualifying",
+        sr_source:         resolvedSource as Parameters<typeof createSrLead>[2]["sr_source"],
+        sr_opted_out:      false,
+      });
+
+      const ghlOpportunityId = await createGhlOpportunity({
+        ghlContactId,
+        contactName:     lead.customerName,
+        pipelineId:      process.env.GHL_PIPELINE_INSPECTION!,
+        pipelineStageId: process.env.GHL_STAGE_NEW_LEAD!,
+        sourceName:      resolvedSource,
+      });
+
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data:  { ghlOpportunityId },
+      });
+    } catch (err) {
+      console.error("[qualify/start] GHL sync failed:", err);
+    }
+  }
 
   return NextResponse.json({ token: newToken });
 }

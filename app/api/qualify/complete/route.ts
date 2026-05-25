@@ -2,30 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { prisma } from "@/src/lib/prisma";
 import { addGhlTag } from "@/src/lib/ghl-sms";
-
-async function fireGhlWebhook(payload: object) {
-  const url = process.env.GHL_LEADS_WEBHOOK_URL;
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    console.error("[qualify/complete] GHL webhook failed:", err);
-  }
-}
+import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
+import { updateSrLead } from "@/src/lib/ghl-custom-object";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const { token, roofAge, knownIssues, lastInspected, bestTime, decisionMakerHome } = body as {
-    token?: string;
-    roofAge?: string;
-    knownIssues?: string[];
-    lastInspected?: string;
-    bestTime?: string;
-    decisionMakerHome?: string;
+    token?:               string;
+    roofAge?:             string;
+    knownIssues?:         string[];
+    lastInspected?:       string;
+    bestTime?:            string;
+    decisionMakerHome?:   string;
   };
 
   if (!token) {
@@ -52,14 +40,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   }
 
-  const tier = jwtPayload.tier as string | undefined;
+  const tier               = jwtPayload.tier as string | undefined;
   const qualifyCompletedAt = new Date();
 
   const updatedLead = await prisma.lead.update({
     where: { id: leadId },
     data: {
       roofAge,
-      knownIssues: knownIssues ?? [],
+      knownIssues:       knownIssues ?? [],
       lastInspected,
       bestTime,
       decisionMakerHome,
@@ -69,26 +57,20 @@ export async function POST(request: NextRequest) {
   });
 
   if (updatedLead.ghlContactId) {
-    try {
-      await addGhlTag(updatedLead.ghlContactId, "qualify_complete");
-    } catch (err) {
-      console.error("[qualify/complete] addGhlTag failed:", err);
-    }
+    await Promise.allSettled([
+      addGhlTag(updatedLead.ghlContactId, "qualify_complete"),
+      updateSrLead(updatedLead.id, {
+        sr_qualify_status: "complete",
+        sr_bot_stage:      "booking",
+      }),
+      updatedLead.ghlOpportunityId
+        ? moveGhlOpportunityStage(
+            updatedLead.ghlOpportunityId,
+            process.env.GHL_STAGE_BOOKING!
+          )
+        : Promise.resolve(),
+    ]).catch(err => console.error("[qualify/complete] GHL sync failed:", err));
   }
-
-  await fireGhlWebhook({
-    event: "lead_qualified",
-    lead_id: updatedLead.id,
-    name: updatedLead.customerName,
-    phone: updatedLead.phone,
-    zip: updatedLead.sourceZip,
-    roof_age: roofAge,
-    known_issues: knownIssues,
-    last_inspected: lastInspected,
-    best_time: bestTime,
-    decision_maker_home: decisionMakerHome,
-    qualified_at: qualifyCompletedAt.toISOString(),
-  });
 
   return NextResponse.json({ success: true });
 }

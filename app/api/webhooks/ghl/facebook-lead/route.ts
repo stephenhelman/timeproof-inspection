@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { getZipTier } from "@/src/lib/service-zones";
 import { handleTier1Lead, handleTier2Lead, handleOutOfAreaLead } from "@/src/lib/ghl-lead-handlers";
+import { createGhlOpportunity } from "@/src/lib/ghl-contacts";
 
 // ============================================================
 // GHL FACEBOOK LEAD PAYLOAD MAP
@@ -102,6 +103,23 @@ export async function POST(request: NextRequest) {
 
     if (tier === "primary") {
       await handleTier1Lead(handlerArgs);
+      // Create opportunity after SR Lead — triggers GHL Workflow 2 for Facebook leads.
+      // Non-blocking: webhook must return 200 regardless.
+      try {
+        const ghlOpportunityId = await createGhlOpportunity({
+          ghlContactId:    norm.ghlContactId,
+          contactName:     norm.name,
+          pipelineId:      process.env.GHL_PIPELINE_INSPECTION!,
+          pipelineStageId: process.env.GHL_STAGE_NEW_LEAD!,
+          sourceName:      "facebook-inspection",
+        });
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data:  { ghlOpportunityId },
+        });
+      } catch (err) {
+        console.error("[facebook-lead] createGhlOpportunity failed:", err);
+      }
     } else if (tier === "secondary") {
       await handleTier2Lead(handlerArgs);
     } else {

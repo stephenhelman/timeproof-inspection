@@ -1,26 +1,15 @@
-// GHL MANUAL SETUP REQUIRED:
-// 1. Create workflow: Trigger = webhook received at this route
-//    Action: Add tag "source_free_guide" to contact
-//    Action: Set active conversation webhook to:
-//            app.scopereports.com/api/webhooks/ghl/nurture
-// 2. Create workflow: Trigger = tag "source_free_guide" added
-//    Action: Fire webhook to /api/webhooks/ghl/nurture
-//    Body: { contact_id: "{{contact.id}}", message: "new_guide_lead" }
-// 3. Map webhook fields in GHL:
-//    roof_type → custom field
-//    roof_age  → custom field
-//    issues_noticed → custom field
-//    source → custom field
-//    rep → custom field
-
 import { NextRequest, NextResponse } from "next/server";
 import { SignJWT } from "jose";
 import { prisma } from "@/src/lib/prisma";
+import { upsertGhlContact, createGhlOpportunity } from "@/src/lib/ghl-contacts";
+import { createSrLead } from "@/src/lib/ghl-custom-object";
+import { resolveSource } from "@/src/lib/source-utils";
+import { getZoneForZip } from "@/src/lib/service-zones";
 
 function generateGuideSlug(firstName: string, city: string): string {
   const cleanFirst = firstName.toLowerCase().trim().replace(/[^a-z]/g, '').slice(0, 12);
-  const cleanCity = city.toLowerCase().trim().replace(/[^a-z ]/g, '').replace(/\s+/g, '').slice(0, 12);
-  const suffix = Math.random().toString(36).slice(2, 6);
+  const cleanCity  = city.toLowerCase().trim().replace(/[^a-z ]/g, '').replace(/\s+/g, '').slice(0, 12);
+  const suffix     = Math.random().toString(36).slice(2, 6);
   return `${cleanFirst}-${cleanCity}-${suffix}`;
 }
 
@@ -30,20 +19,6 @@ type ValidSource = typeof VALID_SOURCES[number];
 function normalizeSource(raw?: string): ValidSource {
   const trimmed = raw?.trim() ?? '';
   return (VALID_SOURCES as readonly string[]).includes(trimmed) ? (trimmed as ValidSource) : 'organic';
-}
-
-async function fireGhlWebhook(payload: object) {
-  const url = process.env.GHL_LEADS_WEBHOOK_URL;
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    console.error("[guide/intake] GHL webhook failed:", err);
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -62,18 +37,18 @@ export async function POST(request: NextRequest) {
     source,
     rep,
   } = body as {
-    roofType?: string;
-    roofAge?: string;
+    roofType?:      string;
+    roofAge?:       string;
     issuesNoticed?: string[];
     lastInspected?: string;
-    name?: string;
-    phone?: string;
-    street?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-    source?: string;
-    rep?: string;
+    name?:          string;
+    phone?:         string;
+    street?:        string;
+    city?:          string;
+    state?:         string;
+    zip?:           string;
+    source?:        string;
+    rep?:           string;
   };
 
   if (!name?.trim() || !phone?.trim() || !roofType?.trim()) {
@@ -83,61 +58,59 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET!);
-  const firstName = name.trim().split(" ")[0];
-  const issuesArray = Array.isArray(issuesNoticed) ? issuesNoticed : [];
+  const secret         = new TextEncoder().encode(process.env.NEXTAUTH_SECRET!);
+  const firstName      = name.trim().split(" ")[0];
+  const issuesArray    = Array.isArray(issuesNoticed) ? issuesNoticed : [];
   const guideUnlockedAt = new Date();
-  const cityVal = city?.trim() ?? "";
+  const cityVal        = city?.trim() ?? "";
+  const resolvedSource = resolveSource(source, "guide");
 
   let lead = await prisma.lead.findFirst({
-    where: { phone: phone.trim() },
+    where:   { phone: phone.trim() },
     orderBy: { createdAt: "desc" },
   });
 
   if (lead?.guideSlug) {
-    // Already has a slug — return existing guide URL
     return NextResponse.json({
-      slug: lead.guideSlug,
+      slug:     lead.guideSlug,
       guideUrl: `/roof-guide/${lead.guideSlug}`,
     });
   }
 
   if (lead) {
-    // Exists without slug — update fields and issue token below
     lead = await prisma.lead.update({
       where: { id: lead.id },
       data: {
-        roofType: roofType.trim(),
-        roofAge: roofAge?.trim() ?? lead.roofAge,
+        roofType:      roofType.trim(),
+        roofAge:       roofAge?.trim() ?? lead.roofAge,
         issuesNoticed: issuesArray.join(","),
         lastInspected: lastInspected?.trim() ?? lead.lastInspected,
-        guideSource: normalizeSource(source),
-        rep: rep?.trim() ?? lead.rep,
+        guideSource:   normalizeSource(source),
+        rep:           rep?.trim() ?? lead.rep,
         guideUnlockedAt,
-        ...(cityVal && { city: cityVal }),
-        ...(state?.trim() && { state: state.trim() }),
-        ...(zip?.trim() && { zip: zip.trim() }),
-        ...(street?.trim() && { streetAddress: street.trim() }),
+        ...(cityVal            && { city:          cityVal }),
+        ...(state?.trim()      && { state:         state.trim() }),
+        ...(zip?.trim()        && { zip:           zip.trim() }),
+        ...(street?.trim()     && { streetAddress: street.trim() }),
       },
     });
   } else {
-    // New lead — create record
     lead = await prisma.lead.create({
       data: {
-        customerName: name.trim(),
-        phone: phone.trim(),
+        customerName:  name.trim(),
+        phone:         phone.trim(),
         streetAddress: street?.trim() ?? "",
-        city: cityVal,
-        state: state?.trim() ?? "TX",
-        zip: zip?.trim() ?? "",
-        source: source?.trim() ?? "free-guide",
-        roofType: roofType.trim(),
-        roofAge: roofAge?.trim() ?? null,
+        city:          cityVal,
+        state:         state?.trim() ?? "TX",
+        zip:           zip?.trim() ?? "",
+        source:        source?.trim() ?? "free-guide",
+        roofType:      roofType.trim(),
+        roofAge:       roofAge?.trim() ?? null,
         issuesNoticed: issuesArray.join(","),
         lastInspected: lastInspected?.trim() ?? null,
-        guideSource: normalizeSource(source),
-        rep: rep?.trim() ?? null,
-        status: "NEW",
+        guideSource:   normalizeSource(source),
+        rep:           rep?.trim() ?? null,
+        status:        "NEW",
         guideUnlockedAt,
       },
     });
@@ -145,9 +118,9 @@ export async function POST(request: NextRequest) {
 
   // Sign guide JWT — no expiry, guide access is permanent
   const token = await new SignJWT({
-    leadId: lead.id,
-    roofType: roofType.trim(),
-    roofAge: roofAge?.trim() ?? "",
+    leadId:        lead.id,
+    roofType:      roofType.trim(),
+    roofAge:       roofAge?.trim() ?? "",
     issuesNoticed: issuesArray,
     firstName,
   })
@@ -155,28 +128,65 @@ export async function POST(request: NextRequest) {
     .setIssuedAt()
     .sign(secret);
 
-  // Generate slug and persist token + slug
   const slug = generateGuideSlug(firstName, cityVal || "elpaso");
   await prisma.lead.update({
     where: { id: lead.id },
-    data: { guideToken: token, guideSlug: slug },
+    data:  { guideToken: token, guideSlug: slug },
   });
 
-  // Fire GHL webhook
-  await fireGhlWebhook({
-    event: "guide_lead_captured",
-    lead_id: lead.id,
-    name: name.trim(),
-    phone: phone.trim(),
-    address: [street?.trim(), cityVal, state?.trim(), zip?.trim()].filter(Boolean).join(", "),
-    roof_type: roofType.trim(),
-    roof_age: roofAge?.trim() ?? "",
-    issues_noticed: issuesArray.join(","),
-    last_inspected: lastInspected?.trim() ?? "",
-    source: source?.trim() ?? "",
-    rep: rep?.trim() ?? "",
-    captured_at: guideUnlockedAt.toISOString(),
-  });
+  // Only create GHL contact + opportunity for new leads (no ghlContactId yet)
+  if (!lead.ghlContactId) {
+    try {
+      const { ghlContactId } = await upsertGhlContact({
+        firstName:     firstName,
+        lastName:      name.trim().split(" ").slice(1).join(" "),
+        phone:         phone.trim(),
+        address1:      street?.trim(),
+        city:          cityVal || undefined,
+        state:         state?.trim(),
+        postalCode:    zip?.trim(),
+        srSource:      resolvedSource,
+        srBotStage:    "nurture",
+        leadId:        lead.id,
+        rep:           rep?.trim() ?? "",
+        roofType:      roofType.trim(),
+        roofAge:       roofAge?.trim(),
+        issuesNoticed: issuesArray.join(","),
+        lastInspected: lastInspected?.trim(),
+      });
+
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data:  { ghlContactId },
+      });
+
+      await createSrLead(ghlContactId, lead.id, {
+        sr_lead_id:        lead.id,
+        sr_tier:           "primary",
+        sr_zone:           getZoneForZip(zip?.trim() ?? "") ?? "unknown",
+        sr_status:         "NEW",
+        sr_qualify_status: "pending",
+        sr_bot_stage:      "nurture",
+        sr_source:         resolvedSource as Parameters<typeof createSrLead>[2]["sr_source"],
+        sr_opted_out:      false,
+      });
+
+      const ghlOpportunityId = await createGhlOpportunity({
+        ghlContactId,
+        contactName:     lead.customerName,
+        pipelineId:      process.env.GHL_PIPELINE_ROOF_GUIDE!,
+        pipelineStageId: process.env.GHL_STAGE_GUIDE_SUBMITTED!,
+        sourceName:      resolvedSource,
+      });
+
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data:  { ghlOpportunityId },
+      });
+    } catch (err) {
+      console.error("[guide/intake] GHL sync failed:", err);
+    }
+  }
 
   return NextResponse.json({
     slug,

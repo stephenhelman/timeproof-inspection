@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
-import { exportLead } from "@/src/lib/ghl-service";
+import { exportLead } from "@/src/lib/ghl-tpusa-export";
 
 export async function POST(req: Request) {
   const session = await auth();
