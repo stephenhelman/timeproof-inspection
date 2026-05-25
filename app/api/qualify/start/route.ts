@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/src/lib/prisma";
-import { upsertGhlContact, createGhlOpportunity, updateGhlContactFields } from "@/src/lib/ghl-contacts";
+import { upsertGhlContact, updateGhlContactFields } from "@/src/lib/ghl-contacts";
 import { createSrLead, updateSrLead } from "@/src/lib/ghl-custom-object";
 import { resolveSource } from "@/src/lib/source-utils";
 import { getZoneForZip } from "@/src/lib/service-zones";
@@ -11,13 +11,14 @@ const SMS_CONSENT_TEXT =
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
-  const { name, phone, email, zip, tier, token } = body as {
-    name?:  string;
-    phone?: string;
-    email?: string;
-    zip?:   string;
-    tier?:  string;
-    token?: string;
+  const { name, phone, email, zip, tier, token, source } = body as {
+    name?:   string;
+    phone?:  string;
+    email?:  string;
+    zip?:    string;
+    tier?:   string;
+    token?:  string;
+    source?: string;
   };
 
   if (!token || !name || !phone || !email) {
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
         zip:            resolvedZip,
         sourceZip:      resolvedZip,
         sourceTier:     resolvedTier,
-        source:         "organic",
+        source:         source ?? "organic",
         smsConsentAt,
         smsConsentIp,
         smsConsentText: SMS_CONSENT_TEXT,
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
       }),
     ]).catch(err => console.error("[qualify/start] GHL update failed for existing lead:", err));
   } else {
-    // New organic/card/door lead — create GHL contact, SR Lead, and opportunity
+    // New organic/card/door lead — create GHL contact and SR Lead
     try {
       const resolvedSource = resolveSource(lead.source, "inspection");
       const firstName      = name.trim().split(" ")[0];
@@ -133,19 +134,6 @@ export async function POST(request: NextRequest) {
         sr_bot_stage:      "qualifying",
         sr_source:         resolvedSource as Parameters<typeof createSrLead>[2]["sr_source"],
         sr_opted_out:      false,
-      });
-
-      const ghlOpportunityId = await createGhlOpportunity({
-        ghlContactId,
-        contactName:     lead.customerName,
-        pipelineId:      process.env.GHL_PIPELINE_INSPECTION!,
-        pipelineStageId: process.env.GHL_STAGE_NEW_LEAD!,
-        sourceName:      resolvedSource,
-      });
-
-      await prisma.lead.update({
-        where: { id: lead.id },
-        data:  { ghlOpportunityId },
       });
     } catch (err) {
       console.error("[qualify/start] GHL sync failed:", err);

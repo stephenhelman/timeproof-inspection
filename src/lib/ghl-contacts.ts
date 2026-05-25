@@ -17,31 +17,31 @@ import { ContactsClient, OpportunitiesClient } from "ghl-sdk";
 // ── Types ──────────────────────────────────────────────────────
 
 export interface QntumContactInput {
-  firstName:      string;
-  lastName?:      string;
-  phone?:         string;
-  email?:         string;
-  address1?:      string;
-  city?:          string;
-  state?:         string;
-  postalCode?:    string;
+  firstName: string;
+  lastName?: string;
+  phone?: string;
+  email?: string;
+  address1?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
   // Qntum-specific fields — mapped to GHL custom field IDs
-  srSource?:      string;   // GHL_FIELD_SR_SOURCE
-  srBotStage?:    string;   // GHL_FIELD_SR_BOT_STAGE
-  leadId?:        string;   // GHL_FIELD_LEAD_ID
-  rep?:           string;   // GHL_FIELD_REP
-  roofType?:      string;   // GHL_FIELD_ROOF_TYPE
-  roofAge?:       string;   // GHL_FIELD_ROOF_AGE
-  issuesNoticed?: string;   // GHL_FIELD_ISSUES_NOTICED (comma-separated)
-  lastInspected?: string;   // GHL_FIELD_LAST_INSPECTED
+  srSource?: string; // GHL_FIELD_SR_SOURCE
+  srBotStage?: string; // GHL_FIELD_SR_BOT_STAGE
+  leadId?: string; // GHL_FIELD_LEAD_ID
+  rep?: string; // GHL_FIELD_REP
+  roofType?: string; // GHL_FIELD_ROOF_TYPE
+  roofAge?: string; // GHL_FIELD_ROOF_AGE
+  issuesNoticed?: string; // GHL_FIELD_ISSUES_NOTICED (comma-separated)
+  lastInspected?: string; // GHL_FIELD_LAST_INSPECTED
 }
 
 export interface QntumOpportunityInput {
-  ghlContactId:    string;
-  contactName:     string;
-  pipelineId:      string;   // from env var
-  pipelineStageId: string;   // from env var
-  sourceName:      string;   // e.g. "facebook-guide", "door-inspection"
+  ghlContactId: string;
+  contactName: string;
+  pipelineId: string; // from env var
+  pipelineStageId: string; // from env var
+  sourceName: string; // e.g. "facebook-guide", "door-inspection"
 }
 
 // ── Internal helpers ───────────────────────────────────────────
@@ -50,7 +50,7 @@ function getClients() {
   const key = process.env.GHL_API_KEY;
   if (!key) throw new Error("GHL_API_KEY is not set");
   return {
-    contacts:      new ContactsClient(key),
+    contacts: new ContactsClient(key),
     opportunities: new OpportunitiesClient(key),
   };
 }
@@ -65,17 +65,17 @@ function getLocationId(): string {
 // Returns both `value` (required by create) and `field_value` (required by update)
 // so the same array can be passed to either SDK call.
 function buildCustomFields(
-  input: QntumContactInput
+  input: QntumContactInput,
 ): Array<{ id: string; value: string; field_value: string }> {
   const fields: Array<{ id: string; value: string; field_value: string }> = [];
 
   const map: Array<[string | undefined, string | undefined]> = [
-    [process.env.GHL_FIELD_SR_SOURCE,      input.srSource],
-    [process.env.GHL_FIELD_SR_BOT_STAGE,   input.srBotStage],
-    [process.env.GHL_FIELD_LEAD_ID,        input.leadId],
-    [process.env.GHL_FIELD_REP,            input.rep],
-    [process.env.GHL_FIELD_ROOF_TYPE,      input.roofType],
-    [process.env.GHL_FIELD_ROOF_AGE,       input.roofAge],
+    [process.env.GHL_FIELD_SR_SOURCE, input.srSource],
+    [process.env.GHL_FIELD_SR_BOT_STAGE, input.srBotStage],
+    [process.env.GHL_FIELD_LEAD_ID, input.leadId],
+    [process.env.GHL_FIELD_REP, input.rep],
+    [process.env.GHL_FIELD_ROOF_TYPE, input.roofType],
+    [process.env.GHL_FIELD_ROOF_AGE, input.roofAge],
     [process.env.GHL_FIELD_ISSUES_NOTICED, input.issuesNoticed],
     [process.env.GHL_FIELD_LAST_INSPECTED, input.lastInspected],
   ];
@@ -96,22 +96,23 @@ function buildCustomFields(
 // If not — create new contact and return the new ghlContactId.
 export async function upsertGhlContact(
   input: QntumContactInput,
-  existingGhlContactId?: string
+  existingGhlContactId?: string,
 ): Promise<{ ghlContactId: string; isNew: boolean }> {
   const { contacts } = getClients();
-  const customFields  = buildCustomFields(input);
+  const customFields = buildCustomFields(input);
 
   const basePayload = {
-    firstName:   input.firstName,
-    lastName:    input.lastName  ?? "",
-    phone:       input.phone,
-    email:       input.email,
-    address1:    input.address1,
-    city:        input.city,
-    state:       input.state,
-    postalCode:  input.postalCode,
+    firstName: input.firstName,
+    lastName: input.lastName ?? "",
+    phone: input.phone,
+    email: input.email,
+    address1: input.address1,
+    city: input.city,
+    state: input.state,
+    postalCode: input.postalCode,
     customFields,
   };
+  console.log(basePayload);
 
   if (existingGhlContactId) {
     await contacts.update(existingGhlContactId, basePayload);
@@ -119,7 +120,7 @@ export async function upsertGhlContact(
   }
 
   const locationId = getLocationId();
-  const result     = await contacts.create({ ...basePayload, locationId });
+  const result = await contacts.create({ ...basePayload, locationId });
   const ghlContactId = result?.contact?.id;
 
   if (!ghlContactId) {
@@ -133,12 +134,12 @@ export async function upsertGhlContact(
 // Used for bot stage updates mid-conversation.
 export async function updateGhlContactFields(
   ghlContactId: string,
-  fields: Partial<Pick<QntumContactInput,
-    "srSource" | "srBotStage" | "leadId" | "rep"
-  >>
+  fields: Partial<
+    Pick<QntumContactInput, "srSource" | "srBotStage" | "leadId" | "rep" | "roofAge" | "issuesNoticed" | "lastInspected">
+  >,
 ): Promise<void> {
-  const { contacts }  = getClients();
-  const customFields  = buildCustomFields(fields as QntumContactInput);
+  const { contacts } = getClients();
+  const customFields = buildCustomFields(fields as QntumContactInput);
 
   if (customFields.length === 0) return;
 
@@ -151,24 +152,26 @@ export async function updateGhlContactFields(
 // Stage creation is what triggers GHL workflows.
 // Returns ghlOpportunityId.
 export async function createGhlOpportunity(
-  input: QntumOpportunityInput
+  input: QntumOpportunityInput,
 ): Promise<string> {
   const { opportunities } = getClients();
-  const locationId        = getLocationId();
+  const locationId = getLocationId();
 
   const result = await opportunities.create({
-    pipelineId:      input.pipelineId,
+    pipelineId: input.pipelineId,
     pipelineStageId: input.pipelineStageId,
-    contactId:       input.ghlContactId,
-    name:            `${input.contactName} — ${input.sourceName}`,
+    contactId: input.ghlContactId,
+    name: `${input.contactName} — ${input.sourceName}`,
     locationId,
-    status:          "open",
+    status: "open",
   });
 
   const ghlOpportunityId = result?.opportunity?.id;
 
   if (!ghlOpportunityId) {
-    throw new Error("createGhlOpportunity: GHL did not return an opportunity ID");
+    throw new Error(
+      "createGhlOpportunity: GHL did not return an opportunity ID",
+    );
   }
 
   return ghlOpportunityId;
@@ -178,7 +181,7 @@ export async function createGhlOpportunity(
 // Used by DISPO outcomes and bot transitions.
 export async function moveGhlOpportunityStage(
   ghlOpportunityId: string,
-  pipelineStageId:  string
+  pipelineStageId: string,
 ): Promise<void> {
   const { opportunities } = getClients();
   await opportunities.update(ghlOpportunityId, { pipelineStageId });

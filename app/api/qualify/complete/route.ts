@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { prisma } from "@/src/lib/prisma";
-import { addGhlTag } from "@/src/lib/ghl-sms";
-import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
+import { createGhlOpportunity, updateGhlContactFields } from "@/src/lib/ghl-contacts";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
+import { resolveSource } from "@/src/lib/source-utils";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
@@ -57,19 +57,41 @@ export async function POST(request: NextRequest) {
   });
 
   if (updatedLead.ghlContactId) {
-    await Promise.allSettled([
-      addGhlTag(updatedLead.ghlContactId, "qualify_complete"),
-      updateSrLead(updatedLead.id, {
-        sr_qualify_status: "complete",
-        sr_bot_stage:      "booking",
-      }),
-      updatedLead.ghlOpportunityId
-        ? moveGhlOpportunityStage(
-            updatedLead.ghlOpportunityId,
-            process.env.GHL_STAGE_BOOKING!
-          )
-        : Promise.resolve(),
-    ]).catch(err => console.error("[qualify/complete] GHL sync failed:", err));
+    // 1. Update GHL contact with qualify form data
+    await updateGhlContactFields(updatedLead.ghlContactId, {
+      roofAge:       roofAge ?? undefined,
+      issuesNoticed: Array.isArray(knownIssues)
+                       ? knownIssues.join(",")
+                       : knownIssues ?? undefined,
+      lastInspected: lastInspected ?? undefined,
+    }).catch(err => console.error("[qualify/complete] updateGhlContactFields failed:", err));
+
+    // 2. Create opportunity — triggers GHL Workflow 2 which fires qualify bot opener
+    if (!updatedLead.ghlOpportunityId) {
+      try {
+        const resolvedSource  = resolveSource(updatedLead.source, "inspection");
+        const ghlOpportunityId = await createGhlOpportunity({
+          ghlContactId:    updatedLead.ghlContactId,
+          contactName:     updatedLead.customerName,
+          pipelineId:      process.env.GHL_PIPELINE_INSPECTION!,
+          pipelineStageId: process.env.GHL_STAGE_NEW_LEAD!,
+          sourceName:      resolvedSource,
+        });
+
+        await prisma.lead.update({
+          where: { id: updatedLead.id },
+          data:  { ghlOpportunityId },
+        });
+      } catch (err) {
+        console.error("[qualify/complete] createGhlOpportunity failed:", err);
+        // Non-blocking — lead is saved; bot may need manual activation if this fails
+      }
+    }
+
+    // 3. Mark qualify complete — do NOT change sr_bot_stage; Alex owns that
+    await updateSrLead(updatedLead.id, {
+      sr_qualify_status: "complete",
+    }).catch(err => console.error("[qualify/complete] updateSrLead failed:", err));
   }
 
   return NextResponse.json({ success: true });
