@@ -189,6 +189,9 @@ model Lead {
   roofType                  String?  // Shingle / Flat / Both — from guide form
   issuesNoticed             String?  // Comma-separated checkbox values from guide form
   rep                       String?  // Rep slug (stephen/adam/etc.) for door/card attribution
+  guideToken                String?  // JWT token for personalized guide URL access
+  guideUnlockedAt           DateTime? // When they submitted the guide form
+  guideSource               String?  // 'facebook-guide' | 'door' | 'card'
 
   // Contact form — populated when lead enters via /contact page
   contactFormMessage        String?  @db.Text

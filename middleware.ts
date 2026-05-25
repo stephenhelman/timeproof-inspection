@@ -45,10 +45,10 @@ export async function middleware(request: NextRequest) {
 
   // ── App surface (app.scopereports.com or localhost) ───────────────────────
 
-  // /api/qualify/* is public — no auth required regardless of hostname.
+  // /api/qualify/* and /api/guide/* are public — no auth required regardless of hostname.
   // These endpoints are called by the marketing funnel and must be accessible
   // from both scopereports.com (marketing) and app.scopereports.com (testing/local dev).
-  if (pathname.startsWith("/api/qualify/")) {
+  if (pathname.startsWith("/api/qualify/") || pathname.startsWith("/api/guide/")) {
     return NextResponse.next();
   }
 
