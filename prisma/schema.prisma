@@ -197,8 +197,36 @@ model Lead {
   // Contact form — populated when lead enters via /contact page
   contactFormMessage        String?  @db.Text
 
+  ghlRecordId               String?   // GHL SR Lead custom object record ID
+
   inspections          Inspection[]
   notes                LeadNote[]
+  srLead               SrLead?
+}
+
+model SrLead {
+  id              String    @id @default(cuid())
+  leadId          String    @unique
+  ghlContactId    String    @unique
+  ghlRecordId     String?
+
+  srLeadId        String
+  srTier          String
+  srZone          String
+  srStatus        String
+  srQualifyStatus String
+  srBotStage      String
+  srAppointmentAt DateTime?
+  srSource        String
+  srOptedOut      Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  lead            Lead      @relation(fields: [leadId], references: [id])
+
+  @@index([ghlContactId])
+  @@index([leadId])
 }
 
 model LeadNote {

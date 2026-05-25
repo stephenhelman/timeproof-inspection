@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { resolveSource } from "@/src/lib/source-tracking";
 
 type RadioGroupProps = {
   label: string;
@@ -170,7 +171,7 @@ export default function QualifyForm({
       const res = await fetch("/api/qualify/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, roofAge, knownIssues, lastInspected, bestTime, decisionMakerHome }),
+        body: JSON.stringify({ token, roofAge, knownIssues, lastInspected, bestTime, decisionMakerHome, source: resolveSource("inspection") }),
       });
       const data = await res.json();
       if (!res.ok) {

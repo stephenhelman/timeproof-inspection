@@ -7,17 +7,25 @@ import { handleTier1Lead, handleTier2Lead, handleOutOfAreaLead } from "@/src/lib
 // GHL FACEBOOK LEAD PAYLOAD MAP
 // Update this if GHL changes their webhook payload shape.
 // All field extraction lives here — nowhere else in the route.
+// customData-first: GHL standard workflow webhooks wrap all fields in customData.
 // ============================================================
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeGhlFacebookPayload(raw: any) {
-  const firstName = raw.first_name ?? raw.firstName ?? "";
-  const lastName = raw.last_name ?? raw.lastName ?? "";
-  const name = (raw.contact_name ?? `${firstName} ${lastName}`.trim()) || "Unknown";
-  const phone = raw.phone ?? raw.phone_raw ?? "";
-  const zip = (raw.customField?.lead_zip ?? raw.lead_zip ?? raw.zip ?? "").trim();
-  const ghlContactId = raw.contact_id ?? raw.contactId ?? raw.id ?? "";
-  const facebookLeadId: string | null = raw.facebook_lead_id ?? null;
-  return { name, phone, zip, ghlContactId, facebookLeadId, source: "facebook" as const };
+  const data = raw?.customData ?? raw;
+  const firstName = data.first_name ?? data.firstName ?? "";
+  const lastName = data.last_name ?? data.lastName ?? "";
+  const name = (data.contact_name ?? `${firstName} ${lastName}`.trim()) || "Unknown";
+  const phone = data.phone ?? data.phone_raw ?? "";
+  const zip = (
+    data.customField?.lead_zip ??
+    data.lead_zip ??
+    data.zip ??
+    data.customData?.lead_zip ??
+    ""
+  ).trim();
+  const ghlContactId = data.contact_id ?? data.contactId ?? data.id ?? "";
+  const facebookLeadId: string | null = data.facebook_lead_id ?? null;
+  return { name, phone, zip, ghlContactId, facebookLeadId, source: "facebook-inspection" as const };
 }
 // ============================================================
 
@@ -72,7 +80,7 @@ export async function POST(request: NextRequest) {
         zip: norm.zip,
         sourceZip: norm.zip,
         sourceTier: tier,
-        source: "facebook",
+        source: norm.source,
         ghlContactId: norm.ghlContactId || null,
         facebookLeadId: norm.facebookLeadId,
         status: tier === "out_of_area" ? "OUT_OF_AREA" : "NEW",

@@ -15,15 +15,21 @@ export function parseInboundSms(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   body: any
 ): { ghlContactId: string; inboundMessage: string; idempotencyKey: string } | null {
-  const ghlContactId =
-    body?.contact_id ?? body?.contactId ?? body?.id ?? "";
-  const inboundMessage =
-    body?.message ?? body?.messageBody ?? body?.body ?? "";
+  // customData-first: GHL standard workflow webhooks wrap all fields in customData
+  const data = body?.customData ?? body;
 
-  if (!ghlContactId || typeof ghlContactId !== "string") return null;
+  const ghlContactId =
+    data?.contact_id ?? data?.contactId ?? data?.id ?? null;
+  const inboundMessage =
+    data?.message ?? data?.messageBody ?? data?.body ?? "";
+
+  if (!ghlContactId || typeof ghlContactId !== "string") {
+    console.error("[parseInboundSms] no contact_id found in payload", JSON.stringify(body).slice(0, 500));
+    return null;
+  }
   if (typeof inboundMessage !== "string") return null;
 
-  const timestamp = body?.timestamp ?? body?.dateAdded ?? Date.now().toString();
+  const timestamp = data?.timestamp ?? data?.dateAdded ?? Date.now().toString();
   const raw = `${ghlContactId}:${inboundMessage}:${timestamp}`;
   const idempotencyKey = createHash("sha256").update(raw).digest("hex");
 

@@ -3,6 +3,7 @@ import { LanguageProvider } from "@/src/components/marketing/LanguageProvider";
 import Header from "@/src/components/marketing/Header";
 import Footer from "@/src/components/marketing/Footer";
 import MobileCTABanner from "@/src/components/marketing/MobileCTABanner";
+import SourceTracker from "@/src/components/marketing/SourceTracker";
 
 export const metadata: Metadata = {
   title: {
@@ -24,6 +25,7 @@ export const metadata: Metadata = {
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
     <LanguageProvider>
+      <SourceTracker />
       <div className="min-h-screen flex flex-col bg-bg-base text-text-primary">
         <Header />
         <main className="flex-1 pb-16 sm:pb-0">{children}</main>

@@ -66,7 +66,10 @@ export async function POST(request: NextRequest) {
   let body: unknown = null;
   try { body = await request.json(); } catch { /* fall through */ }
 
-  const { lead_id, drip_position } = (body as Record<string, unknown>) ?? {};
+  // customData-first: GHL standard workflow webhooks wrap all fields in customData
+  const bodyData = (body as Record<string, unknown>) ?? {};
+  const data = (bodyData.customData as Record<string, unknown>) ?? bodyData;
+  const { lead_id, drip_position } = data;
 
   if (!lead_id || typeof lead_id !== 'string') {
     return NextResponse.json({ ok: false, error: 'missing_lead_id' }, { status: 400 });
@@ -178,7 +181,7 @@ export async function POST(request: NextRequest) {
       }
 
     } else if (signal === 'NOT_INTERESTED') {
-      await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', {
+      await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent',
       });
 

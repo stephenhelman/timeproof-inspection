@@ -1,3 +1,12 @@
+// ============================================================
+// SUPERSEDED by central webhook route
+// app/api/webhooks/ghl/central/route.ts
+//
+// This route is preserved for reference and emergency fallback.
+// GHL workflows should point to /api/webhooks/ghl/central
+// Remove this file after central webhook is confirmed stable.
+// ============================================================
+
 // Trigger: sr_credit_fail tag added to GHL contact.
 // Applied when homeowner said yes but financing failed.
 
@@ -204,7 +213,7 @@ export async function POST(request: NextRequest) {
       // Bot silences — GHL 7-day retry re-adds sr_credit_fail if still QUOTED
 
     } else if (signal === 'FINANCE_DEAD') {
-      await transitionLead(lead.id, ghlContactId, 'sr_credit_fail', 'sr_dead', 'DEAD', {
+      await transitionLead(lead.id, ghlContactId, 'sr_credit_fail', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent',
       });
     }

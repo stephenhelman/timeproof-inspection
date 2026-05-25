@@ -1,3 +1,12 @@
+// ============================================================
+// SUPERSEDED by central webhook route
+// app/api/webhooks/ghl/central/route.ts
+//
+// This route is preserved for reference and emergency fallback.
+// GHL workflows should point to /api/webhooks/ghl/central
+// Remove this file after central webhook is confirmed stable.
+// ============================================================
+
 // Trigger: source_free_guide tag added to a GHL contact.
 // Fired by GHL when a homeowner submits the /roof-guide intake form.
 // Also fired for every subsequent inbound SMS while the tag is active.
@@ -123,7 +132,7 @@ export async function POST(request: NextRequest) {
 
     if (isOptOut(inboundMessage)) {
       await addGhlTag(ghlContactId, 'sr_opted_out');
-      await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', {
+      await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent', sr_opted_out: true,
       });
       await prisma.lead.update({ where: { id: lead.id }, data: { botOptedOut: true } });
@@ -260,7 +269,7 @@ export async function POST(request: NextRequest) {
       await addGhlTag(ghlContactId, 'sr_soft_close');
 
     } else if (signal === 'NOT_INTERESTED') {
-      await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', {
+      await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent',
       });
     }

@@ -1,3 +1,12 @@
+// ============================================================
+// SUPERSEDED by central webhook route
+// app/api/webhooks/ghl/central/route.ts
+//
+// This route is preserved for reference and emergency fallback.
+// GHL workflows should point to /api/webhooks/ghl/central
+// Remove this file after central webhook is confirmed stable.
+// ============================================================
+
 // Trigger: sr_follow_up tag added to GHL contact.
 // Applied by DispoModal when lead reaches DEMO_NOT_SOLD or NO_SHOW.
 
@@ -109,7 +118,7 @@ export async function POST(request: NextRequest) {
 
     if (isOptOut(inboundMessage)) {
       await addGhlTag(ghlContactId, 'sr_opted_out');
-      await transitionLead(lead.id, ghlContactId, 'sr_follow_up', 'sr_dead', 'DEAD', {
+      await transitionLead(lead.id, ghlContactId, 'sr_follow_up', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent', sr_opted_out: true,
       });
       await prisma.lead.update({ where: { id: lead.id }, data: { botOptedOut: true } });
@@ -225,12 +234,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (signal === 'RE_QUALIFY') {
-      await transitionLead(lead.id, ghlContactId, 'sr_follow_up', 'sr_recovered', 'NEW', {
+      await transitionLead(lead.id, ghlContactId, 'sr_follow_up', 'sr_recovered', 'NEW', 'booking', {
         sr_status: 'NEW', sr_bot_stage: 'booking',
       });
       await addGhlTag(ghlContactId, 'sr_booking');
     } else if (signal === 'DEAD') {
-      await transitionLead(lead.id, ghlContactId, 'sr_follow_up', 'sr_dead', 'DEAD', {
+      await transitionLead(lead.id, ghlContactId, 'sr_follow_up', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent',
       });
     }

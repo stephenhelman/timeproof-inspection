@@ -1,3 +1,12 @@
+// ============================================================
+// SUPERSEDED by central webhook route
+// app/api/webhooks/ghl/central/route.ts
+//
+// This route is preserved for reference and emergency fallback.
+// GHL workflows should point to /api/webhooks/ghl/central
+// Remove this file after central webhook is confirmed stable.
+// ============================================================
+
 // Trigger: sr_booking tag added to GHL contact (qualified_handoff),
 //          or inbound SMS while tag is active,
 //          or stall_followup from GHL 24hr workflow.
@@ -132,7 +141,7 @@ export async function POST(request: NextRequest) {
 
     if (isOptOut(inboundMessage)) {
       await addGhlTag(ghlContactId, 'sr_opted_out');
-      await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_dead', 'DEAD', {
+      await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent', sr_opted_out: true,
       });
       await prisma.lead.update({ where: { id: lead.id }, data: { botOptedOut: true } });
@@ -149,7 +158,7 @@ export async function POST(request: NextRequest) {
           where: { id: activeInspection.id },
           data: { status: 'cancelled', repNotes: 'Cancelled by homeowner via SMS before inspection' },
         });
-        await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_cancelled', 'DEMO_NOT_SOLD', {
+        await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_cancelled', 'DEMO_NOT_SOLD', 'silent', {
           sr_status: 'DEMO_NOT_SOLD', sr_bot_stage: 'silent',
         });
         const fn = lead.customerName.trim().split(/\s+/)[0];
@@ -294,7 +303,7 @@ export async function POST(request: NextRequest) {
         if (retryResponse) await appendMessage(threadId, 'assistant', retryResponse);
       } else {
         await confirmBooking(lead.id, ghlContactId, date);
-        await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_appointment_set', 'INSPECTION_SCHEDULED', {
+        await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_appointment_set', 'INSPECTION_SCHEDULED', 'silent', {
           sr_status: 'INSPECTION_SCHEDULED', sr_appointment_at: date.toISOString(), sr_bot_stage: 'silent',
         });
         if (lead.assignedUserId) {

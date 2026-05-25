@@ -1,3 +1,12 @@
+// ============================================================
+// SUPERSEDED by central webhook route
+// app/api/webhooks/ghl/central/route.ts
+//
+// This route is preserved for reference and emergency fallback.
+// GHL workflows should point to /api/webhooks/ghl/central
+// Remove this file after central webhook is confirmed stable.
+// ============================================================
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { sendGhlSms, addGhlTag } from "@/src/lib/ghl-sms";
@@ -195,7 +204,7 @@ export async function POST(request: NextRequest) {
     // 6. Opt-out keyword
     if (isOptOut(inboundMessage)) {
       await addGhlTag(ghlContactId, "sr_opted_out");
-      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_dead", "DEAD", {
+      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_dead", "DEAD", "silent", {
         sr_status: "DEAD",
         sr_bot_stage: "silent",
         sr_opted_out: true,
@@ -215,7 +224,7 @@ export async function POST(request: NextRequest) {
           where: { id: activeInspection.id },
           data: { status: "cancelled", repNotes: "Cancelled by homeowner via SMS" },
         });
-        await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_cancelled", "DEMO_NOT_SOLD", {
+        await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_cancelled", "DEMO_NOT_SOLD", "silent", {
           sr_status: "DEMO_NOT_SOLD",
           sr_bot_stage: "silent",
         });
@@ -330,14 +339,14 @@ export async function POST(request: NextRequest) {
 
     // 15. Handle signal
     if (signal === "QUALIFIED") {
-      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_qualified", "NEW", {
+      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_qualified", "NEW", "booking", {
         sr_qualify_status: "qualified",
         sr_bot_stage: "booking",
       });
       await addGhlTag(ghlContactId, "sr_booking");
 
     } else if (signal === "NOT_INTERESTED") {
-      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_dead", "DEAD", {
+      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_dead", "DEAD", "silent", {
         sr_status: "DEAD",
         sr_bot_stage: "silent",
       });
@@ -345,7 +354,7 @@ export async function POST(request: NextRequest) {
     } else if (signal === "SOFT_CLOSE") {
       // Warm close — not qualified, not dead. Remove qualifying tag, go silent.
       // No revival tag added. Preserves goodwill for future outreach.
-      await transitionLead(lead.id, ghlContactId, "sr_qualifying", null, "NEW", {
+      await transitionLead(lead.id, ghlContactId, "sr_qualifying", null, "NEW", "silent", {
         sr_bot_stage: "silent",
       });
       await addGhlTag(ghlContactId, "sr_soft_close");

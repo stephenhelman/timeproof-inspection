@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { resolveSource } from "@/src/lib/source-tracking";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,7 +122,7 @@ function IntakeForm({
           city: city.trim(),
           state: state.trim() || "TX",
           zip: zip.trim(),
-          source,
+          source: resolveSource("guide"),
           rep,
         }),
       });

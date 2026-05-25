@@ -61,14 +61,14 @@ export async function handleTier1Lead(args: LeadHandlerArgs): Promise<void> {
 
     await sendGhlSms(ghlContactId, message);
     await addGhlTag(ghlContactId, "tier_1", "sr_fb_new");
-    await createSrLead(ghlContactId, {
+    await createSrLead(ghlContactId, lead.id, {
       sr_lead_id:        lead.id,
       sr_tier:           "primary",
       sr_zone:           getZoneForZip(zip) ?? "unknown",
       sr_status:         "NEW",
       sr_qualify_status: "pending",
       sr_bot_stage:      "qualifying",
-      sr_source:         "facebook",
+      sr_source:         "facebook-inspection",
       sr_opted_out:      false,
     });
   } catch (err) {
@@ -89,14 +89,14 @@ export async function handleTier2Lead(args: LeadHandlerArgs): Promise<void> {
 
     await sendGhlSms(ghlContactId, message);
     await addGhlTag(ghlContactId, "tier_2");
-    await createSrLead(ghlContactId, {
+    await createSrLead(ghlContactId, lead.id, {
       sr_lead_id:        lead.id,
       sr_tier:           "secondary",
       sr_zone:           getZoneForZip(zip) ?? "unknown",
       sr_status:         "NEW",
       sr_qualify_status: "pending",
       sr_bot_stage:      "silent",
-      sr_source:         "facebook",
+      sr_source:         "facebook-inspection",
       sr_opted_out:      false,
     });
   } catch (err) {
@@ -117,14 +117,14 @@ export async function handleOutOfAreaLead(args: LeadHandlerArgs): Promise<void> 
 
     await sendGhlSms(ghlContactId, message);
     await addGhlTag(ghlContactId, "out_of_area");
-    await createSrLead(ghlContactId, {
+    await createSrLead(ghlContactId, lead.id, {
       sr_lead_id:        lead.id,
       sr_tier:           "out_of_area",
       sr_zone:           "unknown",
       sr_status:         "NEW",
       sr_qualify_status: "pending",
       sr_bot_stage:      "silent",
-      sr_source:         "facebook",
+      sr_source:         "facebook-inspection",
       sr_opted_out:      false,
     });
   } catch (err) {

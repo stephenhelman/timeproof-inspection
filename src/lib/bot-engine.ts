@@ -117,31 +117,45 @@ export async function transitionLead(
   fromTag: string | null,
   toTag: string | null,
   newStatus: LeadStatus,
+  newBotStage: string,
   srLeadUpdates?: Partial<SrLeadFields>
 ): Promise<void> {
+  // 1. Update Lead in DB — awaited
   await prisma.lead.update({
     where: { id: leadId },
     data: {
       status: newStatus,
-      lastBotType: toTag,
+      lastBotType: newBotStage,
       lastBotMessage: new Date(),
     },
   });
-  if (fromTag) {
-    try { await removeGhlTag(ghlContactId, fromTag); } catch (e) {
-      console.error(`[bot-engine] removeGhlTag(${fromTag}) failed:`, e);
-    }
-  }
-  if (toTag) {
-    try { await addGhlTag(ghlContactId, toTag); } catch (e) {
-      console.error(`[bot-engine] addGhlTag(${toTag}) failed:`, e);
-    }
-  }
-  if (srLeadUpdates) {
-    try { await updateSrLead(ghlContactId, srLeadUpdates); } catch (e) {
-      console.error("[bot-engine] updateSrLead failed:", e);
-    }
-  }
+
+  // 2. Update SrLead in DB — awaited (best-effort: may not exist for legacy leads)
+  await prisma.srLead.update({
+    where: { leadId },
+    data: {
+      srBotStage: newBotStage,
+      srStatus: srLeadUpdates?.sr_status ?? (newStatus as string),
+      updatedAt: new Date(),
+    },
+  }).catch(e => console.warn("[bot-engine] srLead.update failed (may not exist):", e));
+
+  // 3. GHL updates — parallel, non-blocking. DB is source of truth.
+  Promise.allSettled([
+    fromTag
+      ? removeGhlTag(ghlContactId, fromTag)
+          .catch(e => console.error(`[bot-engine] removeGhlTag(${fromTag}) failed:`, e))
+      : Promise.resolve(),
+    toTag
+      ? addGhlTag(ghlContactId, toTag)
+          .catch(e => console.error(`[bot-engine] addGhlTag(${toTag}) failed:`, e))
+      : Promise.resolve(),
+    srLeadUpdates
+      ? updateSrLead(leadId, srLeadUpdates)
+          .catch(e => console.error("[bot-engine] updateSrLead failed:", e))
+      : Promise.resolve(),
+  ]);
+  // Intentionally not awaited — fire and forget
 }
 
 // ── Opt-out and cancellation ───────────────────────────────────

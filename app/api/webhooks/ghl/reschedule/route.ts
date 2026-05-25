@@ -1,3 +1,12 @@
+// ============================================================
+// SUPERSEDED by central webhook route
+// app/api/webhooks/ghl/central/route.ts
+//
+// This route is preserved for reference and emergency fallback.
+// GHL workflows should point to /api/webhooks/ghl/central
+// Remove this file after central webhook is confirmed stable.
+// ============================================================
+
 // Trigger: sr_reschedule tag added to GHL contact.
 // Also covers booking_stall_exhausted leads routed here instead of revival.
 
@@ -233,7 +242,7 @@ export async function POST(request: NextRequest) {
         const validation = await validateSlotBeforeConfirm(lead.id, rescheduled.date, rescheduled.time, zoneStr);
         if (validation.ok) {
           await confirmBooking(lead.id, ghlContactId, rescheduled.date);
-          await transitionLead(lead.id, ghlContactId, 'sr_reschedule', 'sr_rescheduled', 'INSPECTION_SCHEDULED', {
+          await transitionLead(lead.id, ghlContactId, 'sr_reschedule', 'sr_rescheduled', 'INSPECTION_SCHEDULED', 'silent', {
             sr_status: 'INSPECTION_SCHEDULED', sr_appointment_at: rescheduled.date.toISOString(), sr_bot_stage: 'silent',
           });
           await sendGhlSms(ghlContactId, buildConfirmationSms(rescheduled.date));
@@ -243,12 +252,12 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (signal === 'RE_QUALIFY') {
-      await transitionLead(lead.id, ghlContactId, 'sr_reschedule', null, 'NEW', {
+      await transitionLead(lead.id, ghlContactId, 'sr_reschedule', null, 'NEW', 'booking', {
         sr_status: 'NEW', sr_bot_stage: 'booking',
       });
       await addGhlTag(ghlContactId, 'sr_booking');
     } else if (signal === 'DEAD') {
-      await transitionLead(lead.id, ghlContactId, 'sr_reschedule', 'sr_dead', 'DEAD', {
+      await transitionLead(lead.id, ghlContactId, 'sr_reschedule', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent',
       });
     }
