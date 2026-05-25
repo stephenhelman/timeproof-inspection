@@ -1,5 +1,6 @@
 import { jwtVerify } from "jose";
 import { redirect } from "next/navigation";
+import { prisma } from "@/src/lib/prisma";
 import GuideClient, { type PersonalizationConfig } from "./GuideClient";
 
 interface GuideJWTPayload {
@@ -24,8 +25,7 @@ function buildPersonalizationConfig(payload: GuideJWTPayload): PersonalizationCo
   const hasPonding = issues.some((i) => i.toLowerCase().includes("ponding"));
   const hasSagging = issues.some((i) => i.toLowerCase().includes("sagging"));
   const isOldRoof = roofAge === "20+ yrs" || roofAge === "15–20 yrs";
-  const hasNoIssues =
-    issues.includes("None of the above") || issues.length === 0;
+  const hasNoIssues = issues.includes("None of the above") || issues.length === 0;
 
   return {
     leadWithTimeline: hasWaterStains || isOldRoof,
@@ -70,7 +70,6 @@ function buildPersonalizationConfig(payload: GuideJWTPayload): PersonalizationCo
           text: "Even without visible symptoms, El Paso's climate is actively working on your roof. Here's what to know.",
         },
 
-    // Derived flags used by client to filter sections
     hasMissingShingles,
     hasPonding,
     hasSagging,
@@ -80,17 +79,22 @@ function buildPersonalizationConfig(payload: GuideJWTPayload): PersonalizationCo
   };
 }
 
-export default async function GuideTokenPage({
+export default async function GuideSlugPage({
   params,
 }: {
-  params: { token: string };
+  params: { slug: string };
 }) {
-  const { token } = params;
-  const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET!);
+  const { slug } = params;
 
+  const lead = await prisma.lead.findUnique({ where: { guideSlug: slug } });
+  if (!lead?.guideToken) {
+    redirect("/roof-guide?expired=true");
+  }
+
+  const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET!);
   let payload: GuideJWTPayload;
   try {
-    const { payload: p } = await jwtVerify(token, secret);
+    const { payload: p } = await jwtVerify(lead.guideToken, secret);
     payload = p as unknown as GuideJWTPayload;
   } catch {
     redirect("/roof-guide?expired=true");
@@ -105,7 +109,7 @@ export default async function GuideTokenPage({
       roofAge={payload.roofAge}
       issuesNoticed={payload.issuesNoticed}
       config={config}
-      token={token}
+      token={lead.guideToken}
     />
   );
 }

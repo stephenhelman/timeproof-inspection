@@ -1,9 +1,13 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useLanguage } from "./LanguageProvider";
 
 export default function MobileCTABanner() {
   const { t } = useLanguage();
+  const pathname = usePathname();
+
+  if (pathname.startsWith("/roof-guide")) return null;
 
   function handleClick() {
     const el = document.getElementById("check-area");

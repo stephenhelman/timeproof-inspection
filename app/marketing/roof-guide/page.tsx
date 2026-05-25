@@ -62,7 +62,10 @@ function IntakeForm({
   const [lastInspected, setLastInspected] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("TX");
+  const [zip, setZip] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -95,7 +98,7 @@ function IntakeForm({
     roofType !== null &&
     roofAge !== null &&
     name.trim().length > 0 &&
-    phone.trim().length > 0 &&
+    phone.trim().length >= 10 &&
     !loading;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -114,7 +117,10 @@ function IntakeForm({
           lastInspected: lastInspected ?? "",
           name: name.trim(),
           phone: phone.trim(),
-          address: address.trim(),
+          street: street.trim(),
+          city: city.trim(),
+          state: state.trim() || "TX",
+          zip: zip.trim(),
           source,
           rep,
         }),
@@ -124,7 +130,7 @@ function IntakeForm({
         setError(data.error ?? "Something went wrong. Please try again.");
         return;
       }
-      window.location.href = `/roof-guide/${data.token}`;
+      window.location.href = `/roof-guide/${data.slug}`;
     } catch {
       setError("Network error. Please check your connection and try again.");
     } finally {
@@ -270,17 +276,40 @@ function IntakeForm({
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-text-hint mb-1.5">
-            Address <span className="text-text-hint font-normal">(city/zip minimum)</span>
-          </label>
+          <label className="block text-xs font-medium text-text-hint mb-1.5">Street Address</label>
           <input
             type="text"
-            autoComplete="street-address"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="El Paso, TX 79925"
+            autoComplete="address-line1"
+            value={street}
+            onChange={(e) => setStreet(e.target.value)}
+            placeholder="1234 Mesa Hills Dr"
             className={inputCls}
           />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-text-hint mb-1.5">City</label>
+            <input
+              type="text"
+              autoComplete="address-level2"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="El Paso"
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-text-hint mb-1.5">ZIP</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="postal-code"
+              value={zip}
+              onChange={(e) => setZip(e.target.value)}
+              placeholder="79925"
+              className={inputCls}
+            />
+          </div>
         </div>
       </div>
 

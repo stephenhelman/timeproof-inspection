@@ -42,6 +42,12 @@ export default function Header() {
               {t(link.key)}
             </a>
           ))}
+          <a
+            href="/roof-guide"
+            className="text-[#F06B30] hover:text-[#e05520] text-xs px-2 py-1.5 rounded transition-colors whitespace-nowrap font-semibold"
+          >
+            Free Roof Guide
+          </a>
         </nav>
 
         {/* Right: lang toggle (desktop only) + hamburger (mobile/tablet) */}
@@ -110,6 +116,13 @@ export default function Header() {
                 {t(link.key)}
               </a>
             ))}
+            <a
+              href="/roof-guide"
+              onClick={() => setMenuOpen(false)}
+              className="text-[#F06B30] text-sm px-3 py-2.5 rounded transition-colors font-semibold"
+            >
+              Free Roof Guide
+            </a>
           </nav>
 
           {/* Lang toggle in drawer */}

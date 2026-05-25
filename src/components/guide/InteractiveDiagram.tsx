@@ -1,21 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 export interface DiagramZone {
   id: string;
   label: string;
   description: string;
-  // Personalized callout — null when not relevant to this homeowner
   callout?: string | null;
-  // TODO: Adjust these coordinates when real blank-box PNGs are ready.
-  // Expected dimensions: match viewBox in SVG wrapper.
-  // Hotspot coordinates will need adjustment after real images are dropped in.
   hotspot: {
-    x: number;     // percentage of image width (0–100)
-    y: number;     // percentage of image height (0–100)
-    width: number; // percentage
-    height: number; // percentage
+    x: number;
+    y: number;
+    width: number;
+    height: number;
   };
 }
 
@@ -33,15 +29,20 @@ export default function InteractiveDiagram({
   title,
 }: InteractiveDiagramProps) {
   const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const activeZone = zones.find((z) => z.id === activeZoneId) ?? null;
 
-  const handleZoneClick = useCallback(
-    (id: string) => {
-      setActiveZoneId((prev) => (prev === id ? null : id));
-    },
-    []
-  );
+  const handleZoneClick = useCallback((id: string) => {
+    setActiveZoneId((prev) => (prev === id ? null : id));
+  }, []);
 
   const dismiss = useCallback(() => setActiveZoneId(null), []);
 
@@ -61,16 +62,18 @@ export default function InteractiveDiagram({
           draggable={false}
         />
 
-        {/* SVG overlay — uses viewBox 0 0 100 100 so hotspot percentages map directly */}
         <svg
           viewBox="0 0 100 100"
           className="absolute inset-0 w-full h-full"
           preserveAspectRatio="none"
           style={{ pointerEvents: "all" }}
         >
-          {zones.map((zone) => (
+          {/* DEV NOTE: To visually debug hotspots, temporarily change
+              fill="transparent" to fill="rgba(255,0,0,0.2)" on the rect below.
+              This shows the tap zones overlaid on the image.
+              Revert before deploying. */}
+          {zones.map((zone, i) => (
             <g key={zone.id} onClick={() => handleZoneClick(zone.id)} style={{ cursor: "pointer" }}>
-              {/* Invisible hit area — minimum 44px touch target enforced via min dimensions */}
               <rect
                 x={zone.hotspot.x}
                 y={zone.hotspot.y}
@@ -78,7 +81,6 @@ export default function InteractiveDiagram({
                 height={zone.hotspot.height}
                 fill="transparent"
               />
-              {/* Active highlight ring */}
               {activeZoneId === zone.id && (
                 <rect
                   x={zone.hotspot.x}
@@ -92,19 +94,20 @@ export default function InteractiveDiagram({
                   opacity={0.85}
                 />
               )}
-              {/* Zone number badge — top-left corner of hotspot */}
               <circle
                 cx={zone.hotspot.x + 2}
                 cy={zone.hotspot.y + 2}
                 r="2.2"
                 fill={activeZoneId === zone.id ? "#F06B30" : "rgba(0,0,0,0.55)"}
               />
+              {/* suppress unused var warning */}
+              <title>{i}</title>
             </g>
           ))}
         </svg>
       </div>
 
-      {/* Zone index — tap to activate */}
+      {/* Zone index buttons */}
       <div className="mt-3 flex flex-wrap gap-2">
         {zones.map((zone, i) => (
           <button
@@ -124,28 +127,28 @@ export default function InteractiveDiagram({
         ))}
       </div>
 
-      {/* Detail panel — mobile: fixed bottom slide-up; desktop: card below diagram */}
+      {/* Detail panel */}
       {activeZone && (
         <>
-          {/* Mobile overlay */}
-          <div
-            className="fixed inset-0 z-40 sm:hidden"
-            onClick={dismiss}
-          />
-          <div
-            className={`
-              fixed bottom-0 inset-x-0 z-50 sm:hidden
-              bg-bg-surface border-t border-border rounded-t-2xl p-5
-              animate-slide-up
-            `}
-          >
-            <ZonePanel zone={activeZone} onDismiss={dismiss} />
-          </div>
-
-          {/* Desktop card */}
-          <div className="hidden sm:block mt-4 bg-bg-surface border border-border rounded-xl p-5">
-            <ZonePanel zone={activeZone} onDismiss={dismiss} />
-          </div>
+          {isMobile ? (
+            /* Mobile: centered modal overlay */
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-5"
+              onClick={dismiss}
+            >
+              <div
+                className="w-full max-w-sm bg-[#1a2744] border border-border rounded-2xl p-5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ZonePanel zone={activeZone} onDismiss={dismiss} />
+              </div>
+            </div>
+          ) : (
+            /* Desktop: inline card */
+            <div className="mt-4 bg-bg-surface border border-border rounded-xl p-5">
+              <ZonePanel zone={activeZone} onDismiss={dismiss} />
+            </div>
+          )}
         </>
       )}
     </div>

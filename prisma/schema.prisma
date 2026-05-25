@@ -192,6 +192,7 @@ model Lead {
   guideToken                String?  // JWT token for personalized guide URL access
   guideUnlockedAt           DateTime? // When they submitted the guide form
   guideSource               String?  // 'facebook-guide' | 'door' | 'card'
+  guideSlug                 String?  @unique // human-readable URL slug e.g. "stephen-elpaso-a3f2"
 
   // Contact form — populated when lead enters via /contact page
   contactFormMessage        String?  @db.Text

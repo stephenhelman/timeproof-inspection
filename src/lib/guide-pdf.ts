@@ -4,9 +4,11 @@ import {
   Text,
   View,
   StyleSheet,
+  Image,
   pdf,
 } from "@react-pdf/renderer";
 import React from "react";
+import path from "path";
 
 const NAVY = "#0a0e1a";
 const ORANGE = "#F06B30";
@@ -204,6 +206,12 @@ const DIFFERENTIATORS = [
   "El Paso climate expertise — we know how this market ages roofs differently",
 ];
 
+const DIAGRAM_PATHS = {
+  failureZones: path.join(process.cwd(), "public/diagrams/failure-zones.png"),
+  shingleComponents: path.join(process.cwd(), "public/diagrams/shingle-components.png"),
+  atticComponents: path.join(process.cwd(), "public/diagrams/attic-components.png"),
+};
+
 export async function generateGuidePdf(payload: GuideJWTPayload): Promise<Buffer> {
   const { firstName, roofType, roofAge, issuesNoticed } = payload;
   const issuesList = issuesNoticed.filter((i) => i !== "None of the above");
@@ -298,6 +306,7 @@ export async function generateGuidePdf(payload: GuideJWTPayload): Promise<Buffer
         { style: styles.section },
         React.createElement(Text, { style: styles.sectionTitle }, "Where Roofs Actually Fail — 5 Zones"),
         React.createElement(Text, { style: [styles.body, { marginBottom: 12 }] }, "Most inspections only check field shingles — sometimes the ridge. There are 5 zones where roofs actually fail, and most of the serious ones are invisible from the ground."),
+        React.createElement(Image, { src: DIAGRAM_PATHS.failureZones, style: { width: "100%", marginBottom: 12 } }),
         ...FAILURE_ZONES.map((z) =>
           React.createElement(
             View,
@@ -347,6 +356,7 @@ export async function generateGuidePdf(payload: GuideJWTPayload): Promise<Buffer
               View,
               { style: styles.section },
               React.createElement(Text, { style: styles.sectionTitle }, "Components of a Shingle Roof"),
+              React.createElement(Image, { src: DIAGRAM_PATHS.shingleComponents, style: { width: "100%", marginBottom: 12 } }),
               ...SHINGLE_COMPONENTS.map((c) =>
                 React.createElement(
                   View,
@@ -366,6 +376,7 @@ export async function generateGuidePdf(payload: GuideJWTPayload): Promise<Buffer
               View,
               { style: styles.section },
               React.createElement(Text, { style: styles.sectionTitle }, "Components of an Attic"),
+              React.createElement(Image, { src: DIAGRAM_PATHS.atticComponents, style: { width: "100%", marginBottom: 12 } }),
               React.createElement(Text, { style: [styles.body, { marginBottom: 10 }] }, "Most roofing companies never go into the attic. The attic is where the real condition of the roof is visible — moisture staining, ventilation failure, insulation damage, and rafter condition are all only visible from inside."),
               ...ATTIC_COMPONENTS.map((c) =>
                 React.createElement(

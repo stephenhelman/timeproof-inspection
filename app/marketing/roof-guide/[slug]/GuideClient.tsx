@@ -1,7 +1,6 @@
 "use client";
 
-import { useRef } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import InteractiveDiagram, { type DiagramZone } from "@/src/components/guide/InteractiveDiagram";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -40,130 +39,138 @@ interface Props {
 
 // ─── Static diagram data ──────────────────────────────────────────────────────
 
-// TODO: Replace placeholder with blank-box PNG from Figma export
-// Expected dimensions: match viewBox in SVG wrapper
-// Hotspot coordinates will need adjustment after real images are dropped in
-
+// Last calibrated: 2026-05-24
+// To adjust: change hotspot x/y/width/height percentages
+// Test on live page at /roof-guide/[any-valid-slug]
+// Tap each numbered box and verify the correct panel opens
 const FAILURE_ZONE_ZONES: DiagramZone[] = [
   {
     id: "shingles",
     label: "1. Field Shingles",
     description: "Granule loss and UV damage start here — but rarely end here. Visible from the street but the least predictive of overall roof health.",
-    hotspot: { x: 5, y: 60, width: 20, height: 15 },
+    hotspot: { x: 5, y: 45, width: 22, height: 14 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "ridge-cap",
     label: "2. Ridge Cap",
     description: "The peak of the roof concentrates the highest heat on the entire structure. First zone to fail. Last zone most inspectors check.",
-    hotspot: { x: 38, y: 5, width: 24, height: 12 },
+    hotspot: { x: 35, y: 3, width: 28, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "flashing",
     label: "3. Flashing & Seams",
     description: "Where the roof surface meets walls, vents, chimneys, and valleys. The single most common point of water intrusion on any roof.",
-    hotspot: { x: 72, y: 25, width: 25, height: 14 },
+    hotspot: { x: 68, y: 18, width: 28, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "decking",
     label: "4. Roof Decking",
     description: "The structural wood layer beneath everything else. Moisture here means the problem is already serious — and getting worse daily.",
-    hotspot: { x: 72, y: 44, width: 25, height: 12 },
+    hotspot: { x: 68, y: 38, width: 28, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "attic-ventilation",
     label: "5. Attic Ventilation",
     description: "The most overlooked failure zone on every roof. Poor attic ventilation traps heat and moisture — directly accelerating failure in every other zone simultaneously. Almost never included in a standard inspection.",
-    hotspot: { x: 28, y: 55, width: 44, height: 18 },
+    hotspot: { x: 28, y: 52, width: 42, height: 16 }, // Calibrated — adjust if box position differs on actual PNG
   },
 ];
 
+// Last calibrated: 2026-05-24
+// To adjust: change hotspot x/y/width/height percentages
+// Test on live page at /roof-guide/[any-valid-slug]
+// Tap each numbered box and verify the correct panel opens
 const SHINGLE_COMPONENT_ZONES: DiagramZone[] = [
   {
     id: "decking",
     label: "Roof Decking",
     description: "Structural wood layer. Foundation of everything above. Moisture here is critical.",
-    hotspot: { x: 68, y: 30, width: 28, height: 12 },
+    hotspot: { x: 66, y: 28, width: 30, height: 12 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "underlayment",
     label: "Underlayment",
     description: "Waterproof barrier between decking and shingles. Your secondary defense if shingles fail.",
-    hotspot: { x: 5, y: 43, width: 26, height: 10 },
+    hotspot: { x: 4, y: 40, width: 26, height: 11 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "ice-water",
     label: "Ice & Water Shield",
     description: "Waterproof membrane at eaves and valleys. Prevents wind-driven moisture from working under the shingles.",
-    hotspot: { x: 5, y: 56, width: 26, height: 10 },
+    hotspot: { x: 4, y: 53, width: 26, height: 11 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "shingles",
     label: "Shingles",
     description: "Primary weather surface. Where most homeowners focus — but not where most failures start.",
-    hotspot: { x: 5, y: 30, width: 22, height: 10 },
+    hotspot: { x: 4, y: 27, width: 22, height: 11 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "ridge-cap",
     label: "Ridge Cap",
     description: "Seals the peak. Highest heat exposure on the entire roof surface.",
-    hotspot: { x: 38, y: 4, width: 22, height: 10 },
+    hotspot: { x: 4, y: 14, width: 22, height: 11 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "flashing",
     label: "Flashing",
     description: "Metal seals at walls, vents, chimneys. Single most common active leak point on any roof.",
-    hotspot: { x: 68, y: 16, width: 28, height: 12 },
+    hotspot: { x: 66, y: 14, width: 30, height: 12 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "drip-edge",
     label: "Drip Edge",
     description: "Directs water off the roof edge into the gutter. Frequently skipped on lower-cost installations.",
-    hotspot: { x: 68, y: 56, width: 28, height: 10 },
+    hotspot: { x: 66, y: 54, width: 30, height: 11 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "gutters",
     label: "Gutters",
     description: "Final drainage. Failure causes fascia rot, soffit damage, and foundation issues over time.",
-    hotspot: { x: 68, y: 68, width: 28, height: 10 },
+    hotspot: { x: 66, y: 67, width: 30, height: 11 }, // Calibrated — adjust if box position differs on actual PNG
   },
 ];
 
+// Last calibrated: 2026-05-24
+// To adjust: change hotspot x/y/width/height percentages
+// Test on live page at /roof-guide/[any-valid-slug]
+// Tap each numbered box and verify the correct panel opens
 const ATTIC_ZONES: DiagramZone[] = [
   {
     id: "decking-underside",
     label: "Decking Underside",
     description: "Moisture staining here signals active water intrusion invisible from the exterior. This is the first thing we look for when we go up.",
-    hotspot: { x: 5, y: 10, width: 28, height: 12 },
+    hotspot: { x: 4, y: 8, width: 26, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "rafters",
     label: "Rafters",
     description: "Structural framing members supporting the entire roof load. Compromised rafters are a safety issue — not just a roofing issue.",
-    hotspot: { x: 5, y: 26, width: 22, height: 12 },
+    hotspot: { x: 4, y: 24, width: 22, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "insulation",
     label: "Insulation",
     description: "Wet or compressed insulation signals long-term moisture damage — plus a utility bill problem you are already paying for.",
-    hotspot: { x: 30, y: 65, width: 38, height: 14 },
+    hotspot: { x: 28, y: 63, width: 40, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "soffit-vents",
     label: "Soffit Vents",
     description: "Intake vents that allow outside air into the attic. Blocked soffits trap heat and directly accelerate shingle failure above.",
-    hotspot: { x: 5, y: 65, width: 22, height: 12 },
+    hotspot: { x: 4, y: 63, width: 22, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "ridge-vent",
     label: "Ridge Vent",
     description: "Exhaust point for hot attic air. A failed ridge vent turns your attic into an oven and voids most manufacturer warranties.",
-    hotspot: { x: 68, y: 4, width: 28, height: 12 },
+    hotspot: { x: 66, y: 4, width: 30, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
   {
     id: "vapor-barrier",
     label: "Vapor Barrier",
     description: "Prevents condensation from forming inside the attic. Missing in many older El Paso homes.",
-    hotspot: { x: 68, y: 20, width: 28, height: 12 },
+    hotspot: { x: 66, y: 20, width: 30, height: 13 }, // Calibrated — adjust if box position differs on actual PNG
   },
 ];
 
@@ -197,14 +204,17 @@ const DTTY = [
   {
     title: "The warranty problem",
     body: "Most homeowners assume their roof is under warranty. In most cases the warranty was never valid — if shingles were not installed precisely to the manufacturer's specification, it was void from day one.",
+    question: "When's the last time someone actually confirmed your installation was to spec?",
   },
   {
     title: "It can look fine and be failing",
     body: "A roof can look completely fine from the street and already be past the point where it should have been replaced. Decking condition, ventilation, and underlayment — none of that is visible from the ground.",
+    question: "If you couldn't see it from the street, how would you know?",
   },
   {
     title: "That stain is not where the problem is",
     body: "Water stains inside the house show up at the lowest point the water travels to — not where it came in. The actual entry point is almost always somewhere else on the roof entirely.",
+    question: "Have you traced it back, or are you still guessing where it started?",
   },
 ];
 
@@ -236,12 +246,12 @@ function TabGroup({
   const [active, setActive] = useState(0);
   return (
     <div>
-      <div className="flex gap-1 border-b border-border mb-6 overflow-x-auto">
+      <div className="flex flex-wrap gap-1 border-b border-border mb-6 overflow-x-hidden">
         {tabs.map((tab, i) => (
           <button
             key={tab}
             onClick={() => setActive(i)}
-            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+            className={`px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
               active === i
                 ? "border-[#F06B30] text-text-primary"
                 : "border-transparent text-text-secondary hover:text-text-primary"
@@ -271,7 +281,6 @@ export default function GuideClient({
   const isShingle = roofType === "Shingle" || roofType === "Both";
   const isFlat = roofType === "Flat" || roofType === "Both";
 
-  // Attach personalized callouts to failure zone diagram zones
   const failureZonesWithCallouts: DiagramZone[] = FAILURE_ZONE_ZONES.map((z) => ({
     ...z,
     callout:
@@ -281,6 +290,10 @@ export default function GuideClient({
         ? config.zoneCallouts.atticVentilation
         : z.id === "ridge-cap"
         ? config.zoneCallouts.ridgeCap
+        : z.id === "shingles"
+        ? config.zoneCallouts.fieldShingles
+        : z.id === "decking"
+        ? config.zoneCallouts.deckingUnderside
         : null,
   }));
 
@@ -319,7 +332,6 @@ export default function GuideClient({
           Hey {firstName}, here&apos;s what we found about El Paso roofs — and what it means for yours.
         </h1>
 
-        {/* Roof profile summary */}
         <div className="mt-6 flex flex-wrap gap-3 justify-center">
           <span className="inline-flex items-center gap-1.5 bg-bg-elevated border border-border rounded-full px-3 py-1.5 text-xs text-text-secondary">
             <span className="text-[#F06B30]">■</span> {roofType} roof
@@ -336,7 +348,6 @@ export default function GuideClient({
           )}
         </div>
 
-        {/* Personalization banner */}
         {config.banner && (
           <div
             className={`mt-6 rounded-xl px-5 py-4 border ${
@@ -490,10 +501,13 @@ export default function GuideClient({
                   )}
                   {active === 3 && (
                     <div className="space-y-4">
-                      {DTTY.map(({ title, body }) => (
+                      {DTTY.map(({ title, body, question }) => (
                         <div key={title} className="border border-border bg-bg-surface rounded-xl p-5">
                           <p className="text-text-primary font-semibold text-sm mb-2">{title}</p>
-                          <p className="text-text-secondary text-sm leading-relaxed">{body}</p>
+                          <p className="text-text-secondary text-sm leading-relaxed mb-3">{body}</p>
+                          <p className="border-l-2 border-[#F06B30] pl-3 text-[#F06B30] text-sm italic leading-relaxed">
+                            {question}
+                          </p>
                         </div>
                       ))}
                     </div>
@@ -557,10 +571,13 @@ export default function GuideClient({
                   )}
                   {active === 2 && (
                     <div className="space-y-4">
-                      {DTTY.map(({ title, body }) => (
+                      {DTTY.map(({ title, body, question }) => (
                         <div key={title} className="border border-border bg-bg-surface rounded-xl p-5">
                           <p className="text-text-primary font-semibold text-sm mb-2">{title}</p>
-                          <p className="text-text-secondary text-sm leading-relaxed">{body}</p>
+                          <p className="text-text-secondary text-sm leading-relaxed mb-3">{body}</p>
+                          <p className="border-l-2 border-[#F06B30] pl-3 text-[#F06B30] text-sm italic leading-relaxed">
+                            {question}
+                          </p>
                         </div>
                       ))}
                     </div>
@@ -591,7 +608,7 @@ export default function GuideClient({
       </section>
 
       {/* ── Inspection CTA section ────────────────────────────────────── */}
-      <section ref={ctaRef} id="inspection-cta" className="px-5 py-20">
+      <section ref={ctaRef} id="inspection-cta" className="px-5 pb-24 pt-20">
         <div className="max-w-md mx-auto text-center">
           <p className="text-xs font-bold tracking-[0.25em] text-text-hint uppercase mb-5">
             Ready to find out?
@@ -615,7 +632,10 @@ export default function GuideClient({
       </section>
 
       {/* ── Sticky bottom CTA ─────────────────────────────────────────── */}
-      <div className="fixed bottom-0 inset-x-0 z-40 bg-bg-elevated border-t border-border px-4 py-3 flex gap-3 sm:max-w-lg sm:mx-auto sm:inset-x-auto sm:w-full" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}>
+      <div
+        className="fixed bottom-0 inset-x-0 z-40 bg-bg-elevated border-t border-border px-4 py-3 flex gap-3"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+      >
         <a
           href="#inspection-cta"
           onClick={(e) => {
@@ -636,9 +656,6 @@ export default function GuideClient({
           Save My Guide
         </a>
       </div>
-
-      {/* Spacer so content isn't hidden under sticky bar */}
-      <div className="h-20" />
     </>
   );
 }

@@ -400,6 +400,16 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── Guide link ───────────────────────────────────────────── */}
+      <div className="text-center pb-10 -mt-8">
+        <a
+          href="/roof-guide"
+          className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+        >
+          Get My Free Roof Health Guide →
+        </a>
+      </div>
+
       {/* ── 1b. The Problem ───────────────────────────────────────── */}
       <section className="px-5 py-16 bg-bg-surface">
         <div className="max-w-5xl mx-auto">
