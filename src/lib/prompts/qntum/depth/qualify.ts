@@ -18,19 +18,6 @@ LENGTH_RULE:
 No further exchanges after escalation message is sent.`;
   }
 
-  if (message_history_count >= 8) {
-    return `CONVERSATION_POSITION: escalate_now
-
-CURRENT_DIRECTIVE:
-This conversation has reached its limit. Send the escalation message and stop.
-
-ESCALATION_MESSAGE:
-"That's a bit outside what I can help with over text — let me get someone from our team to reach out directly. What's a good time for them to call?"
-
-LENGTH_RULE:
-No further exchanges.`;
-  }
-
   if (last_message_context === 'financial_signal') {
     return `CONVERSATION_POSITION: approaching_close
 
@@ -44,13 +31,13 @@ One to two exchanges remaining. Move toward a clean resolution.`;
   // ── Threshold map ───────────────────────────────────────────────────────────
   const thresholds = {
     opening_ends_at: 2,
-    approaching_close_at: conversation_track === 'resistant' ? 5 : 6,
-    hard_limit: 8,
+    approaching_close_at: conversation_track === 'resistant' ? 6 : 8,
+    hard_limit: 12,
   };
 
   const { opening_ends_at, approaching_close_at, hard_limit } = thresholds;
 
-  let position: 'opening' | 'mid_conversation' | 'approaching_close' | 'escalate_now';
+  let position: 'opening' | 'mid_conversation' | 'approaching_close' | 'hard_limit_reached';
 
   if (message_history_count < opening_ends_at) {
     position = 'opening';
@@ -59,7 +46,7 @@ One to two exchanges remaining. Move toward a clean resolution.`;
   } else if (message_history_count < hard_limit) {
     position = 'approaching_close';
   } else {
-    position = 'escalate_now';
+    position = 'hard_limit_reached';
   }
 
   // ── Directives ──────────────────────────────────────────────────────────────
@@ -112,7 +99,52 @@ If they are not ready to move forward — do not push. Close warmly:
 Do not re-open topics. Do not pitch. Move toward a clean resolution.`;
 
   } else {
-    directive = `Send the escalation message and stop.`;
+    directive = `The conversation has reached its limit. Do NOT automatically
+escalate. Read the last 3 messages and determine which path
+applies:
+
+PATH A — Booking intent present:
+If the homeowner has shown any of the following in the
+last 3 messages:
+  - Offering their availability ("I have time tomorrow",
+    "I'm free this week", "today works")
+  - Asking if you can come out
+  - Asking when you can come
+  - Saying yes, sure, let's do it, go ahead
+
+→ Treat as fully qualified. Emit [QUALIFIED].
+  The homeowner has self-qualified through their own words.
+  Do not make them wait for a human call.
+  Example: "Tomorrow works great — let me get you on the
+  schedule. [QUALIFIED]"
+
+PATH B — Engaged but no booking intent yet:
+Homeowner is still in conversation but hasn't offered
+availability or asked to book.
+
+→ Ask one direct closing question then close warmly.
+  "Based on everything you've described, it sounds like
+  getting someone out there would give you a real answer.
+  Is there a day this week that works for you?"
+  If they respond positively → [QUALIFIED]
+  If they don't commit → [SOFT_CLOSE]
+
+PATH C — Conversation has stalled or homeowner is cold:
+Short replies, disengaged, or hasn't responded to
+consequence questions.
+
+→ Close warmly. Emit [SOFT_CLOSE].
+  "That makes sense — if the timing opens up and you want
+  to get eyes on it, we're easy to reach. Take care."
+  Do NOT escalate a cold lead to a human call.
+
+ESCALATION is only appropriate when:
+  - Homeowner explicitly asks to speak to someone
+  - Homeowner is angry or frustrated
+  - Homeowner pushes on pricing or insurance specifics
+  - These have NOT changed — escalation is for situations
+    that require human judgment, not conversations that
+    simply ran long`;
   }
 
   const remaining = hard_limit - message_history_count;
@@ -122,7 +154,7 @@ Do not re-open topics. Do not pitch. Move toward a clean resolution.`;
     ? `You have roughly ${remaining} exchanges remaining. Be aware of pace — don't count down out loud.`
     : position === 'approaching_close'
     ? `One to two exchanges remaining. Move toward resolution.`
-    : `No further exchanges.`;
+    : `Limit reached. Resolve now — [QUALIFIED], [SOFT_CLOSE], or escalation only. No further exchanges after this.`;
 
   return `CONVERSATION_POSITION: ${position}
 
@@ -141,6 +173,8 @@ NEVER ESCALATE FOR:
 - Homeowner expressing urgency about their situation
 - Homeowner asking if you can come out
 - Homeowner saying they have a leak or active damage
+- Homeowner offering their availability
+- Conversation running longer than expected
 
 These are QUALIFICATION SIGNALS. When a homeowner describes
 active damage or urgency, move toward booking — not escalation.

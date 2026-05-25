@@ -18,7 +18,7 @@
 //   finance_retry         → 7-day finance retry
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { createHash } from "crypto";
 import { prisma } from "@/src/lib/prisma";
 import { sendGhlSms, addGhlTag, removeGhlTag } from "@/src/lib/ghl-sms";
@@ -167,7 +167,7 @@ function detectQualifyLastMessageContext(
 }
 
 async function handleQualifyWebhook(ctx: CentralWebhookContext): Promise<void> {
-  const { lead, srLead, ghlContactId, trigger, inboundMsg } = ctx;
+  const { lead, ghlContactId, trigger, inboundMsg } = ctx;
 
   const QUALIFY_OPENER =
     `Hey {firstName} — this is Alex with Qntum Roofing. ` +
@@ -1226,9 +1226,6 @@ async function handleRescheduleWebhook(
       ? "booking_stall_exhausted"
       : "other";
 
-  const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-  const currentMessages = (thread?.messages as BotMessage[]) ?? [];
-
   const buildContext = (
     msgs: BotMessage[],
     lastMsg: string,
@@ -1447,9 +1444,6 @@ async function handleFinanceWebhook(ctx: CentralWebhookContext): Promise<void> {
     messages,
     isNew,
   } = await getOrCreateThread(ghlContactId, "finance");
-  const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-  const currentMessages = (thread?.messages as BotMessage[]) ?? [];
-
   const buildContext = (
     msgs: BotMessage[],
     lastMsg: string,
@@ -1567,9 +1561,15 @@ export async function POST(request: NextRequest) {
   }
 
   // 3. Idempotency check
-  const idempotencyKey = createHash("sha256")
-    .update(`${ghlContactId}:${trigger}:${inboundMsg}:${Date.now()}`)
-    .digest("hex");
+  // inbound_sms: key from contactId + message only — duplicate GHL fires produce the same key
+  // All other triggers: include timestamp — proactive triggers can legitimately fire multiple times
+  const idempotencyKey = trigger === "inbound_sms"
+    ? createHash("sha256")
+        .update(`${ghlContactId}:inbound:${inboundMsg}`)
+        .digest("hex")
+    : createHash("sha256")
+        .update(`${ghlContactId}:${trigger}:${Date.now()}`)
+        .digest("hex");
 
   if (await isDuplicate(idempotencyKey)) {
     return new Response("OK", { status: 200 });

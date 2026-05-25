@@ -44,10 +44,14 @@ export async function loadLead(ghlContactId: string): Promise<Lead | null> {
 }
 
 export async function isDuplicate(key: string): Promise<boolean> {
-  const existing = await prisma.webhookLog.findUnique({
-    where: { idempotencyKey: key },
+  const sixtySecondsAgo = new Date(Date.now() - 60 * 1000);
+  const existing = await prisma.webhookLog.findFirst({
+    where: {
+      idempotencyKey: key,
+      createdAt: { gte: sixtySecondsAgo },
+    },
   });
-  return existing !== null;
+  return !!existing;
 }
 
 export async function logWebhookHit(args: {
