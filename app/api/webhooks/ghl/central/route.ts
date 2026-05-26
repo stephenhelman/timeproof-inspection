@@ -43,6 +43,7 @@ import {
   logWebhookHit,
 } from "@/src/lib/bot-webhook-utils";
 import { getSrLeadFromDb, updateSrLead } from "@/src/lib/ghl-custom-object";
+import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
 import {
   getZoneForZip,
   getZipTier,
@@ -310,56 +311,79 @@ async function handleQualifyWebhook(ctx: CentralWebhookContext): Promise<void> {
     return;
   }
 
-  const signal = rawResponse.includes("[QUALIFIED]")
-    ? "QUALIFIED"
-    : rawResponse.includes("[NOT_INTERESTED]")
-      ? "NOT_INTERESTED"
-      : rawResponse.includes("[SOFT_CLOSE]")
-        ? "SOFT_CLOSE"
-        : null;
+  if (!lead.ghlOpportunityId) {
+    console.warn(
+      `[qualify] lead ${lead.id} has no ghlOpportunityId — ` +
+      `pipeline stage moves will be skipped. ` +
+      `Check that qualify/complete created the opportunity ` +
+      `and saved the ID to the lead record.`
+    );
+  }
 
-  const smsText = stripAnySignals(rawResponse);
-  await sendGhlSms(ghlContactId, smsText);
+  const signalQualified     = rawResponse.includes("[QUALIFIED]");
+  const signalNotInterested = rawResponse.includes("[NOT_INTERESTED]");
+  const signalSoftClose     = rawResponse.includes("[SOFT_CLOSE]");
+
+  const cleanResponse = rawResponse
+    .replace("[QUALIFIED]", "")
+    .replace("[NOT_INTERESTED]", "")
+    .replace("[SOFT_CLOSE]", "")
+    .trim();
+
+  if (cleanResponse) {
+    await sendGhlSms(ghlContactId, cleanResponse);
+  }
   await appendMessage(threadId, "assistant", rawResponse);
 
-  if (signal === "QUALIFIED") {
-    await transitionLead(
-      lead.id,
-      ghlContactId,
-      "sr_qualifying",
-      "sr_qualified",
-      "NEW",
-      "booking",
-      {
-        sr_qualify_status: "qualified",
-        sr_bot_stage: "booking",
-      },
-    );
-    await addGhlTag(ghlContactId, "sr_booking");
-  } else if (signal === "NOT_INTERESTED") {
-    await transitionLead(
-      lead.id,
-      ghlContactId,
-      "sr_qualifying",
-      "sr_dead",
-      "DEAD",
-      "silent",
-      {
-        sr_status: "DEAD",
-        sr_bot_stage: "silent",
-      },
-    );
-  } else if (signal === "SOFT_CLOSE") {
-    await transitionLead(
-      lead.id,
-      ghlContactId,
-      "sr_qualifying",
-      null,
-      "NEW",
-      "silent",
-      { sr_bot_stage: "silent" },
-    );
-    await addGhlTag(ghlContactId, "sr_soft_close");
+  if (signalQualified) {
+    await updateSrLead(lead.id, {
+      sr_bot_stage:      "booking",
+      sr_qualify_status: "qualified",
+    });
+
+    if (lead.ghlOpportunityId) {
+      await moveGhlOpportunityStage(
+        lead.ghlOpportunityId,
+        process.env.GHL_STAGE_BOOKING!,
+      ).catch(err =>
+        console.error("[qualify] moveGhlOpportunityStage BOOKING failed", err)
+      );
+    } else {
+      console.warn(
+        `[qualify] handleQualifyWebhook: no ghlOpportunityId on lead ${lead.id}`,
+      );
+    }
+
+    await Promise.allSettled([
+      addGhlTag(ghlContactId, "sr_qualified"),
+      addGhlTag(ghlContactId, "sr_booking"),
+      removeGhlTag(ghlContactId, "sr_qualifying"),
+    ]);
+  }
+
+  if (signalNotInterested) {
+    await updateSrLead(lead.id, {
+      sr_bot_stage: "silent",
+      sr_status:    "DEAD",
+    });
+    await Promise.allSettled([
+      addGhlTag(ghlContactId, "sr_dead"),
+      removeGhlTag(ghlContactId, "sr_qualifying"),
+      lead.ghlOpportunityId
+        ? moveGhlOpportunityStage(
+            lead.ghlOpportunityId,
+            process.env.GHL_STAGE_DEAD!,
+          )
+        : Promise.resolve(),
+    ]);
+  }
+
+  if (signalSoftClose) {
+    await updateSrLead(lead.id, {
+      sr_bot_stage: "silent",
+    }).catch(err => console.error("[qualify] updateSrLead soft_close failed", err));
+    await addGhlTag(ghlContactId, "sr_soft_close")
+      .catch(err => console.error("[qualify] addGhlTag soft_close failed", err));
   }
 }
 

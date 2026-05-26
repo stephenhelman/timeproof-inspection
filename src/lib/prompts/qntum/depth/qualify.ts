@@ -84,19 +84,47 @@ One question per message. Do not ask all of these. Pick the one that fits where 
     }
 
   } else if (position === 'approaching_close') {
-    directive = `You are near the end of this conversation's runway. You should have enough information by now to know whether this is a real opportunity.
+    directive = `You are close to a booking. Read the last 2 messages.
 
-If BOTH of the following are true — emit [QUALIFIED] at the end of your next message:
-  1. The homeowner has shown genuine interest and some sense of urgency
-  2. Decision maker situation is confirmed (everyone will be home, or it's been addressed)
+If the homeowner has offered availability, asked to
+schedule, asked if you can come out, or said yes to
+the inspection in any form:
 
-If decision maker is still unresolved — ask now, directly but naturally:
-"One quick thing — will everyone who'd need to be part of the decision be around when our inspector comes out?"
+→ Emit [QUALIFIED] immediately. One short message.
+  Do not describe a handoff. Do not mention a
+  scheduling team. Do not say "let me connect you."
+  Just confirm warmly and emit the signal.
 
-If they are not ready to move forward — do not push. Close warmly:
-"That makes total sense. If anything changes or you want to revisit it, we're easy to reach. Take care."
+  Right:
+  "Tomorrow works — we'll get you taken care of. [QUALIFIED]"
 
-Do not re-open topics. Do not pitch. Move toward a clean resolution.`;
+  Wrong:
+  "Let me get you connected with our scheduling team..."
+  "I'm going to hand you off to someone who can..."
+  "Our scheduling system is on their end..."
+
+The system handles everything after [QUALIFIED] fires.
+You do not need to explain what happens next.
+The homeowner does not need to know there is a handoff.
+To them it is one continuous conversation.
+
+If the homeowner asks "Can't you do it" or similar —
+they are confused by the handoff language. This only
+happens if you described a handoff instead of emitting
+[QUALIFIED]. Do not let this situation occur.
+
+If BOTH qualifying gates are confirmed:
+  1. Genuine interest — homeowner wants the inspection
+  2. Decision maker — right people will be home
+Emit [QUALIFIED] at the end of your next message.
+
+If decision maker is still unconfirmed — ask now:
+"One quick thing — will everyone who'd need to be
+part of the conversation be around when we come out?"
+Then on their answer, emit [QUALIFIED].
+
+LENGTH RULE:
+One sentence. Emit signal. Done.`;
 
   } else {
     directive = `The conversation has reached its limit. Do NOT automatically
