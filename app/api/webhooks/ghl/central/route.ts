@@ -757,7 +757,7 @@ async function addUsedInsightId(
 }
 
 async function handleNurtureWebhook(ctx: CentralWebhookContext): Promise<void> {
-  const { lead, ghlContactId, trigger, inboundMsg, dripPosition } = ctx;
+  const { lead, ghlContactId, trigger, inboundMsg, dripPosition, srLead } = ctx;
 
   const rawLead = lead as unknown as Record<string, unknown>;
   const issuesNoticed =
@@ -834,8 +834,10 @@ async function handleNurtureWebhook(ctx: CentralWebhookContext): Promise<void> {
     if (insightUsed) await addUsedInsightId(threadId, insightUsed);
 
     if (rawResponse.includes("[INSPECTION_INTENT]")) {
-      const zip = lead.sourceZip ?? "";
-      const tier = zip ? getZipTier(zip) : null;
+      // Use the tier already stored at lead creation — do not re-evaluate the ZIP.
+      // Re-running getZipTier() risks returning 'out_of_area' for valid primary
+      // leads if the ZIP lookup fails for any reason.
+      const tier = srLead.srTier ?? lead.sourceTier ?? "out_of_area";
       await addGhlTag(ghlContactId, "zip_check_pending");
       if (tier === "primary") {
         await removeGhlTag(ghlContactId, "zip_check_pending");
@@ -940,8 +942,10 @@ async function handleNurtureWebhook(ctx: CentralWebhookContext): Promise<void> {
   if (insightUsed) await addUsedInsightId(threadId, insightUsed);
 
   if (rawResponse.includes("[INSPECTION_INTENT]")) {
-    const zip = lead.sourceZip ?? "";
-    const tier = zip ? getZipTier(zip) : null;
+    // Use the tier already stored at lead creation — do not re-evaluate the ZIP.
+    // Re-running getZipTier() risks returning 'out_of_area' for valid primary
+    // leads if the ZIP lookup fails for any reason.
+    const tier = srLead.srTier ?? lead.sourceTier ?? "out_of_area";
     await addGhlTag(ghlContactId, "zip_check_pending");
     if (tier === "primary") {
       await removeGhlTag(ghlContactId, "zip_check_pending");

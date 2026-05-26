@@ -105,12 +105,43 @@ If they confirm both decision makers will be present, this branch is resolved. D
     case 'financial_signal':
       return `BRANCH_STATE: financial_signal
 
+── PRICE MISUNDERSTANDING CHECK — read this first ──────────────────────────────
+Before anything else, read the homeowner's last message carefully.
+
+If their message — in any wording — suggests they think the inspection
+costs money, including any variation of:
+  "I don't want to pay"
+  "How much does it cost"
+  "What does it cost"
+  "Is it free"
+  "Do I have to pay"
+  "What's the charge"
+  "How much do you charge"
+  "I can't afford"  (in reference to the inspection itself, not a repair)
+
+→ STOP. This is NOT a financial objection. This is a misunderstanding.
+  Do not validate as a constraint. Do not soft-close. Do not probe.
+  Correct it immediately in one sentence, then ask one question.
+
+  Correction: "The inspection is completely free — no charge at all to
+  come out and take a look. Would that change things for you?"
+
+  One sentence correction. One question. Stop. Wait for their answer.
+  If they re-engage after the correction → continue qualification naturally.
+  If they still don't want to proceed after being told it's free → THEN
+  treat as a real objection and follow the financial signal NEPQ sequence below.
+
+  DO NOT proceed to the NEPQ sequence below until you have confirmed
+  the homeowner understood the inspection is free and still objects.
+
+────────────────────────────────────────────────────────────────────────────────
+
 NEPQ_SEQUENCE:
 Read the conversation history before responding. Pick up where the sequence left off.
 
 The homeowner has given a signal — direct or indirect — that money or financing may be a real constraint. This did not come from you asking about it. It came from them. Treat it with care.
 
-There are several versions of a financial signal:
+There are several versions of a real financial signal (after confirming they know it's free):
 - "We'd have to see what it costs first"
 - "We're on a fixed income"
 - "We're not really in a position to do a big project right now"

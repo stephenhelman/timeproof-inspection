@@ -19,13 +19,31 @@ No further exchanges after escalation message is sent.`;
   }
 
   if (last_message_context === 'financial_signal') {
-    return `CONVERSATION_POSITION: approaching_close
+    return `CONVERSATION_POSITION: financial_signal_check
 
 CURRENT_DIRECTIVE:
-A financial signal has surfaced — the homeowner has indicated timing, budget, or decision constraints. Do not push past this. Ask one gentle follow-up to understand specifically what the constraint is, then respect whatever they say. If the constraint is real and near-term, close warmly. Do not attempt to overcome it.
+BEFORE treating this as a financial constraint — read the homeowner's last message.
+
+If their message suggests they think the inspection costs money (any form of
+"I don't want to pay", "how much does it cost", "what's the charge", "do I have to pay",
+"is it free", "I can't afford it" referring to the inspection):
+
+→ This is a misunderstanding, not a real objection.
+  Do NOT close. Do NOT soft-close. Do NOT validate as a constraint.
+  Correct it immediately: "The inspection is completely free — no charge at all
+  to come out and take a look. Would that change things for you?"
+  One correction. One question. Stop. Wait for their answer.
+  If they re-engage → continue qualification.
+  Only if they still object after knowing it's free → treat as real constraint below.
+
+If their message is a genuine financial constraint (they know it's free and still object,
+or they reference repair cost, project cost, financing):
+
+→ Ask one gentle follow-up to understand the specific constraint, then respect their answer.
+  If the constraint is real and near-term, close warmly.
 
 LENGTH_RULE:
-One to two exchanges remaining. Move toward a clean resolution.`;
+One to two exchanges remaining if genuine constraint confirmed. Otherwise continue naturally.`;
   }
 
   // ── Threshold map ───────────────────────────────────────────────────────────
@@ -84,7 +102,25 @@ One question per message. Do not ask all of these. Pick the one that fits where 
     }
 
   } else if (position === 'approaching_close') {
-    directive = `You are close to a booking. Read the last 2 messages.
+    directive = `BEFORE SOFT CLOSING — check these first:
+
+If the last message was a price or cost question, or any form of "I don't want to pay":
+→ Do NOT soft close. The inspection is free. Correct the misunderstanding:
+  "The inspection is completely free — no charge at all to come out and take a look.
+   Would that change things for you?"
+  One sentence. One question. Stop.
+
+If the last message was a soft timing hedge ("not right now", "maybe later",
+"still thinking", "let me think about it", "I'll have to check"):
+→ Do NOT soft close on the first hedge. Ask one consequence question first:
+  "What would it mean for you if there was something going on up there
+   that you didn't catch for another few months?"
+  If they hedge again after that → then soft close.
+
+Only soft close when the homeowner has explicitly said they're not interested
+after being informed the inspection is free.
+
+You are close to a booking. Read the last 2 messages.
 
 If the homeowner has offered availability, asked to
 schedule, asked if you can come out, or said yes to
