@@ -18,7 +18,7 @@ LENGTH_RULE:
 No further exchanges.`;
   }
 
-  if (message_history_count >= 5) {
+  if (message_history_count >= 10) {
     return `CONVERSATION_POSITION: escalate_now
 
 CURRENT_DIRECTIVE:
@@ -70,7 +70,7 @@ One to two exchanges remaining. Move toward booking.`;
   }
 
   // ── Threshold map ───────────────────────────────────────────────────────────
-  const thresholds = { opening_ends_at: 1, approaching_close_at: 3, hard_limit: 5 };
+  const thresholds = { opening_ends_at: 1, approaching_close_at: 7, hard_limit: 10 };
   const { opening_ends_at, approaching_close_at, hard_limit } = thresholds;
 
   let position: 'opening' | 'mid_conversation' | 'approaching_close';
@@ -89,7 +89,19 @@ One to two exchanges remaining. Move toward booking.`;
   } else if (position === 'mid_conversation') {
     directive = `You are negotiating a time. Offer one slot at a time — not a numbered list. If the homeowner rejects the slot, ask what works better for them before offering another. Keep it practical and warm. The goal is one confirmed booking in the next one or two exchanges.`;
   } else {
-    directive = `You are near the end of this conversation's runway. If the homeowner has not committed — ask one direct but gentle question: "Is there a time this week that would actually work for you?" If they stall again, emit [STALL] and close. Do not extend past the hard limit.`;
+    directive = `You have a few exchanges left. The homeowner has engaged but hasn't confirmed a slot yet.
+
+Do not pressure. Do not count down.
+Make one clean direct offer:
+"Does [slot] work, or would [slot] be better?"
+
+One question. Stop. Let them answer.
+
+If they stall again: acknowledge it, let it go.
+"No problem — just reach out when you're ready to lock something in."
+Emit [STALL].
+
+If they confirm: emit [BOOKED: YYYY-MM-DD HH:MM]`;
   }
 
   const remaining = hard_limit - message_history_count;

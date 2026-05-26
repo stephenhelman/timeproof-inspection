@@ -18,6 +18,26 @@
 //   finance_retry         → 7-day finance retry
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── GHL WORKFLOW REQUIRED ────────────────────────────────────────────────────
+// Workflow: Booking Bot Activation
+// Trigger:  Opportunity moved to stage "Booking"
+//           (Pipeline: Inspection Pipeline)
+// Action:   Send outbound webhook
+//           URL: /api/webhooks/ghl/central
+//           Header: x-ghl-secret: [secret]
+//           Body:
+//           {
+//             "customData": {
+//               "contact_id": "{{contact.id}}",
+//               "trigger": "qualified_handoff"
+//             }
+//           }
+//
+// This workflow is what activates the book bot.
+// The server moves the opportunity to Booking stage,
+// GHL reacts with this workflow, book bot fires.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { NextRequest } from "next/server";
 import { createHash } from "crypto";
 import { prisma } from "@/src/lib/prisma";
@@ -359,6 +379,9 @@ async function handleQualifyWebhook(ctx: CentralWebhookContext): Promise<void> {
       addGhlTag(ghlContactId, "sr_booking"),
       removeGhlTag(ghlContactId, "sr_qualifying"),
     ]);
+    // GHL workflow reacts to the stage move and fires qualified_handoff webhook
+    // — that activates the book bot. No direct message send here.
+    return;
   }
 
   if (signalNotInterested) {
@@ -1686,6 +1709,86 @@ export async function POST(request: NextRequest) {
   };
 
   try {
+    // Named triggers — always return early, bypass srBotStage routing
+    switch (trigger) {
+      case "inbound_sms":
+        // Route based on srBotStage as normal
+        break;
+
+      case "qualified_handoff":
+        // GHL workflow fires this when opportunity moves to Booking stage.
+        // srBotStage should already be 'booking' at this point.
+        await handleBookWebhook({
+          ...context,
+          trigger:      "qualified_handoff",
+          inboundMsg:   "",
+          dripPosition: null,
+        });
+        return new Response("OK", { status: 200 });
+
+      case "stall_followup":
+        await handleBookWebhook({
+          ...context,
+          trigger:      "stall_followup",
+          inboundMsg:   "",
+          dripPosition: null,
+        });
+        return new Response("OK", { status: 200 });
+
+      case "new_guide_lead":
+        await handleNurtureWebhook(context);
+        return new Response("OK", { status: 200 });
+
+      case "new_inspection_lead":
+      case "scheduling_approved":
+        await handleQualifyWebhook(context);
+        return new Response("OK", { status: 200 });
+
+      case "follow_up_triggered":
+        await handleRevivalWebhook(context);
+        return new Response("OK", { status: 200 });
+
+      case "reschedule_triggered":
+        await handleRescheduleWebhook(context);
+        return new Response("OK", { status: 200 });
+
+      case "credit_fail_triggered":
+        await handleFinanceWebhook(context);
+        return new Response("OK", { status: 200 });
+
+      case "nurture_drip":
+        await handleNurtureWebhook(context);
+        return new Response("OK", { status: 200 });
+
+      case "stall_exhausted":
+        await updateSrLead(lead.id, {
+          sr_bot_stage: "revival",
+          sr_status:    "DEMO_NOT_SOLD",
+        });
+        if (lead.ghlOpportunityId) {
+          await moveGhlOpportunityStage(
+            lead.ghlOpportunityId,
+            process.env.GHL_STAGE_FOLLOW_UP_ACTIVE!,
+          ).catch(err =>
+            console.error("moveStage stall_exhausted failed", err)
+          );
+        }
+        await Promise.allSettled([
+          addGhlTag(ghlContactId, "sr_follow_up"),
+          removeGhlTag(ghlContactId, "booking_stall"),
+        ]);
+        return new Response("OK", { status: 200 });
+
+      case "finance_retry":
+        await handleFinanceWebhook(context);
+        return new Response("OK", { status: 200 });
+
+      default:
+        // Unknown trigger — fall through to srBotStage routing
+        break;
+    }
+
+    // inbound_sms and unknown triggers: route on srBotStage
     switch (srLead.srBotStage) {
       case "nurture":
         await handleNurtureWebhook(context);
