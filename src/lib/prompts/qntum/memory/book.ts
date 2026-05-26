@@ -23,7 +23,9 @@ export function getBookMemoryModule(context: BookContext): string {
     const slotLabels = available_slots.slice(0, 2).map(s => s.label).join(' or ');
     memory += `\nAVAILABLE_SLOTS: ${slotLabels}\nPresent slots as "time blocked in your area" — not "our calendar has openings."\nOffer two options max. One is better when possible.\n`;
   } else {
-    memory += `\nAVAILABLE_SLOTS: No slots loaded yet. If needed, end your message with [CHECK_MORE_SLOTS].\n`;
+    memory += `\nAVAILABLE_SLOTS: No slots loaded yet.\n`;
+    memory += `To fetch slots: emit [CHECK_MORE_SLOTS].\n`;
+    memory += `If the homeowner has stated a time preference (e.g. "after 2 pm"), emit [CHECK_MORE_SLOTS: HH:MM] in 24-hour format — the system will fetch slots at or after that time.\n`;
   }
 
   if (locked_slot) {

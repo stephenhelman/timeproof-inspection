@@ -238,8 +238,8 @@ function formatDateLabel(dateStr: string, time: string, timezone: string): strin
 }
 
 async function fetchGhlFreeSlots(
-  startDate: string,
-  endDate: string
+  startMs: number,
+  endMs: number
 ): Promise<Record<string, string[]>> {
   const calendarId = process.env.GHL_CALENDAR_ID;
   const apiKey = process.env.GHL_API_KEY;
@@ -254,8 +254,9 @@ async function fetchGhlFreeSlots(
     const url = new URL(
       `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots`
     );
-    url.searchParams.set("startDate", startDate);
-    url.searchParams.set("endDate", endDate);
+    // GHL v2 calendar API requires UNIX timestamps in milliseconds
+    url.searchParams.set("startDate", String(startMs));
+    url.searchParams.set("endDate", String(endMs));
     url.searchParams.set("timezone", timezone);
 
     const res = await fetch(url.toString(), {
@@ -292,7 +293,8 @@ async function fetchGhlFreeSlots(
 
 export async function getAvailableSlots(
   leadZone: string,
-  isDistance: boolean
+  isDistance: boolean,
+  minTime?: string // "HH:MM" 24h — only return slots at or after this time
 ): Promise<Array<{ date: string; time: string; label: string }>> {
   const timezone = process.env.BOT_TIMEZONE ?? "America/Denver";
   const today = new Date();
@@ -301,11 +303,8 @@ export async function getAvailableSlots(
   const windowStart = addDays(today, isDistance ? DISTANCE_ZONE_MIN_DAYS_AHEAD : 0);
   const windowEnd = addDays(today, BOOKING_WINDOW_DAYS);
 
-  const startStr = windowStart.toISOString().slice(0, 10);
-  const endStr = windowEnd.toISOString().slice(0, 10);
-
   const [ghlSlots, existingLocks] = await Promise.all([
-    fetchGhlFreeSlots(startStr, endStr),
+    fetchGhlFreeSlots(windowStart.getTime(), windowEnd.getTime()),
     prisma.slotLock.findMany({
       where: { expiresAt: { gt: new Date() } },
     }),
@@ -369,6 +368,9 @@ export async function getAvailableSlots(
 
     for (const time of AVAILABLE_TIMES) {
       if (results.length >= 3) break;
+
+      // Apply caller-specified minimum time (customer preference, e.g. "after 2 pm" → "14:00")
+      if (minTime && time < minTime) continue;
 
       // Check 1: GHL calendar free
       if (Object.keys(ghlSlots).length > 0 && !ghlAvail.has(time)) continue;

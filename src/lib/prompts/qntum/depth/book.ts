@@ -61,7 +61,14 @@ One message. Stop.`;
     return `CONVERSATION_POSITION: slot_negotiation
 
 CURRENT_DIRECTIVE:
-The offered slot didn't work. Ask what time of day or what days generally work best for them — then work from their answer. Do not present a menu. One question. If you need more slots, end with [CHECK_MORE_SLOTS].
+The offered slot didn't work. Ask what time of day or what days generally work best for them — then work from their answer. Do not present a menu. One question.
+
+If the homeowner has stated a time preference (e.g. "after 2", "mornings", "evenings"):
+- Convert to 24-hour format: morning ≈ 08:00, noon = 12:00, after 2 pm = 14:00, evenings ≈ 17:00
+- Do not present the current slots — emit [CHECK_MORE_SLOTS: HH:MM] and stop
+- The system will fetch slots at or after that time and re-run you with them
+
+If you need more options but no time preference was given, emit [CHECK_MORE_SLOTS] without a time.
 
 Direction: "What time of day works better for you?"
 

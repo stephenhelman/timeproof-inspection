@@ -654,6 +654,45 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     return;
   }
 
+  // [CHECK_MORE_SLOTS: HH:MM] — bot needs slots filtered to the homeowner's stated time preference.
+  // Re-fetch with minTime, re-run bot with fresh context. The [CHECK_MORE_SLOTS] response
+  // is an internal signal and is never sent to the homeowner or appended to the thread.
+  const checkSlotsMatch = rawResponse.match(/\[CHECK_MORE_SLOTS(?::\s*(\d{2}:\d{2}))?\]/);
+  if (checkSlotsMatch) {
+    const minTime = checkSlotsMatch[1] ?? undefined;
+    const freshSlots = await getAvailableSlots(zone, distanceZone, minTime);
+    if (freshSlots.length > 0) {
+      const [fy, fm, fd] = freshSlots[0].date.split("-").map(Number);
+      await createSlotLock({
+        date: new Date(fy, fm - 1, fd),
+        time: freshSlots[0].time,
+        zone,
+        leadId: lead.id,
+      });
+    }
+    const freshContext: BookContext = {
+      ...context,
+      available_slots: freshSlots.map((s) => ({
+        date: s.date,
+        time: s.time,
+        label: s.label,
+        zone_label: zone,
+      })),
+      locked_slot: freshSlots[0]
+        ? { date: freshSlots[0].date, time: freshSlots[0].time, label: freshSlots[0].label }
+        : null,
+    };
+    const retryResponse = await runBot(assembleBookPrompt(freshContext), botMessages);
+    if (retryResponse !== null) {
+      if (retryResponse.includes("[STALL]")) {
+        await addGhlTag(ghlContactId, "booking_stall");
+      }
+      await sendGhlSms(ghlContactId, stripAnySignals(retryResponse));
+      await appendMessage(threadId, "assistant", retryResponse);
+    }
+    return;
+  }
+
   const bookedMatch = rawResponse.match(
     /\[BOOKED:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]/,
   );
