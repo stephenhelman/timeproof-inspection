@@ -70,9 +70,23 @@ function extractRescheduledSignal(text: string): { date: Date; time: string } | 
   const match = text.match(/\[RESCHEDULED:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]/);
   if (!match) return null;
   const [, dateStr, time] = match;
+  const timezone = process.env.BOT_TIMEZONE ?? 'America/Denver';
   const [year, month, day] = dateStr.split('-').map(Number);
   const [hour, minute] = time.split(':').map(Number);
-  return { date: new Date(year, month - 1, day, hour, minute, 0, 0), time };
+  // Signal time is Mountain Time wall-clock; convert to UTC for DB storage.
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const tzOffset = ((): number => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(guess);
+    const h = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10);
+    const m = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+    return h * 60 + m - (hour * 60 + minute);
+  })();
+  return { date: new Date(guess.getTime() - tzOffset * 60 * 1000), time };
 }
 
 function extractSignal(text: string): 'RESCHEDULED' | 'RE_QUALIFY' | 'DEAD' | 'CHECK_MORE_SLOTS' | 'ESCALATE' | null {

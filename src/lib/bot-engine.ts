@@ -195,10 +195,30 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
-function formatDateLabel(date: Date, time: string, timezone: string): string {
+function formatDateLabel(dateStr: string, time: string, timezone: string): string {
+  // Parse the datetime as a Mountain Time wall-clock value so the formatter
+  // never double-converts. We find the UTC instant that equals dateStr+time in
+  // the given timezone by formatting a candidate UTC date and iterating once.
   const [hour, minute] = time.split(":").map(Number);
-  const dt = new Date(date);
-  dt.setHours(hour, minute, 0, 0);
+  const [year, month, day] = dateStr.split("-").map(Number);
+
+  // Build a UTC Date that represents this wall-clock time in `timezone`.
+  // Strategy: guess UTC = wall-clock time, check what MT that is, then correct.
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const tzOffset = ((): number => {
+    // Format guess as a UTC-offset time in the target timezone
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(guess);
+    const h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+    const m = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+    // Offset = displayed MT time minus intended time (in minutes)
+    return h * 60 + m - (hour * 60 + minute);
+  })();
+  const dt = new Date(guess.getTime() - tzOffset * 60 * 1000);
 
   const dayLabel = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -362,7 +382,7 @@ export async function getAvailableSlots(
       results.push({
         date: dateStr,
         time,
-        label: formatDateLabel(dayDate, time, timezone),
+        label: formatDateLabel(dateStr, time, timezone),
       });
     }
   }

@@ -639,7 +639,16 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     const [, dateStr, time] = bookedMatch;
     const [year, month, day] = dateStr.split("-").map(Number);
     const [hour, minute] = time.split(":").map(Number);
-    const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+    // Signal time is Mountain Time wall-clock; convert to UTC for DB storage.
+    const _tz = process.env.BOT_TIMEZONE ?? "America/Denver";
+    const _guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+    const _off = ((): number => {
+      const pts = new Intl.DateTimeFormat("en-US", { timeZone: _tz, hour: "numeric", minute: "2-digit", hour12: false }).formatToParts(_guess);
+      const h = parseInt(pts.find((p) => p.type === "hour")?.value ?? "0", 10);
+      const m = parseInt(pts.find((p) => p.type === "minute")?.value ?? "0", 10);
+      return h * 60 + m - (hour * 60 + minute);
+    })();
+    const date = new Date(_guess.getTime() - _off * 60 * 1000);
     const validation = await validateSlotBeforeConfirm(
       lead.id,
       date,
@@ -1339,7 +1348,16 @@ async function handleRescheduleWebhook(
     const [, dateStr, time] = rescheduledMatch;
     const [year, month, day] = dateStr.split("-").map(Number);
     const [hour, minute] = time.split(":").map(Number);
-    const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+    // Signal time is Mountain Time wall-clock; convert to UTC for DB storage.
+    const _tz2 = process.env.BOT_TIMEZONE ?? "America/Denver";
+    const _guess2 = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+    const _off2 = ((): number => {
+      const pts = new Intl.DateTimeFormat("en-US", { timeZone: _tz2, hour: "numeric", minute: "2-digit", hour12: false }).formatToParts(_guess2);
+      const h = parseInt(pts.find((p) => p.type === "hour")?.value ?? "0", 10);
+      const m = parseInt(pts.find((p) => p.type === "minute")?.value ?? "0", 10);
+      return h * 60 + m - (hour * 60 + minute);
+    })();
+    const date = new Date(_guess2.getTime() - _off2 * 60 * 1000);
     const validation = await validateSlotBeforeConfirm(
       lead.id,
       date,
