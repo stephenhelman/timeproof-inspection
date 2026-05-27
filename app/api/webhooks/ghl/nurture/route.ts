@@ -33,6 +33,7 @@ import type {
   NurtureContext,
   NurtureLastMessageContext,
 } from "@/src/lib/prompts/qntum/types";
+import type { Lead, SrLead } from "@prisma/client";
 
 type BotMessage = { role: string; content: string; timestamp: string };
 
@@ -131,6 +132,273 @@ async function generateTransitionalSms(firstName: string): Promise<string | null
   }
 }
 
+export async function handleNurtureWebhook(ctx: {
+  lead: Lead;
+  srLead: SrLead;
+  ghlContactId: string;
+  trigger: string;
+  inboundMsg: string;
+  dripPosition: number | null;
+}): Promise<void> {
+  const { lead, srLead, ghlContactId, trigger, inboundMsg, dripPosition } = ctx;
+
+  const rawLead = lead as unknown as Record<string, unknown>;
+  const issuesNoticed =
+    ((rawLead.issuesNoticed as string | null) ?? null)
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean) ?? null;
+  const sourceRaw =
+    (rawLead.guideSource as string) ??
+    (rawLead.source as string) ??
+    "organic";
+  const srcMap: Record<string, NurtureContext["source"]> = {
+    "facebook-guide": "facebook-guide",
+    door: "door",
+    card: "card",
+    organic: "organic",
+  };
+  const source: NurtureContext["source"] = srcMap[sourceRaw] ?? "organic";
+
+  const {
+    id: threadId,
+    messages,
+    isNew,
+  } = await getOrCreateThread(ghlContactId, "nurture");
+  const usedInsightIds = await getUsedInsightIds(threadId);
+
+  // ── nurture_drip branch ────────────────────────────────────────────────────
+  if (trigger === "nurture_drip" && dripPosition !== null) {
+    const pos = dripPosition as 1 | 2 | 3 | 4;
+    const thread = await prisma.botThread.findUnique({
+      where: { id: threadId },
+    });
+    const currentMessages = (thread?.messages as BotMessage[]) ?? [];
+
+    const context: NurtureContext = {
+      bot_type: "nurture",
+      homeowner_name: lead.customerName,
+      first_name: lead.customerName.trim().split(/\s+/)[0],
+      source,
+      rep: (rawLead.rep as string | null) ?? null,
+      message_history_count: currentMessages.length,
+      last_message_context: "none",
+      roof_type: (rawLead.roofType as string | null) ?? null,
+      roof_age: lead.roofAge ?? null,
+      issues_noticed: issuesNoticed,
+      last_inspected: lead.lastInspected ?? null,
+      address: lead.streetAddress ?? null,
+      used_insight_ids: usedInsightIds,
+      is_drip: true,
+      drip_sequence_position: pos,
+    };
+    const systemPrompt = assembleNurturePrompt(context);
+    const botMessages = [
+      ...currentMessages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        timestamp: m.timestamp,
+      })),
+      {
+        role: "user" as const,
+        content: "[drip_trigger]",
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    const rawResponse = await runBot(systemPrompt, botMessages);
+    if (rawResponse === null) {
+      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
+        console.error("[nurture/drip] updateSrLead silent failed", err),
+      );
+      return;
+    }
+
+    const insightUsed =
+      rawResponse
+        .match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i)?.[1]
+        ?.toLowerCase() ?? null;
+    await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
+    await appendMessage(threadId, "assistant", rawResponse);
+    if (insightUsed) await addUsedInsightId(threadId, insightUsed);
+
+    if (rawResponse.includes("[INSPECTION_INTENT]")) {
+      // Use tier stored at lead creation — do not re-evaluate ZIP.
+      const tier = srLead.srTier ?? lead.sourceTier ?? "out_of_area";
+      const lastAssistantMsg = stripAnySignals(rawResponse);
+      if (lastAssistantMsg && process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
+        await writeGhlContactCustomField(
+          ghlContactId,
+          process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
+          lastAssistantMsg,
+        ).catch((err) =>
+          console.error(
+            "[nurture/drip] writeGhlContactCustomField failed:",
+            err,
+          ),
+        );
+      }
+      await addGhlTag(ghlContactId, "zip_check_pending");
+      if (tier === "primary") {
+        const transitional = await generateTransitionalSms(
+          lead.customerName.trim().split(/\s+/)[0],
+        );
+        if (transitional) await sendGhlSms(ghlContactId, transitional);
+        await removeGhlTag(ghlContactId, "zip_check_pending");
+        await addGhlTag(ghlContactId, "zip_approved");
+        await addGhlTag(ghlContactId, "sr_qualifying");
+      } else {
+        await removeGhlTag(ghlContactId, "zip_check_pending");
+        await addGhlTag(ghlContactId, "zip_review_pending");
+        await sendGhlSms(
+          ghlContactId,
+          "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
+        );
+      }
+    } else if (rawResponse.includes("[NOT_INTERESTED]")) {
+      await transitionLead(
+        lead.id,
+        ghlContactId,
+        "source_free_guide",
+        "sr_dead",
+        "DEAD",
+        "silent",
+        { sr_status: "DEAD", sr_bot_stage: "silent" },
+      );
+    } else if (rawResponse.includes("[SOFT_CLOSE]") || pos === 4) {
+      await addGhlTag(ghlContactId, "sr_nurture_exhausted");
+    }
+
+    return;
+  }
+
+  // ── new_guide_lead / inbound_sms branch ───────────────────────────────────
+
+  if (inboundMsg && inboundMsg !== "new_guide_lead") {
+    await appendMessage(threadId, "user", inboundMsg);
+  }
+
+  const thread = await prisma.botThread.findUnique({
+    where: { id: threadId },
+  });
+  const currentMessages = (thread?.messages as BotMessage[]) ?? [];
+
+  const context: NurtureContext = {
+    bot_type: "nurture",
+    homeowner_name: lead.customerName,
+    first_name: lead.customerName.trim().split(/\s+/)[0],
+    source,
+    rep: (rawLead.rep as string | null) ?? null,
+    message_history_count: currentMessages.length,
+    last_message_context: detectNurtureLastMessageContext(inboundMsg),
+    roof_type: (rawLead.roofType as string | null) ?? null,
+    roof_age: lead.roofAge ?? null,
+    issues_noticed: issuesNoticed,
+    last_inspected: lead.lastInspected ?? null,
+    address: lead.streetAddress ?? null,
+    used_insight_ids: usedInsightIds,
+    is_drip: false,
+    drip_sequence_position: null,
+  };
+
+  if (isNew || messages.length === 0) {
+    const systemPrompt = assembleNurturePrompt(context);
+    const openerRaw = await runBot(systemPrompt, [
+      {
+        role: "user",
+        content: "new_guide_lead",
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    if (openerRaw !== null) {
+      const insightUsed =
+        openerRaw
+          .match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i)?.[1]
+          ?.toLowerCase() ?? null;
+      await sendGhlSms(ghlContactId, stripAnySignals(openerRaw));
+      await appendMessage(threadId, "assistant", openerRaw);
+      if (insightUsed) await addUsedInsightId(threadId, insightUsed);
+    }
+    if (!inboundMsg || inboundMsg === "new_guide_lead") {
+      return;
+    }
+  }
+
+  const freshThread = await prisma.botThread.findUnique({
+    where: { id: threadId },
+  });
+  const freshMessages = (freshThread?.messages as BotMessage[]) ?? [];
+  const freshContext: NurtureContext = {
+    ...context,
+    message_history_count: freshMessages.length,
+    used_insight_ids: await getUsedInsightIds(threadId),
+  };
+  const systemPrompt = assembleNurturePrompt(freshContext);
+  const botMessages = freshMessages.map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+    timestamp: m.timestamp,
+  }));
+  const rawResponse = await runBot(systemPrompt, botMessages);
+  if (rawResponse === null) {
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
+      console.error("[nurture] updateSrLead silent failed", err),
+    );
+    return;
+  }
+
+  const insightUsed =
+    rawResponse
+      .match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i)?.[1]
+      ?.toLowerCase() ?? null;
+  await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
+  await appendMessage(threadId, "assistant", rawResponse);
+  if (insightUsed) await addUsedInsightId(threadId, insightUsed);
+
+  if (rawResponse.includes("[INSPECTION_INTENT]")) {
+    // Use tier stored at lead creation — do not re-evaluate ZIP.
+    const tier = srLead.srTier ?? lead.sourceTier ?? "out_of_area";
+    const lastAssistantMsg = stripAnySignals(rawResponse);
+    if (lastAssistantMsg && process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
+      await writeGhlContactCustomField(
+        ghlContactId,
+        process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
+        lastAssistantMsg,
+      ).catch((err) =>
+        console.error("[nurture] writeGhlContactCustomField failed:", err),
+      );
+    }
+    await addGhlTag(ghlContactId, "zip_check_pending");
+    if (tier === "primary") {
+      const transitional = await generateTransitionalSms(
+        lead.customerName.trim().split(/\s+/)[0],
+      );
+      if (transitional) await sendGhlSms(ghlContactId, transitional);
+      await removeGhlTag(ghlContactId, "zip_check_pending");
+      await addGhlTag(ghlContactId, "zip_approved");
+      await addGhlTag(ghlContactId, "sr_qualifying");
+    } else {
+      await removeGhlTag(ghlContactId, "zip_check_pending");
+      await addGhlTag(ghlContactId, "zip_review_pending");
+      await sendGhlSms(
+        ghlContactId,
+        "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
+      );
+    }
+  } else if (rawResponse.includes("[NOT_INTERESTED]")) {
+    await transitionLead(
+      lead.id,
+      ghlContactId,
+      "source_free_guide",
+      "sr_dead",
+      "DEAD",
+      "silent",
+      { sr_status: "DEAD", sr_bot_stage: "silent" },
+    );
+  } else if (rawResponse.includes("[SOFT_CLOSE]")) {
+    await addGhlTag(ghlContactId, "sr_soft_close");
+  }
+}
+
 export async function POST(request: NextRequest) {
   const authError = validateWebhookSecret(request);
   if (authError) return authError;
@@ -223,289 +491,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const rawLead = lead as unknown as Record<string, unknown>;
-    const issuesNoticed =
-      ((rawLead.issuesNoticed as string | null) ?? null)
-        ?.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean) ?? null;
-    const sourceRaw =
-      (rawLead.guideSource as string) ??
-      (rawLead.source as string) ??
-      "organic";
-    const srcMap: Record<string, NurtureContext["source"]> = {
-      "facebook-guide": "facebook-guide",
-      door: "door",
-      card: "card",
-      organic: "organic",
-    };
-    const source: NurtureContext["source"] = srcMap[sourceRaw] ?? "organic";
-
-    const {
-      id: threadId,
-      messages,
-      isNew,
-    } = await getOrCreateThread(ghlContactId, "nurture");
-    const usedInsightIds = await getUsedInsightIds(threadId);
-
-    // ── nurture_drip branch ────────────────────────────────────────────────────
-    if (trigger === "nurture_drip" && dripPosition !== null) {
-      const pos = dripPosition as 1 | 2 | 3 | 4;
-      const thread = await prisma.botThread.findUnique({
-        where: { id: threadId },
-      });
-      const currentMessages = (thread?.messages as BotMessage[]) ?? [];
-
-      const context: NurtureContext = {
-        bot_type: "nurture",
-        homeowner_name: lead.customerName,
-        first_name: lead.customerName.trim().split(/\s+/)[0],
-        source,
-        rep: (rawLead.rep as string | null) ?? null,
-        message_history_count: currentMessages.length,
-        last_message_context: "none",
-        roof_type: (rawLead.roofType as string | null) ?? null,
-        roof_age: lead.roofAge ?? null,
-        issues_noticed: issuesNoticed,
-        last_inspected: lead.lastInspected ?? null,
-        address: lead.streetAddress ?? null,
-        used_insight_ids: usedInsightIds,
-        is_drip: true,
-        drip_sequence_position: pos,
-      };
-      const systemPrompt = assembleNurturePrompt(context);
-      const botMessages = [
-        ...currentMessages.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-          timestamp: m.timestamp,
-        })),
-        {
-          role: "user" as const,
-          content: "[drip_trigger]",
-          timestamp: new Date().toISOString(),
-        },
-      ];
-      const rawResponse = await runBot(systemPrompt, botMessages);
-      if (rawResponse === null) {
-        await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
-          console.error("[nurture/drip] updateSrLead silent failed", err),
-        );
-        await logWebhookHit({
-          source: "ghl_bot_nurture",
-          payload: rawBody,
-          success: true,
-          leadId: lead.id,
-          idempotencyKey,
-        });
-        return new Response("OK", { status: 200 });
-      }
-
-      const insightUsed =
-        rawResponse
-          .match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i)?.[1]
-          ?.toLowerCase() ?? null;
-      await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
-      await appendMessage(threadId, "assistant", rawResponse);
-      if (insightUsed) await addUsedInsightId(threadId, insightUsed);
-
-      if (rawResponse.includes("[INSPECTION_INTENT]")) {
-        // Use tier stored at lead creation — do not re-evaluate ZIP.
-        const tier = srLead.srTier ?? lead.sourceTier ?? "out_of_area";
-        const lastAssistantMsg = stripAnySignals(rawResponse);
-        if (lastAssistantMsg && process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-          await writeGhlContactCustomField(
-            ghlContactId,
-            process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
-            lastAssistantMsg,
-          ).catch((err) =>
-            console.error(
-              "[nurture/drip] writeGhlContactCustomField failed:",
-              err,
-            ),
-          );
-        }
-        await addGhlTag(ghlContactId, "zip_check_pending");
-        if (tier === "primary") {
-          const transitional = await generateTransitionalSms(
-            lead.customerName.trim().split(/\s+/)[0],
-          );
-          if (transitional) await sendGhlSms(ghlContactId, transitional);
-          await removeGhlTag(ghlContactId, "zip_check_pending");
-          await addGhlTag(ghlContactId, "zip_approved");
-          await addGhlTag(ghlContactId, "sr_qualifying");
-        } else {
-          await removeGhlTag(ghlContactId, "zip_check_pending");
-          await addGhlTag(ghlContactId, "zip_review_pending");
-          await sendGhlSms(
-            ghlContactId,
-            "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
-          );
-        }
-      } else if (rawResponse.includes("[NOT_INTERESTED]")) {
-        await transitionLead(
-          lead.id,
-          ghlContactId,
-          "source_free_guide",
-          "sr_dead",
-          "DEAD",
-          "silent",
-          { sr_status: "DEAD", sr_bot_stage: "silent" },
-        );
-      } else if (rawResponse.includes("[SOFT_CLOSE]") || pos === 4) {
-        await addGhlTag(ghlContactId, "sr_nurture_exhausted");
-      }
-
-      await logWebhookHit({
-        source: "ghl_bot_nurture",
-        payload: rawBody,
-        success: true,
-        leadId: lead.id,
-        idempotencyKey,
-      });
-      return new Response("OK", { status: 200 });
-    }
-
-    // ── new_guide_lead / inbound_sms branch ───────────────────────────────────
-
-    if (inboundMsg && inboundMsg !== "new_guide_lead") {
-      await appendMessage(threadId, "user", inboundMsg);
-    }
-
-    const thread = await prisma.botThread.findUnique({
-      where: { id: threadId },
-    });
-    const currentMessages = (thread?.messages as BotMessage[]) ?? [];
-
-    const context: NurtureContext = {
-      bot_type: "nurture",
-      homeowner_name: lead.customerName,
-      first_name: lead.customerName.trim().split(/\s+/)[0],
-      source,
-      rep: (rawLead.rep as string | null) ?? null,
-      message_history_count: currentMessages.length,
-      last_message_context: detectNurtureLastMessageContext(inboundMsg),
-      roof_type: (rawLead.roofType as string | null) ?? null,
-      roof_age: lead.roofAge ?? null,
-      issues_noticed: issuesNoticed,
-      last_inspected: lead.lastInspected ?? null,
-      address: lead.streetAddress ?? null,
-      used_insight_ids: usedInsightIds,
-      is_drip: false,
-      drip_sequence_position: null,
-    };
-
-    if (isNew || messages.length === 0) {
-      const systemPrompt = assembleNurturePrompt(context);
-      const openerRaw = await runBot(systemPrompt, [
-        {
-          role: "user",
-          content: "new_guide_lead",
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-      if (openerRaw !== null) {
-        const insightUsed =
-          openerRaw
-            .match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i)?.[1]
-            ?.toLowerCase() ?? null;
-        await sendGhlSms(ghlContactId, stripAnySignals(openerRaw));
-        await appendMessage(threadId, "assistant", openerRaw);
-        if (insightUsed) await addUsedInsightId(threadId, insightUsed);
-      }
-      if (!inboundMsg || inboundMsg === "new_guide_lead") {
-        await logWebhookHit({
-          source: "ghl_bot_nurture",
-          payload: rawBody,
-          success: true,
-          leadId: lead.id,
-          idempotencyKey,
-        });
-        return new Response("OK", { status: 200 });
-      }
-    }
-
-    const freshThread = await prisma.botThread.findUnique({
-      where: { id: threadId },
-    });
-    const freshMessages = (freshThread?.messages as BotMessage[]) ?? [];
-    const freshContext: NurtureContext = {
-      ...context,
-      message_history_count: freshMessages.length,
-      used_insight_ids: await getUsedInsightIds(threadId),
-    };
-    const systemPrompt = assembleNurturePrompt(freshContext);
-    const botMessages = freshMessages.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-      timestamp: m.timestamp,
-    }));
-    const rawResponse = await runBot(systemPrompt, botMessages);
-    if (rawResponse === null) {
-      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
-        console.error("[nurture] updateSrLead silent failed", err),
-      );
-      await logWebhookHit({
-        source: "ghl_bot_nurture",
-        payload: rawBody,
-        success: true,
-        leadId: lead.id,
-        idempotencyKey,
-      });
-      return new Response("OK", { status: 200 });
-    }
-
-    const insightUsed =
-      rawResponse
-        .match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i)?.[1]
-        ?.toLowerCase() ?? null;
-    await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
-    await appendMessage(threadId, "assistant", rawResponse);
-    if (insightUsed) await addUsedInsightId(threadId, insightUsed);
-
-    if (rawResponse.includes("[INSPECTION_INTENT]")) {
-      // Use tier stored at lead creation — do not re-evaluate ZIP.
-      const tier = srLead.srTier ?? lead.sourceTier ?? "out_of_area";
-      const lastAssistantMsg = stripAnySignals(rawResponse);
-      if (lastAssistantMsg && process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-        await writeGhlContactCustomField(
-          ghlContactId,
-          process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
-          lastAssistantMsg,
-        ).catch((err) =>
-          console.error("[nurture] writeGhlContactCustomField failed:", err),
-        );
-      }
-      await addGhlTag(ghlContactId, "zip_check_pending");
-      if (tier === "primary") {
-        const transitional = await generateTransitionalSms(
-          lead.customerName.trim().split(/\s+/)[0],
-        );
-        if (transitional) await sendGhlSms(ghlContactId, transitional);
-        await removeGhlTag(ghlContactId, "zip_check_pending");
-        await addGhlTag(ghlContactId, "zip_approved");
-        await addGhlTag(ghlContactId, "sr_qualifying");
-      } else {
-        await removeGhlTag(ghlContactId, "zip_check_pending");
-        await addGhlTag(ghlContactId, "zip_review_pending");
-        await sendGhlSms(
-          ghlContactId,
-          "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
-        );
-      }
-    } else if (rawResponse.includes("[NOT_INTERESTED]")) {
-      await transitionLead(
-        lead.id,
-        ghlContactId,
-        "source_free_guide",
-        "sr_dead",
-        "DEAD",
-        "silent",
-        { sr_status: "DEAD", sr_bot_stage: "silent" },
-      );
-    } else if (rawResponse.includes("[SOFT_CLOSE]")) {
-      await addGhlTag(ghlContactId, "sr_soft_close");
-    }
+    await handleNurtureWebhook({ lead, srLead, ghlContactId, trigger, inboundMsg, dripPosition });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[nurture] uncaught error:", message);

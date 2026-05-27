@@ -62,10 +62,7 @@ import {
 } from "@/src/lib/bot-webhook-utils";
 import { getSrLeadFromDb, updateSrLead } from "@/src/lib/ghl-custom-object";
 import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
-import {
-  getZoneForZip,
-  isDistanceZone,
-} from "@/src/lib/service-zones";
+import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
 import { assembleRevivalPrompt } from "@/src/lib/prompts/qntum/assemblers/revival";
 import { assembleReschedulePrompt } from "@/src/lib/prompts/qntum/assemblers/reschedule";
 import { assembleFinancePrompt } from "@/src/lib/prompts/qntum/assemblers/finance";
@@ -81,6 +78,9 @@ import type {
   FinanceLastMessageContext,
 } from "@/src/lib/prompts/qntum/types";
 import type { Lead, SrLead } from "@prisma/client";
+import { handleNurtureWebhook } from "@/app/api/webhooks/ghl/nurture/route";
+import { handleQualifyWebhook } from "@/app/api/webhooks/ghl/qualify/route";
+import { handleBookWebhook } from "@/app/api/webhooks/ghl/book/route";
 
 // ── Context type ──────────────────────────────────────────────────────────────
 
@@ -253,8 +253,9 @@ async function handleRevivalWebhook(ctx: CentralWebhookContext): Promise<void> {
   }));
   const rawResponse = await runBot(systemPrompt, botMessages);
   if (rawResponse === null) {
-    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
-      .catch(err => console.error("[revival] updateSrLead silent failed", err));
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
+      console.error("[revival] updateSrLead silent failed", err),
+    );
     return;
   }
 
@@ -467,8 +468,9 @@ async function handleRescheduleWebhook(
   }));
   const rawResponse = await runBot(systemPrompt, botMessages);
   if (rawResponse === null) {
-    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
-      .catch(err => console.error("[reschedule] updateSrLead silent failed", err));
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
+      console.error("[reschedule] updateSrLead silent failed", err),
+    );
     return;
   }
 
@@ -486,9 +488,17 @@ async function handleRescheduleWebhook(
     const _tz2 = process.env.BOT_TIMEZONE ?? "America/Denver";
     const _guess2 = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
     const _off2 = ((): number => {
-      const pts = new Intl.DateTimeFormat("en-US", { timeZone: _tz2, hour: "numeric", minute: "2-digit", hour12: false }).formatToParts(_guess2);
+      const pts = new Intl.DateTimeFormat("en-US", {
+        timeZone: _tz2,
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(_guess2);
       const h = parseInt(pts.find((p) => p.type === "hour")?.value ?? "0", 10);
-      const m = parseInt(pts.find((p) => p.type === "minute")?.value ?? "0", 10);
+      const m = parseInt(
+        pts.find((p) => p.type === "minute")?.value ?? "0",
+        10,
+      );
       return h * 60 + m - (hour * 60 + minute);
     })();
     const date = new Date(_guess2.getTime() - _off2 * 60 * 1000);
@@ -499,7 +509,7 @@ async function handleRescheduleWebhook(
       zoneStr,
     );
     if (validation.ok) {
-      await confirmBooking(lead.id, ghlContactId, date, '');
+      await confirmBooking(lead.id, ghlContactId, date, "");
       await transitionLead(
         lead.id,
         ghlContactId,
@@ -677,8 +687,9 @@ async function handleFinanceWebhook(ctx: CentralWebhookContext): Promise<void> {
     })),
   );
   if (rawResponse === null) {
-    await updateSrLead(lead.id, { sr_bot_stage: "silent" })
-      .catch(err => console.error("[finance] updateSrLead silent failed", err));
+    await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
+      console.error("[finance] updateSrLead silent failed", err),
+    );
     return;
   }
 
@@ -739,13 +750,14 @@ export async function POST(request: NextRequest) {
   // 3. Idempotency check
   // inbound_sms: key from contactId + message only — duplicate GHL fires produce the same key
   // All other triggers: include timestamp — proactive triggers can legitimately fire multiple times
-  const idempotencyKey = trigger === "inbound_sms"
-    ? createHash("sha256")
-        .update(`${ghlContactId}:inbound:${inboundMsg}`)
-        .digest("hex")
-    : createHash("sha256")
-        .update(`${ghlContactId}:${trigger}:${Date.now()}`)
-        .digest("hex");
+  const idempotencyKey =
+    trigger === "inbound_sms"
+      ? createHash("sha256")
+          .update(`${ghlContactId}:inbound:${inboundMsg}`)
+          .digest("hex")
+      : createHash("sha256")
+          .update(`${ghlContactId}:${trigger}:${Date.now()}`)
+          .digest("hex");
 
   if (await isDuplicate(idempotencyKey)) {
     return new Response("OK", { status: 200 });
@@ -753,7 +765,6 @@ export async function POST(request: NextRequest) {
 
   // 4. Load Lead
   const lead = await loadLead(ghlContactId);
-  console.log(lead);
   if (!lead) {
     console.warn("[central] no lead for contact", ghlContactId);
     await logWebhookHit({
@@ -843,6 +854,34 @@ export async function POST(request: NextRequest) {
 
     // inbound_sms and unknown triggers: route on srBotStage
     switch (srLead.srBotStage) {
+      case "nurture":
+        await handleNurtureWebhook({
+          lead: context.lead,
+          srLead: context.srLead,
+          ghlContactId: context.ghlContactId,
+          trigger: context.trigger,
+          inboundMsg: context.inboundMsg,
+          dripPosition: context.dripPosition,
+        });
+        break;
+      case "qualifying":
+        await handleQualifyWebhook({
+          lead: context.lead,
+          srLead: context.srLead,
+          ghlContactId: context.ghlContactId,
+          trigger: context.trigger,
+          inboundMsg: context.inboundMsg,
+        });
+        break;
+      case "booking":
+        await handleBookWebhook({
+          lead: context.lead,
+          srLead: context.srLead,
+          ghlContactId: context.ghlContactId,
+          trigger: context.trigger,
+          inboundMsg: context.inboundMsg,
+        });
+        break;
       case "revival":
         await handleRevivalWebhook(context);
         break;
