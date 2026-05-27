@@ -49,10 +49,8 @@ function detectBookLastMessageContext(message: string): BookLastMessageContext {
   if (/check (with|my)|need to (ask|check)|not sure (yet|about)/.test(t))
     return "stall";
   if (
-    /^(yes|yeah|yep|sure|confirmed|that works|perfect|ok|okay|sounds good)\.?$/.test(
-      t,
-    ) ||
-    /that work|confirmed|book it/.test(t)
+    /^(yes|yeah|yep|yea|sure|confirmed|that works|perfect|ok|okay|sounds good|absolutely|definitely)\.?$/.test(t) ||
+    /that work|confirmed|book it|perfect|see you then|works for me|we'?ll be there|we will be there|i'?ll be there|that'?s good|absolutely|definitely/.test(t)
   )
     return "confirmed";
   if (
@@ -68,6 +66,15 @@ function looksLikeAddress(message: string): boolean {
   const hasCity       = /el paso|las cruces|alamogordo/i.test(message);
   const isLongEnough  = message.trim().length > 8;
   return isLongEnough && ((hasNumber && hasStreetWord) || (hasNumber && hasCity));
+}
+
+// Detects street number + word with no city/state/zip — signals a partial address needing completion.
+// No 'i' flag on state pattern so lowercase "st" in "Main St" does not false-positive as a state abbrev.
+function looksLikeStreetOnly(message: string): boolean {
+  const hasNumber       = /\d+/.test(message);
+  const hasStreetWord   = /\b(st|ave|blvd|ln|dr|rd|way|ct|pl|street|avenue|lane|drive|road|boulevard|court|place)\b/i.test(message);
+  const hasCityStateZip = /\b[A-Z]{2}\b|\b\d{5}\b/.test(message);
+  return hasNumber && hasStreetWord && !hasCityStateZip;
 }
 
 async function handleStallExhaustedWebhook(
@@ -214,6 +221,44 @@ export async function handleBookWebhook(ctx: {
   let confirmedAddress     = existingAddress;
   let justCollectedAddress = false;
 
+  // Pre-flight: read existing book thread metadata to check for a stored partial address
+  const existingBookThread = (!addressCollected && trigger === "inbound_sms")
+    ? await prisma.botThread.findFirst({ where: { ghlContactId, botType: "book" } })
+    : null;
+  const preflightMeta = (existingBookThread?.metadata as Record<string, unknown> | null) ?? null;
+  const storedPartialAddress = typeof preflightMeta?.partialAddress === "string"
+    ? preflightMeta.partialAddress
+    : null;
+
+  // Partial address completion: previous turn stored a street, this message is city/state/zip
+  const cityStateZipPattern = /\b[A-Z]{2}\b|\b\d{5}\b/i;
+  if (
+    !addressCollected &&
+    trigger === "inbound_sms" &&
+    inboundMsg &&
+    storedPartialAddress &&
+    cityStateZipPattern.test(inboundMsg) &&
+    !looksLikeAddress(inboundMsg)
+  ) {
+    const combined = `${storedPartialAddress}, ${inboundMsg.trim()}`;
+    await prisma.lead.update({ where: { id: lead.id }, data: { address: combined } });
+    if (lead.ghlContactId) {
+      await updateGhlContact(lead.ghlContactId, { address1: combined }).catch(
+        (err) => console.error("[book] updateGhlContact partial+city failed:", err),
+      );
+    }
+    if (existingBookThread) {
+      await prisma.botThread.update({
+        where: { id: existingBookThread.id },
+        data:  { metadata: { ...(preflightMeta ?? {}), partialAddress: null } },
+      });
+    }
+    confirmedAddress     = combined;
+    addressCollected     = true;
+    justCollectedAddress = true;
+    console.log("[book] partial address combined:", combined);
+  }
+
   if (
     !addressCollected &&
     trigger === "inbound_sms" &&
@@ -331,6 +376,26 @@ export async function handleBookWebhook(ctx: {
     (m) => m.role === "user",
   );
 
+  // Street-only partial address: store in thread metadata and ask for city/zip
+  if (
+    !addressCollected &&
+    trigger === "inbound_sms" &&
+    inboundMsg &&
+    !looksLikeAddress(inboundMsg) &&
+    looksLikeStreetOnly(inboundMsg)
+  ) {
+    const currentMeta = (thread?.metadata as Record<string, unknown>) ?? {};
+    await prisma.botThread.update({
+      where: { id: threadId },
+      data:  { metadata: { ...currentMeta, partialAddress: inboundMsg.trim() } },
+    });
+    await appendMessage(threadId, "user", inboundMsg);
+    const partialPrompt = `Got it — what city and zip should we add to that?`;
+    await sendGhlSms(ghlContactId, partialPrompt);
+    await appendMessage(threadId, "assistant", partialPrompt);
+    return;
+  }
+
   const lockedSlot = existingLock
     ? {
         date:  existingLock.date?.toISOString().slice(0, 10) ?? "",
@@ -379,9 +444,30 @@ export async function handleBookWebhook(ctx: {
   const systemPrompt = assembleBookPrompt(context);
 
   if (bookTrigger === "qualified_handoff") {
-    // qualify bot transitional message already asked for address
-    // Do not send an opener. Wait for homeowner's address reply.
-    console.info("[book] qualified_handoff received — skipping opener, waiting for address reply");
+    const fn = lead.customerName.trim().split(/\s+/)[0];
+    const issueLine = contextConfirmedIssue
+      ? `The homeowner mentioned a confirmed issue: "${contextConfirmedIssue}". Reference it briefly as the reason sending someone out makes sense.`
+      : "";
+    const timeLine = contextTimePreference
+      ? `The homeowner has already confirmed a time preference: "${contextTimePreference}". Acknowledge it naturally in one phrase — do not ask about scheduling or time.`
+      : "";
+    const openerSystemPrompt = [
+      "You are Alex, a texting rep for Qntum Roofing.",
+      "Write exactly one SMS message. Do the following in order:",
+      issueLine,
+      timeLine,
+      `End by asking for the homeowner's address: "What address should we send our inspector to?"`,
+      "Do NOT ask about scheduling, availability, or time — those are already confirmed.",
+      "Sound natural and warm, not scripted. No emojis. Two sentences max.",
+      "Return only the SMS text, nothing else.",
+    ].filter(Boolean).join("\n");
+    const openerRaw = await runBot(openerSystemPrompt, [
+      { role: "user", content: `Homeowner first name: ${fn}.`, timestamp: new Date().toISOString() },
+    ]);
+    if (openerRaw !== null) {
+      await sendGhlSms(ghlContactId, stripAnySignals(openerRaw));
+      await appendMessage(threadId, "assistant", openerRaw);
+    }
     return;
   }
 

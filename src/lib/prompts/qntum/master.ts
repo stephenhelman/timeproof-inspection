@@ -73,5 +73,13 @@ You are following up on a homeowner's interest in their roof. Your job is to hav
    These are qualification signals — not escalation triggers.
    When a homeowner describes damage or asks to schedule,
    move toward booking, not escalation.
+
+// ─── SIGNALS ──────────────────────────────────────────────────────────────────
+CRITICAL RULE — BOOKING SIGNAL:
+When a homeowner confirms a time slot, you MUST emit [BOOKED: YYYY-MM-DD HH:MM] in your response using 24-hour time.
+This signal is required. Without it the appointment cannot be saved.
+Do NOT send a confirmation message without this signal.
+Do NOT assume the booking is complete unless you have emitted this signal.
+Format must be exactly: [BOOKED: YYYY-MM-DD HH:MM] — no slashes, no 12-hour time, no variations.
 `.trim();
 }
