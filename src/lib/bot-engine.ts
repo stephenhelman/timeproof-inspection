@@ -3,7 +3,6 @@ import { sendGhlSms, addGhlTag, removeGhlTag, notifyManager } from "@/src/lib/gh
 import { updateSrLead, type SrLeadFields } from "@/src/lib/ghl-custom-object";
 import {
   SERVICE_ZONES,
-  ZONE_COMPATIBILITY,
   AVAILABLE_TIMES,
   MAX_INSPECTIONS_PER_DAY_PER_ZONE,
   BOOKING_WINDOW_DAYS,
@@ -12,6 +11,10 @@ import {
   getZoneForZip,
   getCompatibleZones,
 } from "@/src/lib/service-zones";
+import {
+  TIME_WINDOWS,
+  type TimeOfDay,
+} from "@/src/lib/time-utils";
 import type { LeadStatus } from "@prisma/client";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -267,15 +270,18 @@ async function fetchGhlFreeSlots(
     });
 
     if (!res.ok) {
-      console.error(`[bot-engine] GHL calendar API ${res.status}`);
+      const errBody = await res.text().catch(() => "");
+      console.error(`[bot-engine] GHL calendar API ${res.status}:`, errBody, "url:", url.toString());
       return {};
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
-    // Normalize: handle both {slots:{date:[times]}} and {slots:{date:{slots:[times]}}}
+    console.log("[bot-engine] fetchGhlFreeSlots response:", JSON.stringify(data).slice(0, 500));
+
+    // GHL v2 may return _dates_ or slots key; values may be array or { slots: [] }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw: Record<string, any> = data?.slots ?? {};
+    const raw: Record<string, any> = data?._dates_ ?? data?.slots ?? {};
     const result: Record<string, string[]> = {};
     for (const [date, val] of Object.entries(raw)) {
       if (Array.isArray(val)) {
@@ -292,16 +298,29 @@ async function fetchGhlFreeSlots(
 }
 
 export async function getAvailableSlots(
-  leadZone: string,
-  isDistance: boolean,
-  minTime?: string // "HH:MM" 24h — only return slots at or after this time
+  leadZone:          string,
+  isDistance:        boolean,
+  timePreference:    TimeOfDay = 'any',
+  specificStartHour?: number   // overrides window.startHour (e.g. "after 2" → 14)
 ): Promise<Array<{ date: string; time: string; label: string }>> {
-  const timezone = process.env.BOT_TIMEZONE ?? "America/Denver";
+  const timezone  = process.env.BOT_TIMEZONE ?? "America/Denver";
+  const window    = TIME_WINDOWS[timePreference];
+  const startHour = specificStartHour ?? window.startHour;
+  const endHour   = window.endHour;
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const windowStart = addDays(today, isDistance ? DISTANCE_ZONE_MIN_DAYS_AHEAD : 0);
-  const windowEnd = addDays(today, BOOKING_WINDOW_DAYS);
+  // Always start from tomorrow — never offer same-day slots
+  const minDaysAhead = isDistance ? Math.max(DISTANCE_ZONE_MIN_DAYS_AHEAD, 1) : 1;
+  const windowStart  = addDays(today, minDaysAhead);
+  const windowEnd    = addDays(today, BOOKING_WINDOW_DAYS);
+
+  console.log("[bot-engine] getAvailableSlots:", {
+    leadZone, isDistance, timePreference, startHour, endHour,
+    windowStart: windowStart.toISOString(), windowEnd: windowEnd.toISOString(),
+    startMs: windowStart.getTime(), endMs: windowEnd.getTime(),
+  });
 
   const [ghlSlots, existingLocks] = await Promise.all([
     fetchGhlFreeSlots(windowStart.getTime(), windowEnd.getTime()),
@@ -315,21 +334,14 @@ export async function getAvailableSlots(
 
   const results: Array<{ date: string; time: string; label: string }> = [];
 
-  for (let d = 0; d < BOOKING_WINDOW_DAYS + 1 && results.length < 3; d++) {
+  for (let d = minDaysAhead; d <= BOOKING_WINDOW_DAYS && results.length < 3; d++) {
     const dayDate = addDays(today, d);
-    if (dayDate < windowStart) continue;
 
     const dateStr = dayDate.toISOString().slice(0, 10);
     const dayStart = new Date(dayDate);
     dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(dayDate);
     dayEnd.setHours(23, 59, 59, 999);
-
-    // Check 6: distance zone minimum days ahead
-    if (isDistance) {
-      const daysAhead = Math.floor((dayDate.getTime() - today.getTime()) / 86400000);
-      if (daysAhead < DISTANCE_ZONE_MIN_DAYS_AHEAD) continue;
-    }
 
     // Load confirmed inspections for this day to check zone conflicts + count
     const dayInspections = await prisma.inspection.findMany({
@@ -369,8 +381,9 @@ export async function getAvailableSlots(
     for (const time of AVAILABLE_TIMES) {
       if (results.length >= 3) break;
 
-      // Apply caller-specified minimum time (customer preference, e.g. "after 2 pm" → "14:00")
-      if (minTime && time < minTime) continue;
+      // Filter to requested time window
+      const slotHour = parseInt(time.split(":")[0], 10);
+      if (slotHour < startHour || slotHour >= endHour) continue;
 
       // Check 1: GHL calendar free
       if (Object.keys(ghlSlots).length > 0 && !ghlAvail.has(time)) continue;
@@ -389,6 +402,7 @@ export async function getAvailableSlots(
     }
   }
 
+  console.log("[bot-engine] getAvailableSlots returning:", results);
   return results;
 }
 
@@ -455,22 +469,27 @@ export async function confirmBooking(
   // Delete the slot lock
   await prisma.slotLock.deleteMany({ where: { leadId } });
 
-  // Create Inspection record if there's a valid userId (required field)
-  if (lead.assignedUserId) {
-    await prisma.inspection.create({
-      data: {
-        userId: lead.assignedUserId,
-        leadId: lead.id,
-        customerName: lead.customerName,
-        address: [lead.streetAddress, lead.city, lead.state].filter(Boolean).join(", "),
-        phone: lead.phone ?? null,
-        appointmentAt: datetime,
-        status: "scheduled",
-      },
-    });
-  } else {
-    console.warn(`[bot-engine] confirmBooking: lead ${leadId} has no assignedUserId — inspection record not created`);
+  // Create Inspection record — userId is now optional in schema
+  const assignedUserId =
+    lead.assignedUserId ??
+    process.env.GHL_DEFAULT_ASSIGNEE_ID ??
+    null;
+  if (!assignedUserId) {
+    console.warn(
+      `[bot-engine] confirmBooking: lead ${leadId} has no assignedUserId — creating inspection without assignment`
+    );
   }
+  await prisma.inspection.create({
+    data: {
+      userId: assignedUserId,
+      leadId: lead.id,
+      customerName: lead.customerName,
+      address: [lead.streetAddress, lead.city, lead.state].filter(Boolean).join(", "),
+      phone: lead.phone ?? null,
+      appointmentAt: datetime,
+      status: "scheduled",
+    },
+  });
 
   await prisma.lead.update({
     where: { id: leadId },

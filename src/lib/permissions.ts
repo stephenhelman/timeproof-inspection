@@ -62,7 +62,7 @@ export function canCreateLead(role: UserRole): boolean {
 export function canViewInspection(
   userId: string,
   role: UserRole,
-  inspection: { userId: string }
+  inspection: { userId: string | null }
 ): boolean {
   if (hasRank(role, "SALES_MANAGER")) return true;
   return inspection.userId === userId;
@@ -71,7 +71,7 @@ export function canViewInspection(
 export function canEditInspection(
   userId: string,
   role: UserRole,
-  inspection: { userId: string }
+  inspection: { userId: string | null }
 ): boolean {
   if (role === "ADMIN") return true;
   return inspection.userId === userId;
@@ -80,7 +80,7 @@ export function canEditInspection(
 export function canDeleteInspection(
   userId: string,
   role: UserRole,
-  inspection: { userId: string }
+  inspection: { userId: string | null }
 ): boolean {
   if (role === "ADMIN") return true;
   return inspection.userId === userId;

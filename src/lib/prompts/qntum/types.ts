@@ -1,3 +1,6 @@
+import type { TimeOfDay } from '../../time-utils';
+
+export type { TimeOfDay };
 export type PromptModule = string;
 
 export type BotType = 'qualify' | 'nurture' | 'book' | 'revival' | 'reschedule' | 'finance';
@@ -130,6 +133,10 @@ export interface BookContext {
   };
 
   trigger: 'qualified_handoff' | 'inbound_reply' | 'stall_followup';
+
+  // Time-of-day preference detected from homeowner conversation
+  timePreference:  TimeOfDay;
+  timeWindowLabel: string; // e.g. "afternoon (12pm–5pm)"
 }
 
 // ─── REVIVAL ──────────────────────────────────────────────────────────────────

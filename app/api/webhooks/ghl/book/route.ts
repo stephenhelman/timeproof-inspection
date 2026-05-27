@@ -38,6 +38,7 @@ import {
 import { getZoneForZip, SERVICE_ZONES, isDistanceZone } from "@/src/lib/service-zones";
 import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
 import type { BookContext, BookLastMessageContext } from "@/src/lib/prompts/qntum/types";
+import { TIME_WINDOWS } from "@/src/lib/time-utils";
 
 type BotMessage = { role: string; content: string; timestamp: string };
 
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest) {
 
     let rawSlots: Array<{ date: string; time: string; label: string }> = [];
     if (!existingLock || inboundMessage === 'qualified_handoff' || inboundMessage === 'stall_followup') {
-      rawSlots = await getAvailableSlots(zone, distanceZone);
+      rawSlots = await getAvailableSlots(zone, distanceZone, 'any');
       if (rawSlots.length > 0) {
         const [y, m, d] = rawSlots[0].date.split('-').map(Number);
         await createSlotLock({ date: new Date(y, m - 1, d), time: rawSlots[0].time, zone, leadId: lead.id });
@@ -241,6 +242,8 @@ export async function POST(request: NextRequest) {
         decision_maker_confirmed: lead.decisionMakerHome === 'Yes',
       },
       trigger,
+      timePreference:  'any',
+      timeWindowLabel: TIME_WINDOWS['any'].label,
     };
 
     const systemPrompt = assembleBookPrompt(context);
@@ -310,7 +313,7 @@ export async function POST(request: NextRequest) {
       const validation = await validateSlotBeforeConfirm(lead.id, date, time, zone);
 
       if (!validation.ok) {
-        const newSlots = await getAvailableSlots(zone, distanceZone);
+        const newSlots = await getAvailableSlots(zone, distanceZone, 'any');
         const freshContext: BookContext = { ...context, available_slots: newSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })) };
         const retryResponse = await runBot(assembleBookPrompt(freshContext), botMessages);
         const cleanRetry = stripSignals(retryResponse ?? '');

@@ -72,6 +72,11 @@ import {
 } from "@/src/lib/service-zones";
 import { assembleQualifyPrompt } from "@/src/lib/prompts/qntum/assemblers/qualify";
 import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
+import {
+  detectTimePreference,
+  TIME_WINDOWS,
+  type TimeOfDay,
+} from "@/src/lib/time-utils";
 import { assembleNurturePrompt } from "@/src/lib/prompts/qntum/assemblers/nurture";
 import { assembleRevivalPrompt } from "@/src/lib/prompts/qntum/assemblers/revival";
 import { assembleReschedulePrompt } from "@/src/lib/prompts/qntum/assemblers/reschedule";
@@ -505,6 +510,17 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
   const distanceZone = leadZone ? isDistanceZone(leadZone) : false;
   const zone = leadZone ?? "el_paso_central";
 
+  // Detect time-of-day preference from homeowner message
+  let timePreference: TimeOfDay = 'any';
+  let specificStartHour: number | undefined;
+  if (trigger === "inbound_sms" && inboundMsg) {
+    const detected = detectTimePreference(inboundMsg);
+    if (detected) {
+      timePreference    = detected.preference;
+      specificStartHour = detected.startHour;
+    }
+  }
+
   const existingLock = await prisma.slotLock.findUnique({
     where: { leadId: lead.id },
   });
@@ -515,7 +531,7 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     trigger === "qualified_handoff" ||
     trigger === "stall_followup"
   ) {
-    rawSlots = await getAvailableSlots(zone, distanceZone);
+    rawSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
     if (rawSlots.length > 0) {
       const [y, m, d] = rawSlots[0].date.split("-").map(Number);
       await createSlotLock({
@@ -552,6 +568,9 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     .reverse()
     .find((m) => m.role === "user");
 
+  const timeWindow    = TIME_WINDOWS[timePreference];
+  const timeWindowLabel = timeWindow.label;
+
   const context: BookContext = {
     bot_type: "book",
     homeowner_name: lead.customerName,
@@ -582,6 +601,8 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
       decision_maker_confirmed: lead.decisionMakerHome === "Yes",
     },
     trigger: bookTrigger,
+    timePreference,
+    timeWindowLabel,
   };
 
   const systemPrompt = assembleBookPrompt(context);
@@ -659,8 +680,17 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
   // is an internal signal and is never sent to the homeowner or appended to the thread.
   const checkSlotsMatch = rawResponse.match(/\[CHECK_MORE_SLOTS(?::\s*(\d{2}:\d{2}))?\]/);
   if (checkSlotsMatch) {
-    const minTime = checkSlotsMatch[1] ?? undefined;
-    const freshSlots = await getAvailableSlots(zone, distanceZone, minTime);
+    // If the signal includes a time (e.g. [CHECK_MORE_SLOTS: 14:00]), map it to a preference bucket
+    let retryPreference: TimeOfDay = timePreference;
+    let retryStartHour: number | undefined = specificStartHour;
+    const timeStr = checkSlotsMatch[1];
+    if (timeStr) {
+      retryStartHour = parseInt(timeStr.split(":")[0], 10);
+      if (retryStartHour < 12)      retryPreference = 'morning';
+      else if (retryStartHour < 17) retryPreference = 'afternoon';
+      else                          retryPreference = 'evening';
+    }
+    const freshSlots = await getAvailableSlots(zone, distanceZone, retryPreference, retryStartHour);
     if (freshSlots.length > 0) {
       const [fy, fm, fd] = freshSlots[0].date.split("-").map(Number);
       await createSlotLock({
@@ -670,6 +700,7 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
         leadId: lead.id,
       });
     }
+    const retryWindow = TIME_WINDOWS[retryPreference];
     const freshContext: BookContext = {
       ...context,
       available_slots: freshSlots.map((s) => ({
@@ -681,6 +712,8 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
       locked_slot: freshSlots[0]
         ? { date: freshSlots[0].date, time: freshSlots[0].time, label: freshSlots[0].label }
         : null,
+      timePreference:  retryPreference,
+      timeWindowLabel: retryWindow.label,
     };
     const retryResponse = await runBot(assembleBookPrompt(freshContext), botMessages);
     if (retryResponse !== null) {

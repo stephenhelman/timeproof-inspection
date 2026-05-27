@@ -1,7 +1,10 @@
 import type { BookContext } from '../types';
 
 export function getBookMemoryModule(context: BookContext): string {
-  const { qualify_summary, available_slots, locked_slot, trigger } = context;
+  const {
+    qualify_summary, available_slots, locked_slot, trigger,
+    timePreference, timeWindowLabel,
+  } = context;
   const { problem_confirmed, specific_issue, roof_age, decision_maker_confirmed } = qualify_summary;
 
   let memory = `QUALIFICATION_SUMMARY:\n`;
@@ -30,6 +33,11 @@ export function getBookMemoryModule(context: BookContext): string {
 
   if (locked_slot) {
     memory += `\nLOCKED_SLOT: ${locked_slot.label} — this slot is currently held for this lead. Offer it first.\n`;
+  }
+
+  // Time preference context
+  if (timePreference !== 'any') {
+    memory += `\nTIME_PREFERENCE: The homeowner has indicated they prefer ${timeWindowLabel}. Only offer slots within this window. Do not suggest times outside it.\n`;
   }
 
   // Trigger context

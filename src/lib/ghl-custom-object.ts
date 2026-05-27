@@ -63,28 +63,67 @@ async function createSrLeadInGhl(
   ghlContactId: string,
   fields: SrLeadFields
 ): Promise<string> {
-  const objectId = process.env.GHL_SR_LEAD_OBJECT_ID;
+  const objectId   = process.env.GHL_SR_LEAD_OBJECT_ID;
+  const locationId = process.env.GHL_LOCATION_ID;
   if (!objectId) {
     console.error("[sr-lead] GHL_SR_LEAD_OBJECT_ID is not set — skipping GHL create");
     return "";
   }
+  if (!locationId) {
+    console.error("[sr-lead] GHL_LOCATION_ID is not set — skipping GHL create");
+    return "";
+  }
   try {
-    const res = await fetch(`${GHL_BASE}/objects/${objectId}/records`, {
+    // Step 1: create the record with properties
+    const createRes = await fetch(`${GHL_BASE}/objects/${objectId}/records`, {
       method: "POST",
       headers: ghlHeaders(),
       body: JSON.stringify({
-        fields,
-        associations: [{ objectId: "contact", recordId: ghlContactId }],
+        locationId,
+        properties: {
+          sr_lead_id:        fields.sr_lead_id,
+          sr_tier:           fields.sr_tier,
+          sr_zone:           fields.sr_zone,
+          sr_status:         fields.sr_status,
+          sr_qualify_status: fields.sr_qualify_status,
+          sr_bot_stage:      fields.sr_bot_stage,
+          sr_source:         fields.sr_source,
+          sr_opted_out:      fields.sr_opted_out,
+        },
       }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(`[sr-lead] createSrLeadInGhl failed — HTTP ${res.status}: ${body}`);
+    if (!createRes.ok) {
+      const body = await createRes.text().catch(() => "");
+      console.error(`[sr-lead] createSrLeadInGhl POST failed — HTTP ${createRes.status}: ${body}`);
       return "";
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await res.json();
-    return (data?.record?.id ?? data?.id ?? "") as string;
+    const createData: any = await createRes.json();
+    const recordId = (createData?.record?.id ?? createData?.id ?? "") as string;
+    if (!recordId) {
+      console.error("[sr-lead] createSrLeadInGhl: no recordId in response", createData);
+      return "";
+    }
+
+    // Step 2: associate the record with the GHL contact
+    const assocRes = await fetch(
+      `${GHL_BASE}/objects/${objectId}/records/${recordId}/associations`,
+      {
+        method: "POST",
+        headers: ghlHeaders(),
+        body: JSON.stringify({
+          locationId,
+          associations: [{ objectType: "contact", objectId: ghlContactId }],
+        }),
+      }
+    );
+    if (!assocRes.ok) {
+      const body = await assocRes.text().catch(() => "");
+      console.error(`[sr-lead] createSrLeadInGhl association failed — HTTP ${assocRes.status}: ${body}`);
+      // Record was created — still return the ID so DB stays in sync
+    }
+
+    return recordId;
   } catch (err) {
     console.error("[sr-lead] createSrLeadInGhl error:", err);
     return "";
@@ -100,11 +139,12 @@ async function updateSrLeadInGhl(
     console.error("[sr-lead] GHL_SR_LEAD_OBJECT_ID is not set — skipping GHL update");
     return;
   }
+  const locationId = process.env.GHL_LOCATION_ID ?? "";
   try {
     const res = await fetch(`${GHL_BASE}/objects/${objectId}/records/${ghlRecordId}`, {
       method: "PUT",
       headers: ghlHeaders(),
-      body: JSON.stringify({ fields: updates }),
+      body: JSON.stringify({ locationId, properties: { ...updates } }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");

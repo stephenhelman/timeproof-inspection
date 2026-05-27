@@ -1,7 +1,7 @@
 import type { BookContext } from '../types';
 
 export function getBookDepthModule(context: BookContext): string {
-  const { message_history_count, last_message_context } = context;
+  const { message_history_count, last_message_context, timePreference, available_slots } = context;
 
   // ── Hard overrides ──────────────────────────────────────────────────────────
 
@@ -94,7 +94,22 @@ One to two exchanges remaining. Move toward booking.`;
   if (position === 'opening') {
     directive = `The transition message was just sent. Wait for the homeowner's reply before anything else. When they reply, treat it as their first real response and follow mid_conversation directive.`;
   } else if (position === 'mid_conversation') {
-    directive = `You are negotiating a time. Offer one slot at a time — not a numbered list. If the homeowner rejects the slot, ask what works better for them before offering another. Keep it practical and warm. The goal is one confirmed booking in the next one or two exchanges.`;
+    const noPreference = timePreference === 'any';
+    const firstExchange = message_history_count === 1;
+    const slotsLoaded   = available_slots.length > 0;
+
+    if (noPreference && firstExchange && slotsLoaded) {
+      directive = `This is the homeowner's first reply to your opener.
+
+If their reply already mentions a time preference (morning, afternoon, evenings, after X) — skip to offering a matching slot.
+If they said "anytime", "flexible", or "whenever" — offer a slot directly from AVAILABLE_SLOTS.
+Otherwise — ask one question about time preference before offering a specific slot:
+"Does morning or afternoon work better for you?"
+
+One question. Stop. Wait for their answer. Do NOT list available slots until they give a preference.`;
+    } else {
+      directive = `You are negotiating a time. Offer one slot at a time — not a numbered list. If the homeowner rejects the slot, ask what works better for them before offering another. Keep it practical and warm. The goal is one confirmed booking in the next one or two exchanges.`;
+    }
   } else {
     directive = `You have a few exchanges left. The homeowner has engaged but hasn't confirmed a slot yet.
 
