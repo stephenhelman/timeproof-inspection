@@ -96,10 +96,40 @@ function detectQualifyLastMessageContext(
   return "stalling";
 }
 
-// Short bridging SMS generated right before booking stage activation.
-async function generateTransitionalSms(firstName: string): Promise<string | null> {
+// Transitional SMS sent right before booking stage activation.
+// Acknowledges time preference + confirmed issue, then asks for address.
+async function generateTransitionalSms(
+  firstName: string,
+  contextTimePreference: string | null,
+  contextConfirmedIssue: string | null,
+  recentMessages: BotMessage[],
+): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
+
+  const timeLine = contextTimePreference
+    ? `Time preference already confirmed: "${contextTimePreference}".`
+    : "";
+  const issueLine = contextConfirmedIssue
+    ? `Confirmed issue mentioned by homeowner: "${contextConfirmedIssue}".`
+    : "";
+
+  const history = recentMessages.slice(-4).map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+  }));
+  const instruction = {
+    role: "user" as const,
+    content: [
+      `Homeowner first name: ${firstName}.`,
+      timeLine,
+      issueLine,
+      "Write the transition SMS now — one message only, end with the address question.",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -110,17 +140,18 @@ async function generateTransitionalSms(firstName: string): Promise<string | null
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 100,
+        max_tokens: 120,
         system:
-          "You are Alex, a friendly texting rep for a roofing company. " +
-          "Write one short SMS (under 25 words) that naturally bridges a homeowner from a qualifying conversation into booking an inspection. " +
-          "Use their first name. Sound warm and conversational. No emojis. Return only the SMS text.",
-        messages: [
-          {
-            role: "user",
-            content: `Homeowner first name: ${firstName}. Write the transition SMS to booking.`,
-          },
-        ],
+          "You are Alex, a texting rep for Qntum Roofing. " +
+          "Write exactly one SMS that does the following in order: " +
+          "(1) If a time preference was confirmed, acknowledge it naturally in one phrase — do not repeat it robotically. " +
+          "(2) If a confirmed issue was mentioned, reference it briefly. " +
+          "(3) Transition directly into booking by asking for the homeowner's address. " +
+          "Do not ask about scheduling or time preference — that is already confirmed. " +
+          "End with the address question. Sound natural, not scripted. No emojis. " +
+          "Do not mention it is free. Do not repeat qualification points. " +
+          "Return only the SMS text, nothing else.",
+        messages: [...history, instruction],
       }),
     });
     if (!res.ok) return null;
@@ -322,26 +353,26 @@ export async function handleQualifyWebhook(ctx: {
   await appendMessage(threadId, "assistant", rawResponse);
 
   if (signalQualified) {
-    if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-      const issueKeywords = /stain|leak|damage|missing|crack|old|shingle|water|rot|hail/i;
-      const userMsgs = currentMessages.filter((m) => m.role === "user");
-      const confirmedIssueMsg = userMsgs.find((m) => issueKeywords.test(m.content));
+    const issueKeywords = /stain|leak|damage|missing|crack|old|shingle|water|rot|hail/i;
+    const userMsgs = currentMessages.filter((m) => m.role === "user");
+    const confirmedIssueMsg = userMsgs.find((m) => issueKeywords.test(m.content));
 
-      const timePatterns = [
-        /after \d{1,2}(:\d{2})?\s*(am|pm)?/i,
-        /before \d{1,2}(:\d{2})?\s*(am|pm)?/i,
-        /\d{1,2}(:\d{2})?\s*(am|pm)/i,
-        /morning|afternoon|evening/i,
-        /tomorrow/i,
-      ];
-      let timePreference: string | null = null;
-      timeLoop: for (const msg of userMsgs) {
-        for (const pat of timePatterns) {
-          const match = pat.exec(msg.content);
-          if (match) { timePreference = match[0]; break timeLoop; }
-        }
+    const timePatterns = [
+      /after \d{1,2}(:\d{2})?\s*(am|pm)?/i,
+      /before \d{1,2}(:\d{2})?\s*(am|pm)?/i,
+      /\d{1,2}(:\d{2})?\s*(am|pm)/i,
+      /morning|afternoon|evening/i,
+      /tomorrow/i,
+    ];
+    let timePreference: string | null = null;
+    timeLoop: for (const msg of userMsgs) {
+      for (const pat of timePatterns) {
+        const match = pat.exec(msg.content);
+        if (match) { timePreference = match[0]; break timeLoop; }
       }
+    }
 
+    if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
       const contextParts: string[] = [];
       if (confirmedIssueMsg) contextParts.push(`Confirmed issue: "${confirmedIssueMsg.content}"`);
       if (lead.roofAge) contextParts.push(`Roof age: "${lead.roofAge}"`);
@@ -369,6 +400,9 @@ export async function handleQualifyWebhook(ctx: {
     // Transitional SMS before booking activation
     const transitional = await generateTransitionalSms(
       lead.customerName.trim().split(/\s+/)[0],
+      timePreference,
+      confirmedIssueMsg?.content ?? null,
+      currentMessages,
     );
     if (transitional) await sendGhlSms(ghlContactId, transitional);
 

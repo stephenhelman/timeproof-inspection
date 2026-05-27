@@ -299,7 +299,7 @@ export async function handleBookWebhook(ctx: {
         time:   rawSlots[0].time,
         zone,
         leadId: lead.id,
-        label:  rawSlots[0].label,
+        label:  rawSlots[0].label || rawSlots[0].time,
       });
     }
   } else if (addressCollected && existingLock) {
@@ -378,18 +378,10 @@ export async function handleBookWebhook(ctx: {
 
   const systemPrompt = assembleBookPrompt(context);
 
-  if (bookTrigger === "qualified_handoff" && messages.length === 0) {
-    const openerRaw = await runBot(systemPrompt, [
-      {
-        role:      "user",
-        content:   "qualified_handoff",
-        timestamp: new Date().toISOString(),
-      },
-    ]);
-    if (openerRaw !== null) {
-      await sendGhlSms(ghlContactId, stripAnySignals(openerRaw));
-      await appendMessage(threadId, "assistant", openerRaw);
-    }
+  if (bookTrigger === "qualified_handoff") {
+    // qualify bot transitional message already asked for address
+    // Do not send an opener. Wait for homeowner's address reply.
+    console.info("[book] qualified_handoff received — skipping opener, waiting for address reply");
     return;
   }
 
@@ -472,7 +464,7 @@ export async function handleBookWebhook(ctx: {
         time:   freshSlots[0].time,
         zone,
         leadId: lead.id,
-        label:  freshSlots[0].label,
+        label:  freshSlots[0].label || freshSlots[0].time,
       });
     }
     const freshContext: BookContext = {
@@ -526,7 +518,9 @@ export async function handleBookWebhook(ctx: {
     })();
     const date = new Date(_guess.getTime() - _off * 60 * 1000);
 
-    const slotLabel = context.locked_slot?.label ?? `${dateStr} at ${timePart}`;
+    const slotLabel = context.locked_slot?.label?.trim()
+      ? context.locked_slot.label
+      : `${dateStr} at ${timePart}`;
 
     const validation = await validateSlotBeforeConfirm(
       lead.id,
@@ -550,7 +544,7 @@ export async function handleBookWebhook(ctx: {
           time:   freshSlots[0].time,
           zone,
           leadId: lead.id,
-          label:  freshSlots[0].label,
+          label:  freshSlots[0].label || freshSlots[0].time,
         });
       }
       return;
@@ -579,7 +573,7 @@ export async function handleBookWebhook(ctx: {
           time:   freshSlots[0].time,
           zone,
           leadId: lead.id,
-          label:  freshSlots[0].label,
+          label:  freshSlots[0].label || freshSlots[0].time,
         });
       }
       return;

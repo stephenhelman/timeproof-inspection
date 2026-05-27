@@ -470,13 +470,14 @@ export async function confirmBooking(
   void address; // not used after calendar/inspection creation was extracted to appointment_confirmed webhook
 
   // 1. Write appointment label to GHL contact field — triggers appointment_confirmed workflow
-  if (slotLabel && process.env.GHL_FIELD_SR_APPOINTMENT_DATETIME) {
+  if (slotLabel?.trim() && process.env.GHL_FIELD_SR_APPOINTMENT_DATETIME) {
+    console.info('[bot-engine] confirmBooking: writing sr_appointment_datetime', { ghlContactId, slotLabel });
     await writeGhlContactCustomField(
       ghlContactId,
       process.env.GHL_FIELD_SR_APPOINTMENT_DATETIME,
       slotLabel,
     ).catch(err =>
-      console.error('[bot-engine] confirmBooking: writeGhlContactCustomField failed:', err)
+      console.error('[bot-engine] confirmBooking: sr_appointment_datetime write failed for contact', ghlContactId, 'label:', slotLabel, err)
     );
   }
 
