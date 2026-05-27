@@ -63,7 +63,7 @@ import {
   logWebhookHit,
 } from "@/src/lib/bot-webhook-utils";
 import { getSrLeadFromDb, updateSrLead } from "@/src/lib/ghl-custom-object";
-import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
+import { moveGhlOpportunityStage, updateGhlContact } from "@/src/lib/ghl-contacts";
 import {
   getZoneForZip,
   getZipTier,
@@ -438,21 +438,14 @@ function detectBookLastMessageContext(message: string): BookLastMessageContext {
   return "none";
 }
 
-function buildBookConfirmationSms(datetime: Date): string {
-  const tz = process.env.BOT_TIMEZONE ?? "America/Denver";
-  const dayLabel = new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    timeZone: tz,
-  }).format(datetime);
-  const timeLabel = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: tz,
-  }).format(datetime);
-  return `You're all set — got you down for ${dayLabel} at ${timeLabel.toLowerCase()}. Our inspector will reach out the morning of with a heads up.`;
+// Permissive address detection — if it looks like an address, store it.
+// Rep can verify on site. Better to over-collect than to miss it.
+function looksLikeAddress(message: string): boolean {
+  const hasNumber    = /\d+/.test(message);
+  const hasStreetWord = /\b(st|ave|blvd|ln|dr|rd|way|ct|pl|street|avenue|lane|drive|road|boulevard|court|place)\b/i.test(message);
+  const hasCity       = /el paso|las cruces|alamogordo/i.test(message);
+  const isLongEnough  = message.trim().length > 8;
+  return isLongEnough && ((hasNumber && hasStreetWord) || (hasNumber && hasCity));
 }
 
 async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
@@ -510,7 +503,37 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
   const distanceZone = leadZone ? isDistanceZone(leadZone) : false;
   const zone = leadZone ?? "el_paso_central";
 
-  // Detect time-of-day preference from homeowner message
+  // ── Address collection ─────────────────────────────────────────────────────
+  // Check if address was already stored (from a previous exchange)
+  const rawLead = lead as unknown as Record<string, unknown>;
+  const existingAddress = (rawLead.address as string | null) ?? null;
+  let addressCollected   = !!(existingAddress && existingAddress.trim().length > 0);
+  let confirmedAddress   = existingAddress;
+  let justCollectedAddress = false;
+
+  if (!addressCollected && trigger === "inbound_sms" && inboundMsg && looksLikeAddress(inboundMsg)) {
+    const trimmedAddr = inboundMsg.trim();
+
+    // Save to Lead DB
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data:  { address: trimmedAddr },
+    });
+
+    // Update GHL contact address field — best-effort
+    if (lead.ghlContactId) {
+      await updateGhlContact(lead.ghlContactId, { address1: trimmedAddr })
+        .catch(err => console.error("[book] updateGhlContact address failed:", err));
+    }
+
+    confirmedAddress     = trimmedAddr;
+    addressCollected     = true;
+    justCollectedAddress = true;
+
+    console.log("[book] address collected for lead:", lead.id, trimmedAddr);
+  }
+
+  // ── Time preference detection ──────────────────────────────────────────────
   let timePreference: TimeOfDay = 'any';
   let specificStartHour: number | undefined;
   if (trigger === "inbound_sms" && inboundMsg) {
@@ -521,39 +544,37 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     }
   }
 
+  // ── Slot fetching — only after address is collected ────────────────────────
   const existingLock = await prisma.slotLock.findUnique({
     where: { leadId: lead.id },
   });
 
   let rawSlots: Array<{ date: string; time: string; label: string }> = [];
-  if (
-    !existingLock ||
-    trigger === "qualified_handoff" ||
-    trigger === "stall_followup"
-  ) {
+  if (addressCollected && (!existingLock || trigger === "qualified_handoff" || trigger === "stall_followup")) {
     rawSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
     if (rawSlots.length > 0) {
       const [y, m, d] = rawSlots[0].date.split("-").map(Number);
       await createSlotLock({
-        date: new Date(y, m - 1, d),
-        time: rawSlots[0].time,
+        date:   new Date(y, m - 1, d),
+        time:   rawSlots[0].time,
         zone,
         leadId: lead.id,
+        label:  rawSlots[0].label,
       });
     }
+  } else if (addressCollected && existingLock) {
+    // Address collected previously — use existing lock, no re-fetch needed unless stale
+    rawSlots = [];
   }
 
-  const { id: threadId, messages } = await getOrCreateThread(
-    ghlContactId,
-    "book",
-  );
+  const { id: threadId, messages } = await getOrCreateThread(ghlContactId, "book");
 
   type Trigger = BookContext["trigger"];
   const triggerMap: Record<string, Trigger> = {
     qualified_handoff: "qualified_handoff",
-    stall_followup: "stall_followup",
+    stall_followup:    "stall_followup",
   };
-  const bookTrigger: Trigger = triggerMap[trigger] ?? "inbound_reply";
+  const bookTrigger: Trigger = triggerMap[trigger] ?? "inbound_sms";
 
   const knownIssues = Array.isArray(lead.knownIssues)
     ? (lead.knownIssues as string[])
@@ -564,45 +585,47 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
 
   const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const currentMessages = (thread?.messages as BotMessage[]) ?? [];
-  const lastUserMsg = [...currentMessages]
-    .reverse()
-    .find((m) => m.role === "user");
+  const lastUserMsg = [...currentMessages].reverse().find((m) => m.role === "user");
 
-  const timeWindow    = TIME_WINDOWS[timePreference];
-  const timeWindowLabel = timeWindow.label;
+  // locked_slot: prefer stored label from SlotLock, fall back to rawSlots
+  const lockedSlot = existingLock
+    ? {
+        date:  existingLock.date?.toISOString().slice(0, 10) ?? "",
+        time:  existingLock.time ?? "",
+        label: existingLock.label ?? rawSlots[0]?.label ?? "",
+      }
+    : rawSlots[0]
+      ? { date: rawSlots[0].date, time: rawSlots[0].time, label: rawSlots[0].label }
+      : null;
 
   const context: BookContext = {
-    bot_type: "book",
-    homeowner_name: lead.customerName,
-    first_name: lead.customerName.trim().split(/\s+/)[0],
-    source_zip: lead.sourceZip ?? "",
-    zone: leadZone ?? "",
+    bot_type:              "book",
+    homeowner_name:        lead.customerName,
+    first_name:            lead.customerName.trim().split(/\s+/)[0],
+    source_zip:            lead.sourceZip ?? "",
+    zone:                  leadZone ?? "",
     message_history_count: currentMessages.length,
-    last_message_context: detectBookLastMessageContext(
-      lastUserMsg?.content ?? inboundMsg,
-    ),
+    last_message_context:  justCollectedAddress
+      ? "address_provided"
+      : detectBookLastMessageContext(lastUserMsg?.content ?? inboundMsg),
     available_slots: rawSlots.map((s) => ({
-      date: s.date,
-      time: s.time,
-      label: s.label,
+      date:       s.date,
+      time:       s.time,
+      label:      s.label,
       zone_label: zone,
     })),
-    locked_slot: existingLock
-      ? {
-          date: existingLock.date?.toString() ?? "",
-          time: existingLock.time ?? "",
-          label: rawSlots[0]?.label ?? "",
-        }
-      : null,
+    locked_slot: lockedSlot,
     qualify_summary: {
-      problem_confirmed: activeIssues.length > 0,
-      specific_issue: activeIssues[0]?.toLowerCase() ?? null,
-      roof_age: lead.roofAge ?? null,
+      problem_confirmed:        activeIssues.length > 0,
+      specific_issue:           activeIssues[0]?.toLowerCase() ?? null,
+      roof_age:                 lead.roofAge ?? null,
       decision_maker_confirmed: lead.decisionMakerHome === "Yes",
     },
-    trigger: bookTrigger,
-    timePreference,
-    timeWindowLabel,
+    trigger:             bookTrigger,
+    address_collected:   addressCollected,
+    confirmed_address:   confirmedAddress,
+    time_preference:     timePreference,
+    specific_start_hour: specificStartHour,
   };
 
   const systemPrompt = assembleBookPrompt(context);
@@ -610,8 +633,8 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
   if (bookTrigger === "qualified_handoff" && messages.length === 0) {
     const openerRaw = await runBot(systemPrompt, [
       {
-        role: "user",
-        content: "qualified_handoff",
+        role:      "user",
+        content:   "qualified_handoff",
         timestamp: new Date().toISOString(),
       },
     ]);
@@ -622,26 +645,21 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     return;
   }
 
-  if (
-    inboundMsg &&
-    !["qualified_handoff", "stall_followup"].includes(trigger)
-  ) {
+  if (inboundMsg && !["qualified_handoff", "stall_followup"].includes(trigger)) {
     await appendMessage(threadId, "user", inboundMsg);
   }
 
   if (bookTrigger === "stall_followup") {
-    const stalledThread = await prisma.botThread.findUnique({
-      where: { id: threadId },
-    });
+    const stalledThread = await prisma.botThread.findUnique({ where: { id: threadId } });
     const stalledMessages = (stalledThread?.messages as BotMessage[]) ?? [];
     const botMessages = stalledMessages.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
+      role:      m.role as "user" | "assistant",
+      content:   m.content,
       timestamp: m.timestamp,
     }));
     botMessages.push({
-      role: "user",
-      content: "stall_followup",
+      role:      "user",
+      content:   "stall_followup",
       timestamp: new Date().toISOString(),
     });
     const rawResponse = await runBot(systemPrompt, botMessages);
@@ -659,13 +677,11 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     return;
   }
 
-  const reloadedThread = await prisma.botThread.findUnique({
-    where: { id: threadId },
-  });
+  const reloadedThread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const reloadedMessages = (reloadedThread?.messages as BotMessage[]) ?? [];
   const botMessages = reloadedMessages.map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
+    role:      m.role as "user" | "assistant",
+    content:   m.content,
     timestamp: m.timestamp,
   }));
   const rawResponse = await runBot(systemPrompt, botMessages);
@@ -675,18 +691,15 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     return;
   }
 
-  // [CHECK_MORE_SLOTS: HH:MM] — bot needs slots filtered to the homeowner's stated time preference.
-  // Re-fetch with minTime, re-run bot with fresh context. The [CHECK_MORE_SLOTS] response
-  // is an internal signal and is never sent to the homeowner or appended to the thread.
+  // ── [CHECK_MORE_SLOTS] — re-fetch slots filtered to homeowner time preference ─
   const checkSlotsMatch = rawResponse.match(/\[CHECK_MORE_SLOTS(?::\s*(\d{2}:\d{2}))?\]/);
   if (checkSlotsMatch) {
-    // If the signal includes a time (e.g. [CHECK_MORE_SLOTS: 14:00]), map it to a preference bucket
     let retryPreference: TimeOfDay = timePreference;
     let retryStartHour: number | undefined = specificStartHour;
     const timeStr = checkSlotsMatch[1];
     if (timeStr) {
       retryStartHour = parseInt(timeStr.split(":")[0], 10);
-      if (retryStartHour < 12)      retryPreference = 'morning';
+      if      (retryStartHour < 12) retryPreference = 'morning';
       else if (retryStartHour < 17) retryPreference = 'afternoon';
       else                          retryPreference = 'evening';
     }
@@ -694,26 +707,26 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     if (freshSlots.length > 0) {
       const [fy, fm, fd] = freshSlots[0].date.split("-").map(Number);
       await createSlotLock({
-        date: new Date(fy, fm - 1, fd),
-        time: freshSlots[0].time,
+        date:   new Date(fy, fm - 1, fd),
+        time:   freshSlots[0].time,
         zone,
         leadId: lead.id,
+        label:  freshSlots[0].label,
       });
     }
-    const retryWindow = TIME_WINDOWS[retryPreference];
     const freshContext: BookContext = {
       ...context,
       available_slots: freshSlots.map((s) => ({
-        date: s.date,
-        time: s.time,
-        label: s.label,
+        date:       s.date,
+        time:       s.time,
+        label:      s.label,
         zone_label: zone,
       })),
       locked_slot: freshSlots[0]
         ? { date: freshSlots[0].date, time: freshSlots[0].time, label: freshSlots[0].label }
         : null,
-      timePreference:  retryPreference,
-      timeWindowLabel: retryWindow.label,
+      time_preference:     retryPreference,
+      specific_start_hour: retryStartHour,
     };
     const retryResponse = await runBot(assembleBookPrompt(freshContext), botMessages);
     if (retryResponse !== null) {
@@ -726,66 +739,118 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     return;
   }
 
+  // ── [BOOKED] — confirm booking ─────────────────────────────────────────────
   const bookedMatch = rawResponse.match(
     /\[BOOKED:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]/,
   );
 
   if (bookedMatch) {
-    const [, dateStr, time] = bookedMatch;
-    const [year, month, day] = dateStr.split("-").map(Number);
-    const [hour, minute] = time.split(":").map(Number);
-    // Signal time is Mountain Time wall-clock; convert to UTC for DB storage.
-    const _tz = process.env.BOT_TIMEZONE ?? "America/Denver";
+    const [, dateStr, timePart] = bookedMatch;
+    const [year, month, day]   = dateStr.split("-").map(Number);
+    const [hour, minute]       = timePart.split(":").map(Number);
+
+    // Convert MT wall-clock time to UTC for DB storage
+    const _tz    = process.env.BOT_TIMEZONE ?? "America/Denver";
     const _guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
-    const _off = ((): number => {
-      const pts = new Intl.DateTimeFormat("en-US", { timeZone: _tz, hour: "numeric", minute: "2-digit", hour12: false }).formatToParts(_guess);
-      const h = parseInt(pts.find((p) => p.type === "hour")?.value ?? "0", 10);
+    const _off   = ((): number => {
+      const pts = new Intl.DateTimeFormat("en-US", {
+        timeZone: _tz, hour: "numeric", minute: "2-digit", hour12: false,
+      }).formatToParts(_guess);
+      const h = parseInt(pts.find((p) => p.type === "hour")?.value   ?? "0", 10);
       const m = parseInt(pts.find((p) => p.type === "minute")?.value ?? "0", 10);
       return h * 60 + m - (hour * 60 + minute);
     })();
     const date = new Date(_guess.getTime() - _off * 60 * 1000);
-    const validation = await validateSlotBeforeConfirm(
-      lead.id,
-      date,
-      time,
-      zone,
-    );
-    if (validation.ok) {
-      await confirmBooking(lead.id, ghlContactId, date);
-      await transitionLead(
+
+    // Use stored slot label verbatim — prevents wrong day-name reformatting
+    const slotLabel = context.locked_slot?.label ?? `${dateStr} at ${timePart}`;
+
+    const validation = await validateSlotBeforeConfirm(lead.id, date, timePart, zone);
+
+    if (!validation.ok) {
+      console.warn("[book] slot conflict on confirm:", validation.reason);
+      // Re-fetch fresh slots and re-run — homeowner gets a natural apology
+      const freshSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
+      if (freshSlots.length > 0) {
+        const [fy, fm, fd] = freshSlots[0].date.split("-").map(Number);
+        await createSlotLock({
+          date:   new Date(fy, fm - 1, fd),
+          time:   freshSlots[0].time,
+          zone,
+          leadId: lead.id,
+          label:  freshSlots[0].label,
+        });
+      }
+      return;
+    }
+
+    try {
+      await confirmBooking(
         lead.id,
         ghlContactId,
-        "sr_booking",
-        "sr_appointment_set",
-        "INSPECTION_SCHEDULED",
-        "silent",
-        {
-          sr_status: "INSPECTION_SCHEDULED",
-          sr_appointment_at: date.toISOString(),
-          sr_bot_stage: "silent",
-        },
+        date,
+        slotLabel,
+        confirmedAddress ?? undefined,
       );
-      if (lead.assignedUserId) {
-        const tz = process.env.BOT_TIMEZONE ?? "America/Denver";
-        const zoneMeta = leadZone ? SERVICE_ZONES[leadZone] : null;
-        const dayLabel = new Intl.DateTimeFormat("en-US", {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-          timeZone: tz,
-        }).format(date);
-        const timeLabel = new Intl.DateTimeFormat("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-          timeZone: tz,
-        }).format(date);
-        const appUrl =
-          process.env.NEXT_PUBLIC_APP_URL ?? "https://app.scopereports.com";
-        const repMsg = `New inspection booked!\nHomeowner: ${lead.customerName}\nDate/Time: ${dayLabel} at ${timeLabel.toLowerCase()}\nZone: ${zoneMeta?.label ?? zone}\nPhone: ${lead.phone ?? "not on file"}\n${appUrl}/leads/${lead.id}`;
-        await notifyRep(lead.assignedUserId, lead.id, repMsg);
+    } catch (err) {
+      console.error("[book] confirmBooking failed:", err);
+      // Calendar event failed — re-fetch slots so homeowner gets a new offer
+      const freshSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
+      if (freshSlots.length > 0) {
+        const [fy, fm, fd] = freshSlots[0].date.split("-").map(Number);
+        await createSlotLock({
+          date:   new Date(fy, fm - 1, fd),
+          time:   freshSlots[0].time,
+          zone,
+          leadId: lead.id,
+          label:  freshSlots[0].label,
+        });
       }
-      await sendGhlSms(ghlContactId, buildBookConfirmationSms(date));
+      return;
+    }
+
+    // Transition lead
+    await transitionLead(
+      lead.id,
+      ghlContactId,
+      "sr_booking",
+      "sr_appointment_set",
+      "INSPECTION_SCHEDULED",
+      "silent",
+      {
+        sr_status:         "INSPECTION_SCHEDULED",
+        sr_appointment_at: date.toISOString(),
+        sr_bot_stage:      "silent",
+      },
+    );
+
+    // Move opportunity to APPOINTMENT_SET stage
+    if (lead.ghlOpportunityId) {
+      await moveGhlOpportunityStage(
+        lead.ghlOpportunityId,
+        process.env.GHL_STAGE_APPOINTMENT_SET!,
+      ).catch(err => console.error("[book] moveStage APPOINTMENT_SET failed:", err));
+    }
+
+    // Confirmation SMS — use stored slot label verbatim
+    const confirmMsg =
+      `You're all set — got you down for ${slotLabel}. ` +
+      `Our inspector will reach out the morning of with a heads up. See you then!`;
+
+    await sendGhlSms(ghlContactId, confirmMsg);
+
+    // Notify rep
+    if (lead.assignedUserId) {
+      const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.scopereports.com";
+      const repMsg  =
+        `New inspection booked!\n\n` +
+        `Homeowner: ${lead.customerName}\n` +
+        `Address:   ${confirmedAddress ?? "not provided"}\n` +
+        `Date/Time: ${slotLabel}\n` +
+        `Phone:     ${lead.phone ?? "not on file"}\n\n` +
+        `${appUrl}/leads/${lead.id}`;
+      await notifyRep(lead.assignedUserId, lead.id, repMsg)
+        .catch(err => console.error("[book] notifyRep failed:", err));
     }
   } else {
     if (rawResponse.includes("[STALL]")) {
@@ -793,6 +858,7 @@ async function handleBookWebhook(ctx: CentralWebhookContext): Promise<void> {
     }
     await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
   }
+
   await appendMessage(threadId, "assistant", rawResponse);
 }
 
@@ -1464,7 +1530,7 @@ async function handleRescheduleWebhook(
       zoneStr,
     );
     if (validation.ok) {
-      await confirmBooking(lead.id, ghlContactId, date);
+      await confirmBooking(lead.id, ghlContactId, date, '');
       await transitionLead(
         lead.id,
         ghlContactId,

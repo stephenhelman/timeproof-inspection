@@ -407,18 +407,19 @@ export async function getAvailableSlots(
 }
 
 export async function createSlotLock(args: {
-  date: Date;
-  time: string;
-  zone: string;
+  date:   Date;
+  time:   string;
+  zone:   string;
   leadId: string;
+  label?: string; // verbatim slot label — stored for use in confirmation SMS
 }): Promise<void> {
   const expiresAt = new Date(
     Date.now() + SLOT_LOCK_EXPIRY_MINUTES * 60 * 1000
   );
   await prisma.slotLock.upsert({
-    where: { leadId: args.leadId },
-    update: { date: args.date, time: args.time, zone: args.zone, expiresAt },
-    create: { date: args.date, time: args.time, zone: args.zone, leadId: args.leadId, expiresAt },
+    where:  { leadId: args.leadId },
+    update: { date: args.date, time: args.time, zone: args.zone, label: args.label ?? null, expiresAt },
+    create: { date: args.date, time: args.time, zone: args.zone, label: args.label ?? null, leadId: args.leadId, expiresAt },
   });
 }
 
@@ -458,43 +459,140 @@ export async function validateSlotBeforeConfirm(
   return { ok: true };
 }
 
+const INSPECTION_DURATION_HOURS = 2;
+
 export async function confirmBooking(
-  leadId: string,
+  leadId:       string,
   ghlContactId: string,
-  datetime: Date
+  datetime:     Date,
+  slotLabel:    string,  // verbatim label for confirmation SMS — do not reformat
+  address?:     string,
 ): Promise<void> {
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
   if (!lead) throw new Error(`confirmBooking: lead ${leadId} not found`);
 
-  // Delete the slot lock
-  await prisma.slotLock.deleteMany({ where: { leadId } });
-
-  // Create Inspection record — userId is now optional in schema
   const assignedUserId =
     lead.assignedUserId ??
     process.env.GHL_DEFAULT_ASSIGNEE_ID ??
     null;
+
   if (!assignedUserId) {
     console.warn(
-      `[bot-engine] confirmBooking: lead ${leadId} has no assignedUserId — creating inspection without assignment`
+      `[bot-engine] confirmBooking: lead ${leadId} has no assignedUserId — creating without assignment`
     );
   }
+
+  // 1. Create GHL calendar event
+  const mtOffset = getMTOffset(datetime);
+  const startISO = formatISOWithOffset(datetime, mtOffset);
+  const endDt    = new Date(datetime.getTime() + INSPECTION_DURATION_HOURS * 60 * 60 * 1000);
+  const endISO   = formatISOWithOffset(endDt, mtOffset);
+
+  const inspectionAddress =
+    address ??
+    lead.address ??
+    [lead.streetAddress, lead.city, lead.state].filter(Boolean).join(', ') ??
+    '';
+
+  const calendarPayload = {
+    calendarId:   process.env.GHL_CALENDAR_ID!,
+    locationId:   process.env.GHL_LOCATION_ID!,
+    contactId:    ghlContactId,
+    title:        `Roof Inspection — ${lead.customerName}`,
+    startTime:    startISO,
+    endTime:      endISO,
+    appointmentStatus:        'confirmed',
+    address:                  inspectionAddress,
+    meetingLocationType:      'custom',
+    ignoreFreeSlotValidation: false,
+    toNotify:                 true,
+    ...(assignedUserId ? { assignedUserId } : {}),
+  };
+
+  console.log('[bot-engine] confirmBooking: creating calendar event:', JSON.stringify(calendarPayload));
+
+  const calRes = await fetch(
+    'https://services.leadconnectorhq.com/calendars/events/appointments',
+    {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GHL_API_KEY}`,
+        'Content-Type':  'application/json',
+        'Version':       '2021-04-15',
+      },
+      body: JSON.stringify(calendarPayload),
+    }
+  );
+
+  if (!calRes.ok) {
+    const errBody = await calRes.text();
+    console.error('[bot-engine] confirmBooking: calendar event failed:', {
+      status:  calRes.status,
+      body:    errBody,
+      payload: calendarPayload,
+    });
+    throw new Error(`Calendar event creation failed: ${calRes.status} ${errBody}`);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const calData: any = await calRes.json();
+  const ghlEventId = calData?.id ?? calData?.event?.id ?? null;
+  console.log('[bot-engine] confirmBooking: calendar event created:', ghlEventId);
+
+  // 2. Create Inspection record
   await prisma.inspection.create({
     data: {
-      userId: assignedUserId,
-      leadId: lead.id,
-      customerName: lead.customerName,
-      address: [lead.streetAddress, lead.city, lead.state].filter(Boolean).join(", "),
-      phone: lead.phone ?? null,
+      userId:        assignedUserId,
+      leadId:        lead.id,
+      customerName:  lead.customerName,
+      address:       inspectionAddress,
+      phone:         lead.phone ?? null,
       appointmentAt: datetime,
-      status: "scheduled",
+      status:        'scheduled',
+      ghlEventId:    ghlEventId,
     },
   });
 
+  // 3. Update lead status
   await prisma.lead.update({
     where: { id: leadId },
-    data: { status: "INSPECTION_SCHEDULED", appointmentDate: datetime },
+    data:  { status: 'INSPECTION_SCHEDULED', appointmentDate: datetime },
   });
+
+  // 4. Delete the SlotLock
+  await prisma.slotLock.deleteMany({ where: { leadId } }).catch(err =>
+    console.error('[bot-engine] SlotLock cleanup failed:', err)
+  );
+}
+
+// ── Timezone helpers ───────────────────────────────────────────────────────────
+
+function getMTOffset(date: Date): string {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone:     'America/Denver',
+    timeZoneName: 'short',
+  });
+  const parts  = formatter.formatToParts(date);
+  const tzName = parts.find(p => p.type === 'timeZoneName')?.value;
+  return tzName === 'MDT' ? '-06:00' : '-07:00';
+}
+
+function formatISOWithOffset(date: Date, offset: string): string {
+  const offsetMs = offset === '-06:00'
+    ? -6 * 60 * 60 * 1000
+    : -7 * 60 * 60 * 1000;
+
+  const localMs = date.getTime() + offsetMs;
+  const localDt = new Date(localMs);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  return `${localDt.getUTCFullYear()}-` +
+         `${pad(localDt.getUTCMonth() + 1)}-` +
+         `${pad(localDt.getUTCDate())}T` +
+         `${pad(localDt.getUTCHours())}:` +
+         `${pad(localDt.getUTCMinutes())}:00` +
+         offset;
 }
 
 // ── Rep notification ───────────────────────────────────────────

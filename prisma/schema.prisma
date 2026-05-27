@@ -200,6 +200,9 @@ model Lead {
   ghlRecordId               String?   // GHL SR Lead custom object record ID
   ghlOpportunityId          String?   // GHL opportunity ID for stage moves
 
+  // Bot-collected address — set by book bot when homeowner provides it via SMS
+  address                   String?
+
   inspections          Inspection[]
   notes                LeadNote[]
   srLead               SrLead?
@@ -319,6 +322,9 @@ model Inspection {
   personalIdentity       String?
   decisionMakers         Boolean?
   decisionMakersWho      String?
+
+  // GHL integration
+  ghlEventId             String?   // GHL calendar event ID written on booking confirmation
 
   // Appointment
   appointmentAt          DateTime?
@@ -530,6 +536,7 @@ model SlotLock {
   id        String   @id @default(cuid())
   date      DateTime
   time      String
+  label     String?  // verbatim slot label e.g. "Thursday, June 5 at 9:00 am"
   zone      String
   leadId    String   @unique
   expiresAt DateTime

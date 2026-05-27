@@ -95,6 +95,7 @@ export interface NurtureContext {
 
 export type BookLastMessageContext =
   | 'none'
+  | 'address_provided'    // homeowner just gave their address
   | 'slot_accepted'
   | 'slot_rejected'
   | 'stall'
@@ -120,23 +121,27 @@ export interface BookContext {
   }>;
 
   locked_slot: {
-    date: string;
-    time: string;
-    label: string;
+    date:  string;
+    time:  string;
+    label: string; // verbatim — used in confirmation SMS
   } | null;
 
   qualify_summary: {
-    problem_confirmed: boolean;
-    specific_issue: string | null;
-    roof_age: string | null;
+    problem_confirmed:        boolean;
+    specific_issue:           string | null;
+    roof_age:                 string | null;
     decision_maker_confirmed: boolean;
   };
 
-  trigger: 'qualified_handoff' | 'inbound_reply' | 'stall_followup';
+  trigger: 'qualified_handoff' | 'inbound_sms' | 'stall_followup';
+
+  // Address collection state
+  address_collected:   boolean;       // true once homeowner has provided address
+  confirmed_address:   string | null; // the address they gave
 
   // Time-of-day preference detected from homeowner conversation
-  timePreference:  TimeOfDay;
-  timeWindowLabel: string; // e.g. "afternoon (12pm–5pm)"
+  time_preference:     TimeOfDay;
+  specific_start_hour?: number;       // from "after X" pattern
 }
 
 // ─── REVIVAL ──────────────────────────────────────────────────────────────────

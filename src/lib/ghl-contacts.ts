@@ -177,6 +177,25 @@ export async function createGhlOpportunity(
   return ghlOpportunityId;
 }
 
+// Update standard contact fields (address, name, etc.) on an existing contact.
+// Used by the book bot to save the homeowner-provided address.
+export async function updateGhlContact(
+  ghlContactId: string,
+  fields: {
+    address1?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    email?: string;
+  },
+): Promise<void> {
+  const { contacts } = getClients();
+  await contacts.update(ghlContactId, fields);
+}
+
 // Move an existing opportunity to a different pipeline stage.
 // Used by DISPO outcomes and bot transitions.
 export async function moveGhlOpportunityStage(

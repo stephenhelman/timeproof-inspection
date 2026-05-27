@@ -255,7 +255,7 @@ export async function POST(request: NextRequest) {
       if (rescheduled) {
         const validation = await validateSlotBeforeConfirm(lead.id, rescheduled.date, rescheduled.time, zoneStr);
         if (validation.ok) {
-          await confirmBooking(lead.id, ghlContactId, rescheduled.date);
+          await confirmBooking(lead.id, ghlContactId, rescheduled.date, '');
           await transitionLead(lead.id, ghlContactId, 'sr_reschedule', 'sr_rescheduled', 'INSPECTION_SCHEDULED', 'silent', {
             sr_status: 'INSPECTION_SCHEDULED', sr_appointment_at: rescheduled.date.toISOString(), sr_bot_stage: 'silent',
           });

@@ -38,7 +38,6 @@ import {
 import { getZoneForZip, SERVICE_ZONES, isDistanceZone } from "@/src/lib/service-zones";
 import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
 import type { BookContext, BookLastMessageContext } from "@/src/lib/prompts/qntum/types";
-import { TIME_WINDOWS } from "@/src/lib/time-utils";
 
 type BotMessage = { role: string; content: string; timestamp: string };
 
@@ -209,7 +208,7 @@ export async function POST(request: NextRequest) {
       qualified_handoff: 'qualified_handoff',
       stall_followup: 'stall_followup',
     };
-    const trigger: Trigger = triggerMap[inboundMessage] ?? 'inbound_reply';
+    const trigger: Trigger = triggerMap[inboundMessage] ?? 'inbound_sms';
 
     // Build BookContext
     const lockedSlotRaw = existingLock
@@ -242,8 +241,9 @@ export async function POST(request: NextRequest) {
         decision_maker_confirmed: lead.decisionMakerHome === 'Yes',
       },
       trigger,
-      timePreference:  'any',
-      timeWindowLabel: TIME_WINDOWS['any'].label,
+      address_collected:  false,
+      confirmed_address:  null,
+      time_preference:    'any',
     };
 
     const systemPrompt = assembleBookPrompt(context);
@@ -320,7 +320,8 @@ export async function POST(request: NextRequest) {
         await sendGhlSms(ghlContactId, cleanRetry);
         if (retryResponse) await appendMessage(threadId, 'assistant', retryResponse);
       } else {
-        await confirmBooking(lead.id, ghlContactId, date);
+        const slotLabel = context.locked_slot?.label ?? '';
+        await confirmBooking(lead.id, ghlContactId, date, slotLabel);
         await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_appointment_set', 'INSPECTION_SCHEDULED', 'silent', {
           sr_status: 'INSPECTION_SCHEDULED', sr_appointment_at: date.toISOString(), sr_bot_stage: 'silent',
         });
@@ -328,7 +329,10 @@ export async function POST(request: NextRequest) {
           const repMsg = buildRepNotification({ customerName: lead.customerName, phone: lead.phone, id: lead.id }, date, leadZone);
           await notifyRep(lead.assignedUserId, lead.id, repMsg);
         }
-        await sendGhlSms(ghlContactId, buildConfirmationSms(date));
+        const confirmMsg = slotLabel
+          ? `You're all set — got you down for ${slotLabel}. Our inspector will reach out the morning of with a heads up. See you then!`
+          : buildConfirmationSms(date);
+        await sendGhlSms(ghlContactId, confirmMsg);
         await appendMessage(threadId, 'assistant', rawResponse);
       }
     } else if (stall) {

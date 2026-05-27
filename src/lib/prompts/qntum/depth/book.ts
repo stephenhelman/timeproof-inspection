@@ -1,7 +1,17 @@
-import type { BookContext } from '../types';
+import type { BookContext } from '../types'
 
 export function getBookDepthModule(context: BookContext): string {
-  const { message_history_count, last_message_context, timePreference, available_slots } = context;
+  const {
+    message_history_count,
+    last_message_context,
+    available_slots,
+    locked_slot,
+    address_collected,
+    confirmed_address,
+    qualify_summary,
+    time_preference,
+    trigger,
+  } = context
 
   // ── Hard overrides ──────────────────────────────────────────────────────────
 
@@ -9,133 +19,171 @@ export function getBookDepthModule(context: BookContext): string {
     return `CONVERSATION_POSITION: escalate_now
 
 CURRENT_DIRECTIVE:
-Send the escalation message exactly as written and stop.
+Send the escalation message and stop.
 
 ESCALATION_MESSAGE:
 "I want to make sure you get the right answer on that — let me have someone from our team give you a quick call. What time works best?"
 
-LENGTH_RULE:
-No further exchanges.`;
-  }
-
-  if (message_history_count >= 10) {
-    return `CONVERSATION_POSITION: escalate_now
-
-CURRENT_DIRECTIVE:
-This conversation has reached its limit. Send the escalation message and stop.
-
-ESCALATION_MESSAGE:
-"I want to make sure you get the right answer on that — let me have someone from our team give you a quick call. What time works best?"
-
-LENGTH_RULE:
-No further exchanges.`;
+LENGTH_RULE: No further exchanges.`
   }
 
   if (last_message_context === 'confirmed') {
     return `CONVERSATION_POSITION: booked
 
 CURRENT_DIRECTIVE:
-The homeowner has confirmed a slot. Repeat it back clearly and end with [BOOKED: YYYY-MM-DD HH:MM] (24h time in the signal).
+The homeowner confirmed a slot.
+Use the EXACT slot label from locked_slot — do not reformat or recalculate the date or day name.
 
-Direction: "You're all set — got you down for [day] at [time]. Our inspector will reach out the morning of with a heads up."
+Confirmation message:
+"You're all set — got you down for [locked_slot.label]. Our inspector will reach out the morning of with a heads up. See you then."
 
-LENGTH_RULE:
-One message. Stop.`;
+Emit: [BOOKED: YYYY-MM-DD HH:MM]
+Use the date and time from locked_slot exactly. Use 24-hour time in the signal.
+
+LENGTH_RULE: One message. Stop.`
   }
+
+  // ── STATE 1 — Address collection (limit: 5 exchanges) ──────────────────────
+  // Run until homeowner provides address. Hard limit at 5 exchanges then stall.
+
+  if (!address_collected) {
+
+    if (last_message_context === 'stall' || message_history_count >= 5) {
+      return `CONVERSATION_POSITION: stall_no_address
+
+CURRENT_DIRECTIVE:
+The homeowner hasn't provided an address after several exchanges. Don't push. Close warmly and emit [STALL].
+
+"No problem — just reach out when you're ready to get someone out there. We're easy to find."
+
+Emit: [STALL]
+
+LENGTH_RULE: One message. Stop.`
+    }
+
+    if (trigger === 'qualified_handoff' && message_history_count === 0) {
+      return `CONVERSATION_POSITION: opening_address_request
+
+CURRENT_DIRECTIVE:
+This is the first message from the book bot.
+Ask for the address naturally, connecting it to what was learned in the qualify conversation.
+
+${qualify_summary.specific_issue
+  ? `Reference their specific issue: "${qualify_summary.specific_issue}"`
+  : qualify_summary.roof_age
+    ? `Reference the roof age: "${qualify_summary.roof_age}"`
+    : 'Keep it simple and direct.'}
+
+Message direction:
+"Based on what you mentioned about [issue/age], it makes sense to get someone out there. What address should we send our inspector to?"
+
+One question. Stop. Wait for address.
+
+LENGTH_RULE: Two sentences max.`
+    }
+
+    return `CONVERSATION_POSITION: waiting_for_address
+
+CURRENT_DIRECTIVE:
+You are waiting for the homeowner to provide their address. If they asked a question instead, answer it briefly then redirect back to the address.
+
+If they seem hesitant about providing their address:
+"Just need it so our inspector knows where to head — we'll confirm everything before we come out."
+
+One question. Stop.
+
+LENGTH_RULE: Two sentences max.`
+  }
+
+  // ── STATE 2 — Slot selection (NO message count limit) ──────────────────────
+  // Address has been collected. Run until [BOOKED], [STALL], or not interested.
 
   if (last_message_context === 'stall') {
-    return `CONVERSATION_POSITION: stall
+    return `CONVERSATION_POSITION: stall_detected
 
 CURRENT_DIRECTIVE:
-The homeowner needs to check their schedule. Send one acknowledgment and stop. Emit [STALL].
+Homeowner needs to check their schedule or check with someone. Acknowledge and let go.
 
-Direction: "No problem — I'll check back with you tomorrow. Take your time."
+"No problem — I'll check back with you. Take your time."
 
-Do not follow up in this thread. GHL will fire the stall_followup webhook in 24 hours.
+Emit: [STALL]
 
-LENGTH_RULE:
-One message. Stop.`;
+LENGTH_RULE: One message. Stop.`
   }
 
-  if (last_message_context === 'slot_rejected' || last_message_context === 'needs_different_time') {
-    return `CONVERSATION_POSITION: slot_negotiation
+  if (last_message_context === 'slot_rejected' ||
+      last_message_context === 'needs_different_time') {
+    const altSlots = available_slots
+      .slice(0, 3)
+      .map(s => s.label)
+      .join(' or ')
+
+    return `CONVERSATION_POSITION: re_offering
 
 CURRENT_DIRECTIVE:
-The offered slot didn't work. Ask what time of day or what days generally work best for them — then work from their answer. Do not present a menu. One question.
+The homeowner said the offered time doesn't work. Offer alternatives naturally.
 
-If the homeowner has stated a time preference (e.g. "after 2", "mornings", "evenings"):
-- Convert to 24-hour format: morning ≈ 08:00, noon = 12:00, after 2 pm = 14:00, evenings ≈ 17:00
-- Do not present the current slots — emit [CHECK_MORE_SLOTS: HH:MM] and stop
-- The system will fetch slots at or after that time and re-run you with them
+${!altSlots
+  ? 'No slots available right now. Emit [CHECK_MORE_SLOTS].'
+  : `Alternatives: ${altSlots}
+Offer naturally — not as a numbered list.
+"Also have ${altSlots} — any of those better?"`}
 
-If you need more options but no time preference was given, emit [CHECK_MORE_SLOTS] without a time.
-
-Direction: "What time of day works better for you?"
-
-LENGTH_RULE:
-One to two exchanges remaining. Move toward booking.`;
+LENGTH_RULE: One message. One question. Stop.`
   }
 
-  // ── Threshold map ───────────────────────────────────────────────────────────
-  const thresholds = { opening_ends_at: 1, approaching_close_at: 7, hard_limit: 10 };
-  const { opening_ends_at, approaching_close_at, hard_limit } = thresholds;
-
-  let position: 'opening' | 'mid_conversation' | 'approaching_close';
-  if (message_history_count < opening_ends_at) {
-    position = 'opening';
-  } else if (message_history_count < approaching_close_at) {
-    position = 'mid_conversation';
-  } else {
-    position = 'approaching_close';
-  }
-
-  let directive: string;
-
-  if (position === 'opening') {
-    directive = `The transition message was just sent. Wait for the homeowner's reply before anything else. When they reply, treat it as their first real response and follow mid_conversation directive.`;
-  } else if (position === 'mid_conversation') {
-    const noPreference = timePreference === 'any';
-    const firstExchange = message_history_count === 1;
-    const slotsLoaded   = available_slots.length > 0;
-
-    if (noPreference && firstExchange && slotsLoaded) {
-      directive = `This is the homeowner's first reply to your opener.
-
-If their reply already mentions a time preference (morning, afternoon, evenings, after X) — skip to offering a matching slot.
-If they said "anytime", "flexible", or "whenever" — offer a slot directly from AVAILABLE_SLOTS.
-Otherwise — ask one question about time preference before offering a specific slot:
-"Does morning or afternoon work better for you?"
-
-One question. Stop. Wait for their answer. Do NOT list available slots until they give a preference.`;
-    } else {
-      directive = `You are negotiating a time. Offer one slot at a time — not a numbered list. If the homeowner rejects the slot, ask what works better for them before offering another. Keep it practical and warm. The goal is one confirmed booking in the next one or two exchanges.`;
-    }
-  } else {
-    directive = `You have a few exchanges left. The homeowner has engaged but hasn't confirmed a slot yet.
-
-Do not pressure. Do not count down.
-Make one clean direct offer:
-"Does [slot] work, or would [slot] be better?"
-
-One question. Stop. Let them answer.
-
-If they stall again: acknowledge it, let it go.
-"No problem — just reach out when you're ready to lock something in."
-Emit [STALL].
-
-If they confirm: emit [BOOKED: YYYY-MM-DD HH:MM]`;
-  }
-
-  const remaining = hard_limit - message_history_count;
-  const lengthRule = position === 'opening'
-    ? `Waiting for first homeowner reply.`
-    : `${remaining} exchange(s) remaining. Move toward a confirmed booking.`;
-
-  return `CONVERSATION_POSITION: ${position}
+  if (last_message_context === 'address_provided') {
+    return `CONVERSATION_POSITION: address_confirmed
 
 CURRENT_DIRECTIVE:
-${directive}
+The homeowner just gave their address. Confirm it naturally and ask about time preference in the same message. Do not offer slots yet — ask time first.
 
-LENGTH_RULE:
-${lengthRule}`;
+"Got it — heading to ${confirmed_address}. Does morning or afternoon tend to work better for you?"
+
+TIME OF DAY REFERENCE (use these exact definitions):
+  Morning:   start of day to 12:00 PM
+  Afternoon: 12:00 PM to 5:00 PM
+  Evening:   5:00 PM to end of day
+
+One message. One question. Stop.
+
+LENGTH_RULE: Two sentences max.`
+  }
+
+  // Default slot offering state
+  const slotStr = available_slots
+    .slice(0, 2)
+    .map(s => s.label)
+    .join(' or ')
+
+  const timeContext = time_preference !== 'any'
+    ? `TIME WINDOW ACTIVE: Only offer slots within the homeowner's stated preference. Do not offer slots outside this window even if they exist.\n\n`
+    : ''
+
+  return `CONVERSATION_POSITION: offering_slots
+
+${timeContext}CURRENT_DIRECTIVE:
+No message count limit — address has been collected. Run this conversation until booked or stalled.
+
+${available_slots.length === 0
+  ? `No slots available. Emit [CHECK_MORE_SLOTS] and apologize naturally.
+"Let me check what else we have open — give me just a second."`
+  : `Available: ${slotStr}
+
+${locked_slot
+  ? `You already offered ${locked_slot.label}.
+If not rejected, lead with that slot first.`
+  : `Offer the slots naturally as routing language:
+"We've got time blocked in your area ${slotStr} — does either of those work?"`}
+
+When homeowner confirms a slot:
+Repeat it back clearly and emit:
+[BOOKED: YYYY-MM-DD HH:MM]
+Use 24-hour time in the signal.
+Use the EXACT date and label from available_slots.
+DO NOT recalculate or reformat the day name.
+
+Watch for stall signals ("let me check", "need to ask", "not sure yet") → emit [STALL]`}
+
+LENGTH_RULE: Two sentences max. One question. Stop.`
 }
