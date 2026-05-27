@@ -78,9 +78,9 @@ import type {
   FinanceLastMessageContext,
 } from "@/src/lib/prompts/qntum/types";
 import type { Lead, SrLead } from "@prisma/client";
-import { handleNurtureWebhook } from "@/app/api/webhooks/ghl/nurture/route";
-import { handleQualifyWebhook } from "@/app/api/webhooks/ghl/qualify/route";
-import { handleBookWebhook } from "@/app/api/webhooks/ghl/book/route";
+import { handleNurtureWebhook } from "@/src/lib/bot-handlers/nurture";
+import { handleQualifyWebhook } from "@/src/lib/bot-handlers/qualify";
+import { handleBookWebhook } from "@/src/lib/bot-handlers/book";
 
 // ── Context type ──────────────────────────────────────────────────────────────
 
