@@ -236,7 +236,27 @@ export async function handleBookWebhook(ctx: {
     console.log("[book] address collected for lead:", lead.id, trimmedAddr);
   }
 
-  // Time preference detection
+  // Read qualify bot context written on [QUALIFIED]
+  const previousBotContext = process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT
+    ? await getGhlContactCustomField(
+        ghlContactId,
+        process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
+      ).catch((err) => {
+        console.warn(
+          "[book] getGhlContactCustomField previousBotContext failed for contact",
+          ghlContactId,
+          err,
+        );
+        return null;
+      })
+    : null;
+
+  const contextTimePreference =
+    previousBotContext?.match(/Time preference: "([^"]+)"/)?.[1] ?? null;
+  const contextConfirmedIssue =
+    previousBotContext?.match(/Confirmed issue: "([^"]+)"/)?.[1] ?? null;
+
+  // Time preference detection — current message first, context fallback, then 'any'
   let timePreference: TimeOfDay = "any";
   let specificStartHour: number | undefined;
   if (trigger === "inbound_sms" && inboundMsg) {
@@ -244,6 +264,13 @@ export async function handleBookWebhook(ctx: {
     if (detected) {
       timePreference    = detected.preference;
       specificStartHour = detected.startHour;
+    }
+  }
+  if (timePreference === "any" && contextTimePreference) {
+    const ctxDetected = detectTimePreference(contextTimePreference);
+    if (ctxDetected) {
+      timePreference    = ctxDetected.preference;
+      specificStartHour = ctxDetected.startHour;
     }
   }
 
@@ -318,14 +345,6 @@ export async function handleBookWebhook(ctx: {
         }
       : null;
 
-  // Read qualify bot context written on [QUALIFIED]
-  const previousBotContext = process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT
-    ? await getGhlContactCustomField(
-        ghlContactId,
-        process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
-      ).catch(() => null)
-    : null;
-
   const context: BookContext = {
     bot_type:              "book",
     homeowner_name:        lead.customerName,
@@ -345,7 +364,7 @@ export async function handleBookWebhook(ctx: {
     locked_slot: lockedSlot,
     qualify_summary: {
       problem_confirmed:        activeIssues.length > 0,
-      specific_issue:           activeIssues[0]?.toLowerCase() ?? null,
+      specific_issue:           contextConfirmedIssue ?? activeIssues[0]?.toLowerCase() ?? null,
       roof_age:                 lead.roofAge ?? null,
       decision_maker_confirmed: lead.decisionMakerHome === "Yes",
     },

@@ -145,7 +145,7 @@ export async function handleQualifyWebhook(ctx: {
   trigger: string;
   inboundMsg: string;
 }): Promise<void> {
-  const { lead, ghlContactId, trigger, inboundMsg } = ctx;
+  const { lead, srLead, ghlContactId, trigger, inboundMsg } = ctx;
 
   // Capture before type narrowing strips the literal
   const scheduling_approved_pause = trigger === "scheduling_approved";
@@ -322,15 +322,47 @@ export async function handleQualifyWebhook(ctx: {
   await appendMessage(threadId, "assistant", rawResponse);
 
   if (signalQualified) {
-    // Persist qualify bot's last message for the book bot to reference
-    const lastAssistantMsg = stripAnySignals(rawResponse);
-    if (lastAssistantMsg && process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
+    if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
+      const issueKeywords = /stain|leak|damage|missing|crack|old|shingle|water|rot|hail/i;
+      const userMsgs = currentMessages.filter((m) => m.role === "user");
+      const confirmedIssueMsg = userMsgs.find((m) => issueKeywords.test(m.content));
+
+      const timePatterns = [
+        /after \d{1,2}(:\d{2})?\s*(am|pm)?/i,
+        /before \d{1,2}(:\d{2})?\s*(am|pm)?/i,
+        /\d{1,2}(:\d{2})?\s*(am|pm)/i,
+        /morning|afternoon|evening/i,
+        /tomorrow/i,
+      ];
+      let timePreference: string | null = null;
+      timeLoop: for (const msg of userMsgs) {
+        for (const pat of timePatterns) {
+          const match = pat.exec(msg.content);
+          if (match) { timePreference = match[0]; break timeLoop; }
+        }
+      }
+
+      const contextParts: string[] = [];
+      if (confirmedIssueMsg) contextParts.push(`Confirmed issue: "${confirmedIssueMsg.content}"`);
+      if (lead.roofAge) contextParts.push(`Roof age: "${lead.roofAge}"`);
+      if (lead.decisionMakerHome) contextParts.push(`Decision maker present: "${lead.decisionMakerHome}"`);
+      if (timePreference) contextParts.push(`Time preference: "${timePreference}"`);
+      if (nurtureThread !== null) contextParts.push("Came from nurture: true");
+      contextParts.push(`Source: "${rawSource ?? srLead.srSource ?? "unknown"}"`);
+      contextParts.push("Qualified via qualify bot");
+
+      const previousContext = contextParts.join(" | ");
       await writeGhlContactCustomField(
         ghlContactId,
         process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
-        lastAssistantMsg,
+        previousContext,
       ).catch((err) =>
-        console.error("[qualify] writeGhlContactCustomField failed:", err),
+        console.error(
+          "[qualify] GHL write sr_previous_context failed for contact",
+          ghlContactId,
+          ":",
+          err,
+        ),
       );
     }
 
