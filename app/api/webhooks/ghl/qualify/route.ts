@@ -1,15 +1,19 @@
-// ============================================================
-// SUPERSEDED by central webhook route
-// app/api/webhooks/ghl/central/route.ts
+// ── DEDICATED QUALIFY WEBHOOK ROUTE ──────────────────────────────────────────
+// Triggers: new_inspection_lead, scheduling_approved, inbound_sms (srBotStage === 'qualifying')
 //
-// This route is preserved for reference and emergency fallback.
-// GHL workflows should point to /api/webhooks/ghl/central
-// Remove this file after central webhook is confirmed stable.
-// ============================================================
+// Handler logic mirrors central/route.ts handleQualifyWebhook verbatim.
+// Additions vs central:
+//   - customData payload parsing
+//   - SrLead load + opt-out gate
+//   - Reads sr_previous_context from GHL → QualifyContext.previousBotContext
+//   - Writes sr_previous_context on [QUALIFIED] (for book bot)
+//   - Transitional SMS (max_tokens 100) before booking stage activation
+// ─────────────────────────────────────────────────────────────────────────────
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { createHash } from "crypto";
 import { prisma } from "@/src/lib/prisma";
-import { sendGhlSms, addGhlTag } from "@/src/lib/ghl-sms";
+import { sendGhlSms, addGhlTag, removeGhlTag } from "@/src/lib/ghl-sms";
 import {
   getOrCreateThread,
   appendMessage,
@@ -20,171 +24,174 @@ import {
 } from "@/src/lib/bot-engine";
 import {
   validateWebhookSecret,
-  parseInboundSms,
   loadLead,
   isDuplicate,
   logWebhookHit,
 } from "@/src/lib/bot-webhook-utils";
+import { getSrLeadFromDb, updateSrLead } from "@/src/lib/ghl-custom-object";
+import {
+  getGhlContactCustomField,
+  writeGhlContactCustomField,
+  moveGhlOpportunityStage,
+} from "@/src/lib/ghl-contacts";
 import { getZoneForZip } from "@/src/lib/service-zones";
 import { assembleQualifyPrompt } from "@/src/lib/prompts/qntum/assemblers/qualify";
-import type { QualifyContext, ConversationTrack, QualifyLastMessageContext } from "@/src/lib/prompts/qntum/types";
-
-// ── QUALIFY BOT SIGNALS ──────────────────────────────────────────────────────
-// [QUALIFIED]        → homeowner confirmed genuine, decision maker confirmed,
-//                      financial readiness not flagged as a hard constraint
-// [NOT_INTERESTED]   → homeowner clearly does not want to proceed
-// [SOFT_CLOSE]       → conversation ended warmly but without qualification
-//                      (timing issue, not ready, etc.) — no appointment,
-//                      no revival tag, just close and log
-// [ESCALATE]         → human needed — route as per escalation config
-// ────────────────────────────────────────────────────────────────────────────
-
-const QUALIFY_OPENER =
-  "Hey {firstName} — this is Alex with Qntum Roofing. " +
-  "Following up on your inspection request. " +
-  "What made you want to get your roof looked at?";
+import type {
+  QualifyContext,
+  ConversationTrack,
+  QualifyLastMessageContext,
+} from "@/src/lib/prompts/qntum/types";
 
 type BotMessage = { role: string; content: string; timestamp: string };
 
-function detectConversationTrack(messages: BotMessage[]): ConversationTrack {
+function stripAnySignals(text: string): string {
+  return text.replace(/\[[A-Z_:0-9 .-]+\]/g, "").trim();
+}
+
+function detectQualifyConversationTrack(
+  messages: BotMessage[],
+): ConversationTrack {
   const userMessages = messages.filter((m) => m.role === "user");
   if (userMessages.length === 0) return "problem_unaware";
-
   const userText = userMessages.map((m) => m.content.toLowerCase()).join(" ");
-
   const recentUser = userMessages.slice(-3);
   const avgLength =
     recentUser.reduce((sum, m) => sum + m.content.trim().length, 0) /
     recentUser.length;
-
-  // Resistant: guarded/negative language or consistently short replies (2+ messages)
-  const resistantPatterns =
-    /not interested|leave me alone|stop texting|don't (want|need|call)|go away/;
-  if (resistantPatterns.test(userText)) return "resistant";
+  if (
+    /not interested|leave me alone|stop texting|don't (want|need)|go away/.test(
+      userText,
+    )
+  )
+    return "resistant";
   if (userMessages.length >= 2 && avgLength < 15) return "resistant";
-
-  // Problem-aware: explicit mention of damage or known issues
-  const problemPatterns =
-    /leak|leaking|drip|missing shingle|crack|damage|hail|storm|water stain|sagging|rot|blow off|ice dam/;
-  if (problemPatterns.test(userText)) return "problem_aware";
-
-  // Warm: long, engaged, detailed replies
+  if (
+    /leak|leaking|drip|missing shingle|crack|damage|hail|storm|water stain|sagging|rot|blow off|ice dam/.test(
+      userText,
+    )
+  )
+    return "problem_aware";
   if (avgLength > 60) return "warm";
-
   return "problem_unaware";
 }
 
-function detectLastMessageContext(message: string): QualifyLastMessageContext {
+function detectQualifyLastMessageContext(
+  message: string,
+): QualifyLastMessageContext {
   if (!message || message === "new_lead") return "none";
-
   const t = message.toLowerCase();
-
-  // Escalation triggers
   if (
-    /speak (to|with) (someone|a person|your manager|the owner)|call me back|want a human|need to talk to someone/.test(t) ||
-    /that('s| is) (ridiculous|unacceptable|a scam|bs)|you('re| are) (scamming|lying)|waste of my time/.test(t)
-  ) return "escalation_needed";
-
-  // Insurance
-  if (/insurance|claim|adjuster|deductible|supplement/.test(t)) return "insurance_mention";
-
-  // Competitor
+    /speak (to|with) (someone|a person|your manager)|call me back|want a human/.test(
+      t,
+    )
+  )
+    return "escalation_needed";
+  if (/insurance|claim|adjuster|deductible/.test(t)) return "insurance_mention";
   if (
-    /other (company|roofer|contractor)|another (company|roofer)|got a (quote|bid)|someone else (is|came|already)/.test(t)
-  ) return "competitor_mention";
-
-  // Financial signal
+    /other (company|roofer)|another (company|roofer)|got a (quote|bid)/.test(t)
+  )
+    return "competitor_mention";
+  if (/how much|what('s| does) it cost|afford|financing|payment plan/.test(t))
+    return "financial_signal";
+  if (/husband|wife|spouse|partner|not here|need to (ask|check with)/.test(t))
+    return "decision_maker_issue";
+  if (/not (right now|a good time)|too busy|not ready|can't/.test(t))
+    return "timing_objection";
+  if (/leak|drip|missing|damage|hail|storm|crack|stain|rot|blow off/.test(t))
+    return "problem_confirmed";
+  if (/last (time|company)|bad experience|they (messed|screwed)/.test(t))
+    return "negative_experience";
   if (
-    /how much|what('s| does) it cost|afford|tight on|budget|financing|payment plan|loan|fixed income/.test(t)
-  ) return "financial_signal";
-
-  // Decision maker issue
+    /^(yes|yeah|yep|sure|sounds good|ok|okay|go ahead|let'?s do it)\.?$/.test(
+      t.trim(),
+    )
+  )
+    return "expressed_interest";
   if (
-    /husband|wife|spouse|partner|not here|need to (ask|check with|talk to)|she('s| is)|he('s| is) (not|the one)/.test(t)
-  ) return "decision_maker_issue";
-
-  // Timing objection
-  if (
-    /not (right now|a good time)|too busy|next (month|year|season)|later|can't (right now|do it)|not ready/.test(t)
-  ) return "timing_objection";
-
-  // Problem confirmed
-  if (
-    /leak|drip|missing|damage|hail|storm|crack|stain|rot|blow off|sagging/.test(t)
-  ) return "problem_confirmed";
-
-  // Negative experience
-  if (
-    /last (time|company|roofer)|bad experience|they (messed|screwed|didn't)|never again/.test(t)
-  ) return "negative_experience";
-
-  // Expressed interest
-  if (
-    /^(yes|yeah|yep|sure|sounds good|ok|okay|go ahead|let'?s do it|interested|absolutely|definitely)\.?$/.test(
-      t.trim()
-    ) ||
-    /yes[,.]?\s|yeah[,.]?\s|sure[,.]?\s|sounds good|i('m| am) (interested|in)|want to (schedule|do it|move forward)/.test(t)
-  ) return "expressed_interest";
-
-  // Problem denied
-  if (
-    /no (issues|problems|damage)|looks fine|seems fine|everything('s| is) (fine|ok|good)|don't (think|see) any/.test(t)
-  ) return "problem_denied";
-
+    /no (issues|problems|damage)|looks fine|everything('s| is) (fine|ok)/.test(
+      t,
+    )
+  )
+    return "problem_denied";
   return "stalling";
 }
 
-function detectStrongSignal(lead: {
-  roofAge: string | null;
-  knownIssues: unknown;
-  lastInspected: string | null;
-}): boolean {
-  const issues = Array.isArray(lead.knownIssues) ? (lead.knownIssues as string[]) : [];
-  const activeIssues = issues.filter((i) => i !== "I haven't noticed anything");
-  return activeIssues.length > 0 || lead.roofAge === "20+ years" || lead.lastInspected === "Never, as far as I know";
+// Short bridging SMS generated right before booking stage activation.
+async function generateTransitionalSms(firstName: string): Promise<string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 100,
+        system:
+          "You are Alex, a friendly texting rep for a roofing company. " +
+          "Write one short SMS (under 25 words) that naturally bridges a homeowner from a qualifying conversation into booking an inspection. " +
+          "Use their first name. Sound warm and conversational. No emojis. Return only the SMS text.",
+        messages: [
+          {
+            role: "user",
+            content: `Homeowner first name: ${firstName}. Write the transition SMS to booking.`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      content?: Array<{ text?: string }>;
+    };
+    return (data?.content?.[0]?.text ?? "").trim() || null;
+  } catch {
+    return null;
+  }
 }
 
-function stripSignals(text: string): string {
-  return text
-    .replace(/\[(QUALIFIED|NOT_INTERESTED|SOFT_CLOSE|ESCALATE)\]/g, "")
-    .trim();
-}
-
-function extractSignal(
-  text: string
-): "QUALIFIED" | "NOT_INTERESTED" | "SOFT_CLOSE" | "ESCALATE" | null {
-  if (text.includes("[QUALIFIED]")) return "QUALIFIED";
-  if (text.includes("[NOT_INTERESTED]")) return "NOT_INTERESTED";
-  if (text.includes("[SOFT_CLOSE]")) return "SOFT_CLOSE";
-  if (text.includes("[ESCALATE]")) return "ESCALATE";
-  return null;
-}
+const QUALIFY_OPENER =
+  `Hey {firstName} — this is Alex with Qntum Roofing. ` +
+  `Following up on your inspection request. ` +
+  `What made you want to get your roof looked at?`;
 
 export async function POST(request: NextRequest) {
-  // 1. Validate secret
   const authError = validateWebhookSecret(request);
   if (authError) return authError;
 
-  // 2. Parse body
-  let rawBody: unknown = null;
-  try { rawBody = await request.json(); } catch { /* fall through */ }
+  const rawBody = await request.json().catch(() => null);
+  const data = rawBody?.customData ?? rawBody ?? {};
+  const ghlContactId: string | null = data.contact_id ?? data.contactId ?? null;
+  const trigger: string = data.trigger ?? "inbound_sms";
+  const inboundMsg: string = data.message ?? "";
 
-  const parsed = parseInboundSms(rawBody);
-  if (!parsed) {
-    return NextResponse.json({ ok: true, warning: "unparseable_payload" });
+  if (!ghlContactId) {
+    console.error(
+      "[qualify] no contact_id in payload",
+      JSON.stringify(rawBody).slice(0, 500),
+    );
+    return new Response("OK", { status: 200 });
   }
 
-  const { ghlContactId, inboundMessage, idempotencyKey } = parsed;
+  const idempotencyKey =
+    trigger === "inbound_sms"
+      ? createHash("sha256")
+          .update(`${ghlContactId}:inbound:${inboundMsg}`)
+          .digest("hex")
+      : createHash("sha256")
+          .update(`${ghlContactId}:${trigger}:${Date.now()}`)
+          .digest("hex");
 
-  // 3. Idempotency check
   if (await isDuplicate(idempotencyKey)) {
-    return NextResponse.json({ ok: true, duplicate: true });
+    return new Response("OK", { status: 200 });
   }
 
-  // 4. Load lead
   const lead = await loadLead(ghlContactId);
   if (!lead) {
-    console.warn(`[qualify] no lead found for ghlContactId=${ghlContactId}`);
+    console.warn("[qualify] no lead for contact", ghlContactId);
     await logWebhookHit({
       source: "ghl_bot_qualify",
       payload: rawBody,
@@ -192,102 +199,196 @@ export async function POST(request: NextRequest) {
       error: "lead_not_found",
       idempotencyKey,
     });
-    return NextResponse.json({ ok: true, warning: "lead_not_found" });
+    return new Response("OK", { status: 200 });
+  }
+
+  const srLead = await getSrLeadFromDb(lead.id, ghlContactId);
+  if (!srLead) {
+    console.warn("[qualify] no SrLead for lead", lead.id);
+    await logWebhookHit({
+      source: "ghl_bot_qualify",
+      payload: rawBody,
+      success: false,
+      error: "sr_lead_not_found",
+      idempotencyKey,
+    });
+    return new Response("OK", { status: 200 });
+  }
+
+  if (srLead.srOptedOut || lead.botOptedOut) {
+    return new Response("OK", { status: 200 });
+  }
+
+  if (trigger === "inbound_sms" && isOptOut(inboundMsg)) {
+    await addGhlTag(ghlContactId, "sr_opted_out").catch((e) =>
+      console.error(e),
+    );
+    await transitionLead(
+      lead.id,
+      ghlContactId,
+      null,
+      "sr_dead",
+      "DEAD",
+      "silent",
+      { sr_status: "DEAD", sr_bot_stage: "silent", sr_opted_out: true },
+    );
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: { botOptedOut: true },
+    });
+    await logWebhookHit({
+      source: "ghl_bot_qualify",
+      payload: rawBody,
+      success: true,
+      leadId: lead.id,
+      idempotencyKey,
+    });
+    return new Response("OK", { status: 200 });
   }
 
   try {
-    // 5. DND / opted-out check
-    if (lead.botOptedOut) {
-      return NextResponse.json({ ok: true, skipped: "opted_out" });
-    }
+    // Capture before type narrowing strips the literal
+    const scheduling_approved_pause = trigger === "scheduling_approved";
 
-    // 6. Opt-out keyword
-    if (isOptOut(inboundMessage)) {
-      await addGhlTag(ghlContactId, "sr_opted_out");
-      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_dead", "DEAD", "silent", {
-        sr_status: "DEAD",
-        sr_bot_stage: "silent",
-        sr_opted_out: true,
+    // ── Opener triggers ────────────────────────────────────────────────────────
+    if (trigger === "new_inspection_lead" || trigger === "scheduling_approved") {
+      const { id: threadId, messages } = await getOrCreateThread(
+        ghlContactId,
+        "qualify",
+      );
+      if (messages.length === 0) {
+        const fn = lead.customerName.trim().split(/\s+/)[0];
+        const opener = QUALIFY_OPENER.replace("{firstName}", fn);
+        await sendGhlSms(ghlContactId, opener);
+        await appendMessage(threadId, "assistant", opener);
+      }
+      await logWebhookHit({
+        source: "ghl_bot_qualify",
+        payload: rawBody,
+        success: true,
+        leadId: lead.id,
+        idempotencyKey,
       });
-      await prisma.lead.update({ where: { id: lead.id }, data: { botOptedOut: true } });
-      await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
-      return NextResponse.json({ ok: true });
+      return new Response("OK", { status: 200 });
     }
 
-    // 7. Cancellation check
-    if (isCancellation(inboundMessage)) {
+    if (trigger !== "inbound_sms") {
+      await logWebhookHit({
+        source: "ghl_bot_qualify",
+        payload: rawBody,
+        success: true,
+        leadId: lead.id,
+        idempotencyKey,
+      });
+      return new Response("OK", { status: 200 });
+    }
+
+    // ── inbound_sms ────────────────────────────────────────────────────────────
+
+    if (isCancellation(inboundMsg)) {
       const activeInspection = await prisma.inspection.findFirst({
         where: { leadId: lead.id, status: "scheduled" },
       });
       if (activeInspection) {
         await prisma.inspection.update({
           where: { id: activeInspection.id },
-          data: { status: "cancelled", repNotes: "Cancelled by homeowner via SMS" },
+          data: {
+            status: "cancelled",
+            repNotes: "Cancelled by homeowner via SMS",
+          },
         });
-        await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_cancelled", "DEMO_NOT_SOLD", "silent", {
-          sr_status: "DEMO_NOT_SOLD",
-          sr_bot_stage: "silent",
-        });
+        await transitionLead(
+          lead.id,
+          ghlContactId,
+          "sr_qualifying",
+          "sr_cancelled",
+          "DEMO_NOT_SOLD",
+          "silent",
+          { sr_status: "DEMO_NOT_SOLD", sr_bot_stage: "silent" },
+        );
         const fn = lead.customerName.trim().split(/\s+/)[0];
         await sendGhlSms(
           ghlContactId,
-          `No problem, ${fn}. We'll remove you from the schedule. If you ever want to revisit, just reach out — we're here.`
+          `No problem, ${fn}. We'll remove you from the schedule. If you ever want to revisit, just reach out.`,
         );
-        await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
-        return NextResponse.json({ ok: true });
+        await logWebhookHit({
+          source: "ghl_bot_qualify",
+          payload: rawBody,
+          success: true,
+          leadId: lead.id,
+          idempotencyKey,
+        });
+        return new Response("OK", { status: 200 });
       }
     }
 
-    // 8–9. Load or create thread, append inbound
-    const { id: threadId, messages, isNew } = await getOrCreateThread(ghlContactId, "qualify");
+    const {
+      id: threadId,
+      messages,
+      isNew,
+    } = await getOrCreateThread(ghlContactId, "qualify");
 
-    // Proactive opener: if brand new thread, send opener first
     if (isNew || messages.length === 0) {
       const fn = lead.customerName.trim().split(/\s+/)[0];
       const opener = QUALIFY_OPENER.replace("{firstName}", fn);
       await sendGhlSms(ghlContactId, opener);
       await appendMessage(threadId, "assistant", opener);
-      if (!inboundMessage || inboundMessage === "new_lead") {
-        await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
-        return NextResponse.json({ ok: true });
+      if (!inboundMsg || inboundMsg === "new_lead") {
+        await logWebhookHit({
+          source: "ghl_bot_qualify",
+          payload: rawBody,
+          success: true,
+          leadId: lead.id,
+          idempotencyKey,
+        });
+        return new Response("OK", { status: 200 });
       }
     }
 
-    // Append real inbound message
-    if (inboundMessage && inboundMessage !== "new_lead") {
-      await appendMessage(threadId, "user", inboundMessage);
+    if (inboundMsg && inboundMsg !== "new_lead") {
+      await appendMessage(threadId, "user", inboundMsg);
     }
 
-    // Reload messages after appending
-    const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
+    const thread = await prisma.botThread.findUnique({
+      where: { id: threadId },
+    });
     const currentMessages = (thread?.messages as BotMessage[]) ?? [];
 
-    // 10. Build QualifyContext and assemble prompt
     const zone = lead.sourceZip ? (getZoneForZip(lead.sourceZip) ?? "") : "";
     const knownIssues = Array.isArray(lead.knownIssues)
       ? (lead.knownIssues as string[])
       : null;
+    const activeIssues = (knownIssues ?? []).filter(
+      (i) => i !== "I haven't noticed anything",
+    );
 
-    // Detect source type from lead.source field
-    const rawSource = (lead as unknown as { source?: string }).source ?? null;
-    const sourceMap: Record<string, QualifyContext['source']> = {
-      'facebook-inspection': 'facebook-inspection',
-      'facebook-guide': 'facebook-guide',
-      'door': 'door',
-      'card': 'card',
+    const rawLead = lead as unknown as Record<string, unknown>;
+    type QSrc = QualifyContext["source"];
+    const rawSource = (rawLead.source as string) ?? null;
+    const srcMap: Record<string, QSrc> = {
+      "facebook-inspection": "facebook-inspection",
+      "facebook-guide": "facebook-guide",
+      door: "door",
+      card: "card",
     };
-    const source: QualifyContext['source'] = rawSource && rawSource in sourceMap
-      ? sourceMap[rawSource]
-      : (rawSource === 'facebook' || rawSource === 'ghl_facebook') ? 'facebook-inspection' : null;
+    const source: QSrc =
+      rawSource && rawSource in srcMap
+        ? srcMap[rawSource]
+        : rawSource === "facebook" || rawSource === "ghl_facebook"
+          ? "facebook-inspection"
+          : null;
 
-    // came_from_nurture: true if the lead had a nurture thread before this qualify thread
     const nurtureThread = await prisma.botThread.findFirst({
-      where: { ghlContactId, botType: 'nurture' },
+      where: { ghlContactId, botType: "nurture" },
     });
-    const came_from_nurture = nurtureThread !== null;
 
-    // scheduling_approved_pause: true if this message was triggered by the scheduling_approved webhook
-    const scheduling_approved_pause = inboundMessage === 'scheduling_approved';
+    // Read nurture bot context written on [INSPECTION_INTENT]
+    const previousBotContext = process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT
+      ? await getGhlContactCustomField(
+          ghlContactId,
+          process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
+        ).catch(() => null)
+      : null;
 
     const context: QualifyContext = {
       bot_type: "qualify",
@@ -296,76 +397,160 @@ export async function POST(request: NextRequest) {
       source_zip: lead.sourceZip ?? "",
       zone,
       message_history_count: currentMessages.length,
-      last_message_context: detectLastMessageContext(inboundMessage),
-      conversation_track: detectConversationTrack(currentMessages),
+      last_message_context: detectQualifyLastMessageContext(inboundMsg),
+      conversation_track: detectQualifyConversationTrack(currentMessages),
       roof_age: lead.roofAge,
       known_issues: knownIssues,
       last_inspected: lead.lastInspected,
       decision_maker_home: lead.decisionMakerHome,
-      has_strong_signal: detectStrongSignal({
-        roofAge: lead.roofAge,
-        knownIssues: lead.knownIssues,
-        lastInspected: lead.lastInspected,
-      }),
+      has_strong_signal:
+        activeIssues.length > 0 ||
+        lead.roofAge === "20+ years" ||
+        lead.lastInspected === "Never, as far as I know",
       source,
-      came_from_nurture,
+      came_from_nurture: nurtureThread !== null,
       scheduling_approved_pause,
+      previousBotContext: previousBotContext ?? undefined,
     };
 
     const systemPrompt = assembleQualifyPrompt(context);
-
-    // 11. Run bot
     const botMessages = currentMessages.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
       timestamp: m.timestamp,
     }));
     const rawResponse = await runBot(systemPrompt, botMessages);
-
-    // 12. Null = [ESCALATE] handled by bot-engine (notifyManager already called)
     if (rawResponse === null) {
-      await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
-      return NextResponse.json({ ok: true });
+      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
+        console.error("[qualify] updateSrLead silent failed", err),
+      );
+      await logWebhookHit({
+        source: "ghl_bot_qualify",
+        payload: rawBody,
+        success: true,
+        leadId: lead.id,
+        idempotencyKey,
+      });
+      return new Response("OK", { status: 200 });
     }
 
-    const signal = extractSignal(rawResponse);
-    const smsText = stripSignals(rawResponse);
+    if (!lead.ghlOpportunityId) {
+      console.warn(
+        `[qualify] lead ${lead.id} has no ghlOpportunityId — ` +
+          `pipeline stage moves will be skipped.`,
+      );
+    }
 
-    // 13. Send SMS
-    await sendGhlSms(ghlContactId, smsText);
+    const signalQualified = rawResponse.includes("[QUALIFIED]");
+    const signalNotInterested = rawResponse.includes("[NOT_INTERESTED]");
+    const signalSoftClose = rawResponse.includes("[SOFT_CLOSE]");
 
-    // 14. Append assistant response (with signal retained in thread)
+    const cleanResponse = rawResponse
+      .replace("[QUALIFIED]", "")
+      .replace("[NOT_INTERESTED]", "")
+      .replace("[SOFT_CLOSE]", "")
+      .trim();
+
+    if (cleanResponse) {
+      await sendGhlSms(ghlContactId, cleanResponse);
+    }
     await appendMessage(threadId, "assistant", rawResponse);
 
-    // 15. Handle signal
-    if (signal === "QUALIFIED") {
-      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_qualified", "NEW", "booking", {
-        sr_qualify_status: "qualified",
+    if (signalQualified) {
+      // Persist qualify bot's last message for the book bot to reference
+      const lastAssistantMsg = stripAnySignals(rawResponse);
+      if (lastAssistantMsg && process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
+        await writeGhlContactCustomField(
+          ghlContactId,
+          process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
+          lastAssistantMsg,
+        ).catch((err) =>
+          console.error("[qualify] writeGhlContactCustomField failed:", err),
+        );
+      }
+
+      // Transitional SMS before booking activation
+      const transitional = await generateTransitionalSms(
+        lead.customerName.trim().split(/\s+/)[0],
+      );
+      if (transitional) await sendGhlSms(ghlContactId, transitional);
+
+      await updateSrLead(lead.id, {
         sr_bot_stage: "booking",
-      });
-      await addGhlTag(ghlContactId, "sr_booking");
-
-    } else if (signal === "NOT_INTERESTED") {
-      await transitionLead(lead.id, ghlContactId, "sr_qualifying", "sr_dead", "DEAD", "silent", {
-        sr_status: "DEAD",
-        sr_bot_stage: "silent",
+        sr_qualify_status: "qualified",
       });
 
-    } else if (signal === "SOFT_CLOSE") {
-      // Warm close — not qualified, not dead. Remove qualifying tag, go silent.
-      // No revival tag added. Preserves goodwill for future outreach.
-      await transitionLead(lead.id, ghlContactId, "sr_qualifying", null, "NEW", "silent", {
-        sr_bot_stage: "silent",
-      });
-      await addGhlTag(ghlContactId, "sr_soft_close");
+      if (lead.ghlOpportunityId) {
+        await moveGhlOpportunityStage(
+          lead.ghlOpportunityId,
+          process.env.GHL_STAGE_BOOKING!,
+        ).catch((err) =>
+          console.error(
+            "[qualify] moveGhlOpportunityStage BOOKING failed",
+            err,
+          ),
+        );
+      } else {
+        console.warn(
+          `[qualify] no ghlOpportunityId on lead ${lead.id}`,
+        );
+      }
+
+      await Promise.allSettled([
+        addGhlTag(ghlContactId, "sr_qualified"),
+        addGhlTag(ghlContactId, "sr_booking"),
+        removeGhlTag(ghlContactId, "sr_qualifying"),
+      ]);
+      // GHL workflow reacts to the stage move and fires qualified_handoff webhook
+      // — that activates the book bot. No direct message send needed here.
     }
 
-    await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: true, leadId: lead.id, idempotencyKey });
-    return NextResponse.json({ ok: true });
-  } catch (err) {
+    if (signalNotInterested) {
+      await updateSrLead(lead.id, {
+        sr_bot_stage: "silent",
+        sr_status: "DEAD",
+      });
+      await Promise.allSettled([
+        addGhlTag(ghlContactId, "sr_dead"),
+        removeGhlTag(ghlContactId, "sr_qualifying"),
+        lead.ghlOpportunityId
+          ? moveGhlOpportunityStage(
+              lead.ghlOpportunityId,
+              process.env.GHL_STAGE_DEAD!,
+            )
+          : Promise.resolve(),
+      ]);
+    }
+
+    if (signalSoftClose) {
+      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
+        console.error("[qualify] updateSrLead soft_close failed", err),
+      );
+      await addGhlTag(ghlContactId, "sr_soft_close").catch((err) =>
+        console.error("[qualify] addGhlTag soft_close failed", err),
+      );
+    }
+  } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[qualify] uncaught error:", message);
-    await logWebhookHit({ source: "ghl_bot_qualify", payload: rawBody, success: false, error: message, leadId: lead.id, idempotencyKey });
-    return NextResponse.json({ ok: true });
+    await logWebhookHit({
+      source: "ghl_bot_qualify",
+      payload: rawBody,
+      success: false,
+      error: message,
+      leadId: lead.id,
+      idempotencyKey,
+    });
+    return new Response("OK", { status: 200 });
   }
+
+  await logWebhookHit({
+    source: "ghl_bot_qualify",
+    payload: rawBody,
+    success: true,
+    leadId: lead.id,
+    idempotencyKey,
+  });
+  return new Response("OK", { status: 200 });
 }
+

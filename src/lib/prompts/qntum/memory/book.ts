@@ -4,7 +4,7 @@ import { TIME_WINDOWS } from '../../../time-utils'
 export function getBookMemoryModule(context: BookContext): string {
   const {
     qualify_summary, available_slots, locked_slot, trigger,
-    time_preference, address_collected, confirmed_address,
+    time_preference, address_collected, confirmed_address, previousBotContext,
   } = context
   const { problem_confirmed, specific_issue, roof_age, decision_maker_confirmed } = qualify_summary
 
@@ -56,6 +56,10 @@ export function getBookMemoryModule(context: BookContext): string {
     memory += `\nTRIGGER: This is the first message in the booking conversation. The homeowner just finished qualifying. Ask for their address — do not offer slots yet.\n`
   } else if (trigger === 'stall_followup') {
     memory += `\nTRIGGER: The homeowner said they needed to check their schedule 24 hours ago. This is the one follow-up. Check if the original slot is still available. If yes — reference it. If not — offer fresh slots. One follow-up only.\n`
+  }
+
+  if (previousBotContext) {
+    memory += `\nPRIOR_CONTEXT: "${previousBotContext}"\nIf previousBotContext contains a time preference, reference it in your opener instead of asking for one.\n`
   }
 
   return memory

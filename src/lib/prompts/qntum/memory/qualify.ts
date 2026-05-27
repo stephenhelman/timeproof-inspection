@@ -1,13 +1,17 @@
 import type { QualifyContext } from '../types';
 
 export function getQualifyMemoryModule(context: QualifyContext): string {
-  const { roof_age, known_issues, last_inspected, decision_maker_home, has_strong_signal } = context;
+  const { roof_age, known_issues, last_inspected, decision_maker_home, has_strong_signal, previousBotContext } = context;
 
   const hasFormData = roof_age !== null || known_issues !== null;
 
   if (!hasFormData) {
-    return `PRIOR_CONTEXT:
+    let noFormInstruction = `PRIOR_CONTEXT:
 This homeowner came from a Facebook ad. No qualify form was completed. You have no data on their roof condition, age, or situation. Treat this as a blank slate — surface everything through conversation. Start with situation questions before anything else.`;
+    if (previousBotContext) {
+      noFormInstruction += `\n\nPrior context: "${previousBotContext}"`;
+    }
+    return noFormInstruction;
   }
 
   const issueList = known_issues && known_issues.length > 0
@@ -51,6 +55,10 @@ WEAK OR NEUTRAL SIGNAL — no strong indicators from form data. Treat this as di
     instruction += `
 
 DECISION MAKER FLAG: Homeowner indicated the decision maker may not be present. This must be resolved before [QUALIFIED] is emitted. Do not raise it early — wait until the conversation has built enough warmth. It should feel like a natural logistics question, not a screening question.`;
+  }
+
+  if (previousBotContext) {
+    instruction += `\n\nPrior context: "${previousBotContext}"`;
   }
 
   return instruction;

@@ -205,3 +205,63 @@ export async function moveGhlOpportunityStage(
   const { opportunities } = getClients();
   await opportunities.update(ghlOpportunityId, { pipelineStageId });
 }
+
+// Write a single custom field value to a GHL contact.
+// Used by bot routes to store pipeline context fields (e.g. sr_previous_context).
+export async function writeGhlContactCustomField(
+  ghlContactId: string,
+  fieldId: string,
+  value: string,
+): Promise<void> {
+  const { contacts } = getClients();
+  // Assign to a typed variable to avoid inline excess-property check on the SDK union type.
+  const customFields: Array<{ id: string; value: string; field_value: string }> = [
+    { id: fieldId, value, field_value: value },
+  ];
+  await contacts.update(ghlContactId, { customFields });
+}
+
+// Read a single custom field value from a GHL contact.
+// Returns null if the field is not found or the contact cannot be fetched.
+export async function getGhlContactCustomField(
+  ghlContactId: string,
+  fieldId: string,
+): Promise<string | null> {
+  const apiKey = process.env.GHL_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `https://services.leadconnectorhq.com/contacts/${encodeURIComponent(ghlContactId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          Version: "2021-07-28",
+        },
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      contact?: { customFields?: Array<{ id: string; value?: string; field_value?: string }> };
+    };
+    const fields = data?.contact?.customFields ?? [];
+    const match = fields.find((f) => f.id === fieldId);
+    return match?.field_value ?? match?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Write a single custom field value to a GHL opportunity.
+// Used to store sr_inspection_id and sr_pipeline_context.
+export async function writeGhlOpportunityCustomField(
+  ghlOpportunityId: string,
+  fieldId: string,
+  value: string,
+): Promise<void> {
+  const { opportunities } = getClients();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (opportunities as any).update(ghlOpportunityId, {
+    customFields: [{ id: fieldId, value, field_value: value }],
+  });
+}

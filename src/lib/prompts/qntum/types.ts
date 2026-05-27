@@ -53,6 +53,9 @@ export interface QualifyContext {
   source: 'facebook-inspection' | 'facebook-guide' | 'door' | 'card' | null;
   came_from_nurture: boolean;
   scheduling_approved_pause: boolean;
+
+  // Last nurture bot message — written by nurture route on [INSPECTION_INTENT].
+  previousBotContext?: string;
 }
 
 // ─── NURTURE ──────────────────────────────────────────────────────────────────
@@ -142,6 +145,9 @@ export interface BookContext {
   // Time-of-day preference detected from homeowner conversation
   time_preference:     TimeOfDay;
   specific_start_hour?: number;       // from "after X" pattern
+
+  // Last qualify bot message — written by qualify route on [QUALIFIED].
+  previousBotContext?: string;
 }
 
 // ─── REVIVAL ──────────────────────────────────────────────────────────────────
