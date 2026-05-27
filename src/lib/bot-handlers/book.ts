@@ -688,10 +688,10 @@ export async function handleBookWebhook(ctx: {
       );
     }
 
-    const confirmMsg =
+    const confirmationSms =
       `You're all set — got you down for ${slotLabel}. ` +
-      `Our inspector will reach out the morning of with a heads up. See you then!`;
-    await sendGhlSms(ghlContactId, confirmMsg);
+      `Our inspector will reach out the morning of with an ETA.`;
+    await sendGhlSms(ghlContactId, confirmationSms);
 
     if (lead.assignedUserId) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.scopereports.com";

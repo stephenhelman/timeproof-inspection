@@ -11,10 +11,18 @@ type RadioGroupProps = {
   onChange: (v: string) => void;
 };
 
-function RadioGroup({ label, name, options, value, onChange }: RadioGroupProps) {
+function RadioGroup({
+  label,
+  name,
+  options,
+  value,
+  onChange,
+}: RadioGroupProps) {
   return (
     <fieldset className="space-y-2">
-      <legend className="text-base font-semibold text-white mb-3 block">{label}</legend>
+      <legend className="text-base font-semibold text-white mb-3 block">
+        {label}
+      </legend>
       {options.map((opt) => (
         <label
           key={opt}
@@ -51,7 +59,12 @@ type CheckboxGroupProps = {
   onChange: (v: string[]) => void;
 };
 
-function CheckboxGroup({ label, options, values, onChange }: CheckboxGroupProps) {
+function CheckboxGroup({
+  label,
+  options,
+  values,
+  onChange,
+}: CheckboxGroupProps) {
   function toggle(opt: string) {
     if (values.includes(opt)) {
       onChange(values.filter((v) => v !== opt));
@@ -62,7 +75,9 @@ function CheckboxGroup({ label, options, values, onChange }: CheckboxGroupProps)
 
   return (
     <fieldset className="space-y-2">
-      <legend className="text-base font-semibold text-white mb-3 block">{label}</legend>
+      <legend className="text-base font-semibold text-white mb-3 block">
+        {label}
+      </legend>
       {options.map((opt) => {
         const checked = values.includes(opt);
         return (
@@ -86,7 +101,11 @@ function CheckboxGroup({ label, options, values, onChange }: CheckboxGroupProps)
               }`}
             >
               {checked && (
-                <svg className="w-2.5 h-2.5 text-black" viewBox="0 0 12 12" fill="currentColor">
+                <svg
+                  className="w-2.5 h-2.5 text-black"
+                  viewBox="0 0 12 12"
+                  fill="currentColor"
+                >
                   <path d="M10.28 2.28a1 1 0 0 0-1.42 0L4.5 6.64 3.14 5.28a1 1 0 0 0-1.42 1.42l2 2a1 1 0 0 0 1.42 0l5-5a1 1 0 0 0 0-1.42z" />
                 </svg>
               )}
@@ -105,12 +124,24 @@ function Confirmation() {
   return (
     <div className="max-w-lg mx-auto px-5 py-16 text-center">
       <div className="w-16 h-16 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center mx-auto mb-6">
-        <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        <svg
+          className="w-8 h-8 text-white"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5 13l4 4L19 7"
+          />
         </svg>
       </div>
 
-      <h1 className="text-2xl font-bold text-white mb-3">You&apos;re on the schedule.</h1>
+      <h1 className="text-2xl font-bold text-white mb-3">
+        You&apos;re on the schedule.
+      </h1>
       <p className="text-gray-400 text-base leading-relaxed mb-10">
         We&apos;ll reach out within the hour to confirm your inspection time.
       </p>
@@ -133,7 +164,7 @@ function Confirmation() {
 
       <p className="text-gray-600 text-sm">
         Questions? Text us at{" "}
-        <span className="text-gray-400 font-medium">XXX-XXX-XXXX</span>
+        <span className="text-gray-400 font-medium">915-233-7073</span>
       </p>
     </div>
   );
@@ -160,7 +191,11 @@ export default function QualifyForm({
   const [done, setDone] = useState(false);
 
   const allAnswered =
-    roofAge && knownIssues.length > 0 && lastInspected && bestTime && decisionMakerHome;
+    roofAge &&
+    knownIssues.length > 0 &&
+    lastInspected &&
+    bestTime &&
+    decisionMakerHome;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -171,11 +206,22 @@ export default function QualifyForm({
       const res = await fetch("/api/qualify/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, roofAge, knownIssues, lastInspected, bestTime, decisionMakerHome, source: resolveSource("inspection") }),
+        body: JSON.stringify({
+          token,
+          roofAge,
+          knownIssues,
+          lastInspected,
+          bestTime,
+          decisionMakerHome,
+          source: resolveSource("inspection"),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
-        if (res.status === 400 && data.error?.toLowerCase().includes("expired")) {
+        if (
+          res.status === 400 &&
+          data.error?.toLowerCase().includes("expired")
+        ) {
           window.location.href = "/?expired=true";
           return;
         }
@@ -207,7 +253,8 @@ export default function QualifyForm({
           A few quick questions about your roof
         </h1>
         <p className="text-gray-500 text-sm mb-10">
-          This helps us send the right inspector and make the most of your appointment.
+          This helps us send the right inspector and make the most of your
+          appointment.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-10">

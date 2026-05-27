@@ -269,15 +269,18 @@ export async function handleQualifyWebhook(ctx: {
     );
   }
 
-  const signalQualified = rawResponse.includes("[QUALIFIED]");
+  let signalQualified = rawResponse.includes("[QUALIFIED]");
   const signalNotInterested = rawResponse.includes("[NOT_INTERESTED]");
   const signalSoftClose = rawResponse.includes("[SOFT_CLOSE]");
 
-  const cleanResponse = rawResponse
-    .replace("[QUALIFIED]", "")
-    .replace("[NOT_INTERESTED]", "")
-    .replace("[SOFT_CLOSE]", "")
-    .trim();
+  if (!signalQualified && rawResponse.includes("[BOOKED")) {
+    console.warn(
+      `[qualify] rogue [BOOKED] signal detected in qualify bot response for contact ${ghlContactId} — treating as [QUALIFIED]`,
+    );
+    signalQualified = true;
+  }
+
+  const cleanResponse = stripAnySignals(rawResponse);
 
   if (cleanResponse) {
     await sendGhlSms(ghlContactId, cleanResponse);
