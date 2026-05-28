@@ -56,12 +56,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.id = user.id;
         token.email = user.email;
-        // Fetch role from DB so it's available in middleware
+        // Fetch role + repSlug from DB so they're available in session
         const dbUser = await prisma.user.findUnique({
           where: { id: user.id as string },
-          select: { role: true },
+          select: { role: true, repSlug: true },
         });
-        if (dbUser) token.role = dbUser.role;
+        if (dbUser) {
+          token.role = dbUser.role;
+          token.repSlug = dbUser.repSlug ?? null;
+        }
       }
       return token;
     },
@@ -71,6 +74,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user && token.name) session.user.name = token.name as string;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (session.user && token.role) (session.user as any).role = token.role as string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (session.user) (session.user as any).repSlug = (token.repSlug ?? null) as string | null;
       return session;
     },
   },

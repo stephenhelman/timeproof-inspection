@@ -11,6 +11,7 @@ import {
   LogOut,
   ShieldCheck,
 } from "lucide-react";
+import DoorApproachButton from "@/src/components/door-approach/DoorApproachButton";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -26,7 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const dbUser = await prisma.user.findUniqueOrThrow({
     where: { id: session.user.id },
-    select: { profileImageUrl: true, role: true, isActive: true },
+    select: { profileImageUrl: true, role: true, isActive: true, repSlug: true },
   });
 
   // PRESERVED — not active in Qntum build (revival queue)
@@ -75,6 +76,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               Revival ...
             </a>
             */}
+            <DoorApproachButton repSlug={dbUser.repSlug ?? null} />
           </div>
 
           {/* Right side */}
@@ -150,6 +152,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <CreditCard size={14} strokeWidth={1.75} />
             Card
           </a>
+          <DoorApproachButton repSlug={dbUser.repSlug ?? null} mobile />
         </div>
       </nav>
 

@@ -71,6 +71,7 @@ model User {
   cardShowProfileImage Boolean        @default(true)
 
   ghlContactId   String?         // GHL contact ID for rep SMS notifications via bot-engine
+  repSlug        String?         @unique // URL-safe slug for door approach QR codes e.g. "stephen-helman"
 
   role           UserRole        @default(REP)
   isActive       Boolean         @default(true)
