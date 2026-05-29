@@ -10,54 +10,19 @@ import {
   appendMessage,
   runBot,
   transitionLead,
+  getAreaAppointments,
 } from "@/src/lib/bot-engine";
 import { validateWebhookSecret } from "@/src/lib/bot-webhook-utils";
-import { getZipTier } from "@/src/lib/service-zones";
+import { getZipTier, getZoneForZip } from "@/src/lib/service-zones";
+import {
+  getGhlOpportunityCustomField,
+  writeGhlOpportunityCustomField,
+  writeGhlContactCustomField,
+} from "@/src/lib/ghl-contacts";
 import { assembleNurturePrompt } from "@/src/lib/prompts/qntum/assemblers/nurture";
-import type { NurtureContext } from "@/src/lib/prompts/qntum/types";
-
-function detectInsightUsed(text: string): string | null {
-  const match = text.match(/\[INSIGHT_USED:\s*([a-z_]+)\]/i);
-  return match ? match[1].toLowerCase() : null;
-}
-
-function stripSignals(text: string): string {
-  return text
-    .replace(/\[INSPECTION_INTENT\]/g, '')
-    .replace(/\[INSIGHT_USED:[^\]]*\]/gi, '')
-    .replace(/\[SOFT_CLOSE\]/g, '')
-    .replace(/\[NOT_INTERESTED\]/g, '')
-    .replace(/\[ESCALATE\]/g, '')
-    .trim();
-}
-
-function extractSignal(text: string): 'INSPECTION_INTENT' | 'SOFT_CLOSE' | 'NOT_INTERESTED' | 'ESCALATE' | null {
-  if (text.includes('[ESCALATE]')) return 'ESCALATE';
-  if (text.includes('[INSPECTION_INTENT]')) return 'INSPECTION_INTENT';
-  if (text.includes('[NOT_INTERESTED]')) return 'NOT_INTERESTED';
-  if (text.includes('[SOFT_CLOSE]')) return 'SOFT_CLOSE';
-  return null;
-}
-
-async function getUsedInsightIds(threadId: string): Promise<string[]> {
-  const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-  if (!thread) return [];
-  const meta = thread.metadata as Record<string, unknown> | null;
-  return Array.isArray(meta?.usedInsightIds) ? (meta.usedInsightIds as string[]) : [];
-}
-
-async function addUsedInsightId(threadId: string, insightId: string): Promise<void> {
-  const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-  if (!thread) return;
-  const meta = (thread.metadata as Record<string, unknown>) ?? {};
-  const existing = Array.isArray(meta.usedInsightIds) ? (meta.usedInsightIds as string[]) : [];
-  if (!existing.includes(insightId)) {
-    await prisma.botThread.update({
-      where: { id: threadId },
-      data: { metadata: { ...meta, usedInsightIds: [...existing, insightId] } },
-    });
-  }
-}
+import { EMPTY_BOT_CONTEXT } from "@/src/lib/prompts/qntum/types";
+import type { BotContext } from "@/src/lib/prompts/qntum/types";
+import type { NurtureAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/nurture";
 
 export async function POST(request: NextRequest) {
   const authError = validateWebhookSecret(request);
@@ -66,7 +31,6 @@ export async function POST(request: NextRequest) {
   let body: unknown = null;
   try { body = await request.json(); } catch { /* fall through */ }
 
-  // customData-first: GHL standard workflow webhooks wrap all fields in customData
   const bodyData = (body as Record<string, unknown>) ?? {};
   const data = (bodyData.customData as Record<string, unknown>) ?? bodyData;
   const { lead_id, drip_position } = data;
@@ -89,7 +53,6 @@ export async function POST(request: NextRequest) {
   if (lead.botOptedOut) return NextResponse.json({ ok: true, skipped: 'opted_out' });
   if (!lead.ghlContactId) return NextResponse.json({ ok: true, warning: 'no_ghl_contact_id' });
 
-  // Skip if lead has moved past soft-close (been reactivated)
   const activeStatuses = ['NEW', 'INSPECTION_SCHEDULED', 'QUOTED', 'SOLD'];
   if (activeStatuses.includes(lead.status as string)) {
     return NextResponse.json({ ok: true, skipped: 'lead_reactivated' });
@@ -99,74 +62,79 @@ export async function POST(request: NextRequest) {
 
   try {
     const { id: threadId } = await getOrCreateThread(ghlContactId, 'nurture');
-    const usedInsightIds = await getUsedInsightIds(threadId);
-
-    // Build NurtureContext for drip
-    const rawLead = lead as unknown as Record<string, unknown>;
-    const issuesRaw = rawLead.issuesNoticed as string | null ?? null;
-    const issuesNoticed = issuesRaw ? issuesRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
-
-    const sourceRaw = (rawLead.source as string) ?? 'facebook-guide';
-    const sourceMap: Record<string, NurtureContext['source']> = {
-      'facebook-guide': 'facebook-guide',
-      'door': 'door',
-      'card': 'card',
-    };
-    const source: NurtureContext['source'] = sourceMap[sourceRaw] ?? 'facebook-guide';
-
-    // Load thread to get message count
     const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
     const currentMessages = (thread?.messages as Array<{ role: string; content: string; timestamp: string }>) ?? [];
 
-    const context: NurtureContext = {
-      bot_type: 'nurture',
+    // Read bot_context from GHL opportunity field
+    const rawLead = lead as unknown as Record<string, unknown>;
+    const ghlOpportunityId = (rawLead.ghlOpportunityId as string | null) ?? null;
+    let bot_context: BotContext = EMPTY_BOT_CONTEXT;
+    if (ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+      const raw = await getGhlOpportunityCustomField(ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT).catch(() => null);
+      if (raw) {
+        try { bot_context = JSON.parse(raw) as BotContext; } catch { /* use empty */ }
+      }
+    }
+
+    const leadZone = lead.sourceZip ? (getZoneForZip(lead.sourceZip) ?? 'el_paso_central') : 'el_paso_central';
+    const area_appointments = await getAreaAppointments(leadZone).catch(() => []);
+
+    const sourceRaw = (rawLead.source as string) ?? 'facebook-guide';
+    const srcMap: Record<string, NurtureAssemblerContext['source']> = {
+      'facebook-guide': 'facebook-guide', 'door': 'door', 'card': 'card', 'organic': 'organic',
+    };
+    const source: NurtureAssemblerContext['source'] = srcMap[sourceRaw] ?? 'facebook-guide';
+
+    const context: NurtureAssemblerContext = {
       homeowner_name: lead.customerName,
       first_name: lead.customerName.trim().split(/\s+/)[0],
       source,
       rep: (rawLead.rep as string | null) ?? null,
       message_history_count: currentMessages.length,
-      last_message_context: 'none',
-      roof_type: (rawLead.roofType as string | null) ?? null,
-      roof_age: lead.roofAge ?? null,
-      issues_noticed: issuesNoticed,
-      last_inspected: lead.lastInspected ?? null,
-      address: lead.streetAddress ?? null,
-      used_insight_ids: usedInsightIds,
       is_drip: true,
       drip_sequence_position: pos,
+      bot_context,
+      area_appointments,
     };
 
     const systemPrompt = assembleNurturePrompt(context);
-
-    // Synthetic user turn — gives Claude a turn structure without implying homeowner said anything
-    const syntheticTurn = { role: 'user' as const, content: '[drip_trigger]', timestamp: new Date().toISOString() };
     const botMessages = [
       ...currentMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp })),
-      syntheticTurn,
+      { role: 'user' as const, content: '[drip_trigger]', timestamp: new Date().toISOString() },
     ];
 
-    const rawResponse = await runBot(systemPrompt, botMessages);
+    const response = await runBot(systemPrompt, botMessages, {
+      isJsonMode: true,
+      maxTokens: 600,
+      ghlContactId,
+      previousContext: bot_context,
+    });
 
-    if (rawResponse === null) {
-      return NextResponse.json({ ok: true });
+    if (response === null) return NextResponse.json({ ok: true });
+
+    // Write updated bot_context back to GHL opportunity field
+    if (ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+      await writeGhlOpportunityCustomField(
+        ghlOpportunityId,
+        process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT,
+        JSON.stringify(response.bot_context),
+      ).catch(err => console.warn('[nurture-drip] writeGhlOpportunityCustomField failed:', err));
     }
 
-    const signal = extractSignal(rawResponse);
-    const insightUsed = detectInsightUsed(rawResponse);
-    const smsText = stripSignals(rawResponse);
+    // stage_change: true — next bot sends opener; no SMS from this bot
+    if (response.stage_change) {
+      if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
+        await writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
+      }
+    } else if (response.message) {
+      await sendGhlSms(ghlContactId, response.message);
+      await appendMessage(threadId, 'assistant', response.message);
+    }
 
-    await sendGhlSms(ghlContactId, smsText);
-    await appendMessage(threadId, 'assistant', rawResponse);
-    if (insightUsed) await addUsedInsightId(threadId, insightUsed);
-
-    // ── Signal handling ────────────────────────────────────────────────────
-
-    if (signal === 'INSPECTION_INTENT') {
+    if (response.signal === 'QUALIFIED') {
       const zip = lead.sourceZip ?? '';
       const tier = zip ? getZipTier(zip) : null;
-
       await addGhlTag(ghlContactId, 'zip_check_pending');
-
       if (tier === 'primary') {
         await removeGhlTag(ghlContactId, 'zip_check_pending');
         await addGhlTag(ghlContactId, 'zip_approved');
@@ -174,19 +142,13 @@ export async function POST(request: NextRequest) {
       } else {
         await removeGhlTag(ghlContactId, 'zip_check_pending');
         await addGhlTag(ghlContactId, 'zip_review_pending');
-        await sendGhlSms(
-          ghlContactId,
-          "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly."
-        );
+        await sendGhlSms(ghlContactId, "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.");
       }
-
-    } else if (signal === 'NOT_INTERESTED') {
+    } else if (response.signal === 'NOT_INTERESTED') {
       await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent',
       });
-
-    } else if (signal === 'SOFT_CLOSE' || pos === 4) {
-      // Final drip position or explicit soft close — mark exhausted
+    } else if (response.signal === 'SOFT_CLOSE' || pos === 4) {
       await addGhlTag(ghlContactId, 'sr_nurture_exhausted');
     }
 

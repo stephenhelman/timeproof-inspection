@@ -12,120 +12,76 @@ import {
   validateSlotBeforeConfirm,
   confirmBooking,
   notifyRep,
+  formatAppointmentDatetime,
+  getAreaAppointments,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
-  getGhlContactCustomField,
-  moveGhlOpportunityStage,
+  getGhlOpportunityCustomField,
+  writeGhlContactCustomField,
   writeGhlOpportunityCustomField,
+  moveGhlOpportunityStage,
   updateGhlContact,
 } from "@/src/lib/ghl-contacts";
 import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
-import {
-  detectTimePreference,
-  type TimeOfDay,
-} from "@/src/lib/time-utils";
-import {
-  getZoneForZip,
-  isDistanceZone,
-} from "@/src/lib/service-zones";
-import type {
-  BookContext,
-  BookLastMessageContext,
-} from "@/src/lib/prompts/qntum/types";
+import { EMPTY_BOT_CONTEXT } from "@/src/lib/prompts/qntum/types";
+import type { BotContext } from "@/src/lib/prompts/qntum/types";
+import type { BookAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/book";
+import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
 import type { Lead, SrLead } from "@prisma/client";
 
 type BotMessage = { role: string; content: string; timestamp: string };
 
-function stripAnySignals(text: string): string {
-  return text.replace(/\[[A-Z_:0-9 .-]+\]/g, "").trim();
+const CONVERSATION_LIMIT = 20;
+
+const BOOKED_SLOT_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+
+async function readBotContext(ghlOpportunityId: string | null): Promise<BotContext> {
+  if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return EMPTY_BOT_CONTEXT;
+  const raw = await getGhlOpportunityCustomField(ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT).catch(() => null);
+  if (!raw) return EMPTY_BOT_CONTEXT;
+  try { return JSON.parse(raw) as BotContext; } catch { return EMPTY_BOT_CONTEXT; }
 }
 
-function detectBookLastMessageContext(message: string): BookLastMessageContext {
-  if (!message) return "none";
-  const t = message.toLowerCase().trim();
-  if (/speak (to|with) (someone|a person|manager)|call me|want a human/.test(t))
-    return "escalation_needed";
-  if (/check (with|my)|need to (ask|check)|not sure (yet|about)/.test(t))
-    return "stall";
-  if (
-    /^(yes|yeah|yep|yea|sure|confirmed|that works|perfect|ok|okay|sounds good|absolutely|definitely)\.?$/.test(t) ||
-    /that work|confirmed|book it|perfect|see you then|works for me|we'?ll be there|we will be there|i'?ll be there|that'?s good|absolutely|definitely/.test(t)
-  )
-    return "confirmed";
-  if (
-    /can('t| not)|won't work|not (available|good)|different (time|day)/.test(t)
-  )
-    return "slot_rejected";
-  return "none";
+async function writeBotContext(ghlOpportunityId: string | null, ctx: BotContext): Promise<void> {
+  if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return;
+  await writeGhlOpportunityCustomField(
+    ghlOpportunityId,
+    process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT,
+    JSON.stringify(ctx),
+  ).catch(err => console.warn('[book] writeBotContext failed:', err));
 }
 
-function looksLikeAddress(message: string): boolean {
-  const hasNumber     = /\d+/.test(message);
-  const hasStreetWord = /\b(st|ave|blvd|ln|dr|rd|way|ct|pl|street|avenue|lane|drive|road|boulevard|court|place)\b/i.test(message);
-  const hasCity       = /el paso|las cruces|alamogordo/i.test(message);
-  const isLongEnough  = message.trim().length > 8;
-  return isLongEnough && ((hasNumber && hasStreetWord) || (hasNumber && hasCity));
-}
-
-// Detects street number + word with no city/state/zip — signals a partial address needing completion.
-// No 'i' flag on state pattern so lowercase "st" in "Main St" does not false-positive as a state abbrev.
-function looksLikeStreetOnly(message: string): boolean {
-  const hasNumber       = /\d+/.test(message);
-  const hasStreetWord   = /\b(st|ave|blvd|ln|dr|rd|way|ct|pl|street|avenue|lane|drive|road|boulevard|court|place)\b/i.test(message);
-  const hasCityStateZip = /\b[A-Z]{2}\b|\b\d{5}\b/.test(message);
-  return hasNumber && hasStreetWord && !hasCityStateZip;
-}
-
-async function handleStallExhaustedWebhook(
-  lead: Lead,
-  ghlContactId: string,
-): Promise<void> {
-  await updateSrLead(lead.id, {
-    sr_bot_stage: "revival",
-    sr_status:    "DEMO_NOT_SOLD",
-  });
+async function handleStallExhaustedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
+  await updateSrLead(lead.id, { sr_bot_stage: 'revival', sr_status: 'DEMO_NOT_SOLD' });
   if (lead.ghlOpportunityId) {
-    await moveGhlOpportunityStage(
-      lead.ghlOpportunityId,
-      process.env.GHL_STAGE_FOLLOW_UP_ACTIVE!,
-    ).catch((err) =>
-      console.error("[book/stall_exhausted] moveStage failed:", err),
+    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_FOLLOW_UP_ACTIVE!).catch(err =>
+      console.error('[book/stall_exhausted] moveStage failed:', err),
     );
   }
   await Promise.allSettled([
-    addGhlTag(ghlContactId, "sr_follow_up"),
-    removeGhlTag(ghlContactId, "booking_stall"),
+    addGhlTag(ghlContactId, 'sr_follow_up'),
+    removeGhlTag(ghlContactId, 'booking_stall'),
   ]);
 }
 
-async function handleAppointmentConfirmedWebhook(
-  lead: Lead,
-  ghlContactId: string,
-): Promise<void> {
-  const assignedUserId =
-    lead.assignedUserId ?? process.env.GHL_DEFAULT_ASSIGNEE_ID ?? null;
-
+async function handleAppointmentConfirmedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
+  const rawLead = lead as unknown as Record<string, unknown>;
+  const assignedUserId = lead.assignedUserId ?? process.env.GHL_DEFAULT_ASSIGNEE_ID ?? null;
   const inspectionAddress =
     lead.address ??
-    [
-      (lead as unknown as Record<string, unknown>).streetAddress as string | null,
-      lead.city,
-      lead.state,
-    ]
-      .filter(Boolean)
-      .join(", ") ??
-    "";
+    [(rawLead.streetAddress as string | null), lead.city, lead.state].filter(Boolean).join(', ') ??
+    '';
 
   const inspection = await prisma.inspection.create({
     data: {
-      userId:        assignedUserId,
-      leadId:        lead.id,
-      customerName:  lead.customerName,
-      address:       inspectionAddress,
-      phone:         lead.phone ?? null,
+      userId: assignedUserId,
+      leadId: lead.id,
+      customerName: lead.customerName,
+      address: inspectionAddress,
+      phone: lead.phone ?? null,
       appointmentAt: lead.appointmentDate ?? new Date(),
-      status:        "scheduled",
+      status: 'scheduled',
     },
   });
 
@@ -134,27 +90,11 @@ async function handleAppointmentConfirmedWebhook(
       lead.ghlOpportunityId,
       process.env.GHL_FIELD_OPP_SR_INSPECTION_ID,
       inspection.id,
-    ).catch((err) =>
-      console.error("[book/appt_confirmed] writeGhlOpportunityCustomField inspection_id failed:", err),
-    );
+    ).catch(err => console.error('[book/appt_confirmed] writeGhlOpportunityCustomField inspection_id failed:', err));
   }
 
-  if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
-    const contextLine = `inspection_id:${inspection.id} created:${new Date().toISOString()}`;
-    await writeGhlOpportunityCustomField(
-      lead.ghlOpportunityId,
-      process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT,
-      contextLine,
-    ).catch((err) =>
-      console.error("[book/appt_confirmed] writeGhlOpportunityCustomField pipeline_context failed:", err),
-    );
-  }
-
-  console.log(
-    `[book/appt_confirmed] inspection created: ${inspection.id} for lead ${lead.id}`,
-  );
-
-  void ghlContactId; // not needed here; kept for signature symmetry with stall handler
+  console.log(`[book/appt_confirmed] inspection created: ${inspection.id} for lead ${lead.id}`);
+  void ghlContactId;
 }
 
 export async function handleBookWebhook(ctx: {
@@ -165,553 +105,295 @@ export async function handleBookWebhook(ctx: {
   inboundMsg: string;
 }): Promise<void> {
   const { lead, ghlContactId, trigger, inboundMsg } = ctx;
+  const rawLead = lead as unknown as Record<string, unknown>;
+  const ghlOpportunityId = (rawLead.ghlOpportunityId as string | null) ?? lead.ghlOpportunityId ?? null;
 
-  // ── Named trigger dispatch ─────────────────────────────────────────────────
-  if (trigger === "stall_exhausted") {
+  // ── Named trigger dispatch ────────────────────────────────────────────────────
+  if (trigger === 'stall_exhausted') {
     await handleStallExhaustedWebhook(lead, ghlContactId);
     return;
   }
-
-  if (trigger === "appointment_confirmed") {
+  if (trigger === 'appointment_confirmed') {
     await handleAppointmentConfirmedWebhook(lead, ghlContactId);
     return;
   }
 
-  // ── Cancellation check ────────────────────────────────────────────────────
-  if (trigger === "inbound_sms" && isCancellation(inboundMsg)) {
+  // ── Cancellation check ────────────────────────────────────────────────────────
+  if (trigger === 'inbound_sms' && isCancellation(inboundMsg)) {
     const activeInspection = await prisma.inspection.findFirst({
-      where: { leadId: lead.id, status: "scheduled" },
+      where: { leadId: lead.id, status: 'scheduled' },
     });
     if (activeInspection) {
       await prisma.inspection.update({
         where: { id: activeInspection.id },
-        data: { status: "cancelled", repNotes: "Cancelled via SMS" },
+        data: { status: 'cancelled', repNotes: 'Cancelled via SMS' },
       });
-      await transitionLead(
-        lead.id,
-        ghlContactId,
-        "sr_booking",
-        "sr_cancelled",
-        "DEMO_NOT_SOLD",
-        "silent",
-        { sr_status: "DEMO_NOT_SOLD", sr_bot_stage: "silent" },
-      );
+      await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_cancelled', 'DEMO_NOT_SOLD', 'silent', {
+        sr_status: 'DEMO_NOT_SOLD', sr_bot_stage: 'silent',
+      });
       const fn = lead.customerName.trim().split(/\s+/)[0];
-      await sendGhlSms(
-        ghlContactId,
-        `No problem, ${fn}. We've cancelled your inspection. If things change, reach out anytime.`,
-      );
+      await sendGhlSms(ghlContactId, `No problem, ${fn}. We've cancelled your inspection. If things change, reach out anytime.`);
       return;
     }
   }
 
-  // ── Book bot conversation ─────────────────────────────────────────────────
+  // ── Book bot conversation ─────────────────────────────────────────────────────
   await purgeExpiredSlotLocks();
 
-  const leadZone = lead.sourceZip
-    ? (getZoneForZip(lead.sourceZip) ?? null)
-    : null;
+  const leadZone = lead.sourceZip ? (getZoneForZip(lead.sourceZip) ?? null) : null;
   const distanceZone = leadZone ? isDistanceZone(leadZone) : false;
-  const zone = leadZone ?? "el_paso_central";
+  const zone = leadZone ?? 'el_paso_central';
 
-  // Address collection
-  const rawLead = lead as unknown as Record<string, unknown>;
-  const existingAddress = (rawLead.address as string | null) ?? null;
-  let addressCollected     = !!(existingAddress && existingAddress.trim().length > 0);
-  let confirmedAddress     = existingAddress;
-  let justCollectedAddress = false;
+  const bot_context = await readBotContext(ghlOpportunityId);
+  const area_appointments = await getAreaAppointments(zone).catch(() => []);
 
-  // Pre-flight: read existing book thread metadata to check for a stored partial address
-  const existingBookThread = (!addressCollected && trigger === "inbound_sms")
-    ? await prisma.botThread.findFirst({ where: { ghlContactId, botType: "book" } })
-    : null;
-  const preflightMeta = (existingBookThread?.metadata as Record<string, unknown> | null) ?? null;
-  const storedPartialAddress = typeof preflightMeta?.partialAddress === "string"
-    ? preflightMeta.partialAddress
-    : null;
+  // Address: prefer bot_context.address (Claude-accumulated) over lead record
+  const existingAddress = bot_context.address ?? (rawLead.address as string | null) ?? null;
+  const addressCollected = !!(existingAddress && existingAddress.trim().length > 0);
 
-  // Partial address completion: previous turn stored a street, this message is city/state/zip
-  const cityStateZipPattern = /\b[A-Z]{2}\b|\b\d{5}\b/i;
-  if (
-    !addressCollected &&
-    trigger === "inbound_sms" &&
-    inboundMsg &&
-    storedPartialAddress &&
-    cityStateZipPattern.test(inboundMsg) &&
-    !looksLikeAddress(inboundMsg)
-  ) {
-    const combined = `${storedPartialAddress}, ${inboundMsg.trim()}`;
-    await prisma.lead.update({ where: { id: lead.id }, data: { address: combined } });
+  // Sync address to lead record if bot_context has one but lead doesn't
+  if (bot_context.address && !lead.address) {
+    await prisma.lead.update({ where: { id: lead.id }, data: { address: bot_context.address } }).catch(() => null);
     if (lead.ghlContactId) {
-      await updateGhlContact(lead.ghlContactId, { address1: combined }).catch(
-        (err) => console.error("[book] updateGhlContact partial+city failed:", err),
-      );
-    }
-    if (existingBookThread) {
-      await prisma.botThread.update({
-        where: { id: existingBookThread.id },
-        data:  { metadata: { ...(preflightMeta ?? {}), partialAddress: null } },
-      });
-    }
-    confirmedAddress     = combined;
-    addressCollected     = true;
-    justCollectedAddress = true;
-    console.log("[book] partial address combined:", combined);
-  }
-
-  if (
-    !addressCollected &&
-    trigger === "inbound_sms" &&
-    inboundMsg &&
-    looksLikeAddress(inboundMsg)
-  ) {
-    const trimmedAddr = inboundMsg.trim();
-    await prisma.lead.update({
-      where: { id: lead.id },
-      data:  { address: trimmedAddr },
-    });
-    if (lead.ghlContactId) {
-      await updateGhlContact(lead.ghlContactId, { address1: trimmedAddr }).catch(
-        (err) => console.error("[book] updateGhlContact address failed:", err),
-      );
-    }
-    confirmedAddress     = trimmedAddr;
-    addressCollected     = true;
-    justCollectedAddress = true;
-    console.log("[book] address collected for lead:", lead.id, trimmedAddr);
-  }
-
-  // Read qualify bot context written on [QUALIFIED]
-  const previousBotContext = process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT
-    ? await getGhlContactCustomField(
-        ghlContactId,
-        process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT,
-      ).catch((err) => {
-        console.warn(
-          "[book] getGhlContactCustomField previousBotContext failed for contact",
-          ghlContactId,
-          err,
-        );
-        return null;
-      })
-    : null;
-
-  const contextTimePreference =
-    previousBotContext?.match(/Time preference: "([^"]+)"/)?.[1] ?? null;
-  const contextConfirmedIssue =
-    previousBotContext?.match(/Confirmed issue: "([^"]+)"/)?.[1] ?? null;
-
-  // Time preference detection — current message first, context fallback, then 'any'
-  let timePreference: TimeOfDay = "any";
-  let specificStartHour: number | undefined;
-  if (trigger === "inbound_sms" && inboundMsg) {
-    const detected = detectTimePreference(inboundMsg);
-    if (detected) {
-      timePreference    = detected.preference;
-      specificStartHour = detected.startHour;
-    }
-  }
-  if (timePreference === "any" && contextTimePreference) {
-    const ctxDetected = detectTimePreference(contextTimePreference);
-    if (ctxDetected) {
-      timePreference    = ctxDetected.preference;
-      specificStartHour = ctxDetected.startHour;
+      await updateGhlContact(lead.ghlContactId, { address1: bot_context.address }).catch(() => null);
     }
   }
 
-  // Slot fetching — only after address is collected
-  const existingLock = await prisma.slotLock.findUnique({
-    where: { leadId: lead.id },
-  });
+  // Time preference from bot_context
+  const timePreference = bot_context.time_of_day_preference ?? 'any';
 
+  // Slot fetching
+  const existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
   let rawSlots: Array<{ date: string; time: string; label: string }> = [];
-  if (
-    addressCollected &&
-    (!existingLock ||
-      trigger === "qualified_handoff" ||
-      trigger === "stall_followup")
-  ) {
-    rawSlots = await getAvailableSlots(
-      zone,
-      distanceZone,
-      timePreference,
-      specificStartHour,
-    );
+  if (addressCollected && (!existingLock || trigger === 'qualified_handoff' || trigger === 'stall_followup')) {
+    rawSlots = await getAvailableSlots(zone, distanceZone, timePreference as 'morning' | 'afternoon' | 'evening' | 'any');
     if (rawSlots.length > 0) {
-      const [y, m, d] = rawSlots[0].date.split("-").map(Number);
+      const [y, m, d] = rawSlots[0].date.split('-').map(Number);
       await createSlotLock({
-        date:   new Date(y, m - 1, d),
-        time:   rawSlots[0].time,
+        date: new Date(y, m - 1, d),
+        time: rawSlots[0].time,
         zone,
         leadId: lead.id,
-        label:  rawSlots[0].label || rawSlots[0].time,
+        label: rawSlots[0].label || rawSlots[0].time,
       });
     }
-  } else if (addressCollected && existingLock) {
-    rawSlots = [];
   }
 
-  const { id: threadId, messages } = await getOrCreateThread(
-    ghlContactId,
-    "book",
-  );
-
-  type Trigger = BookContext["trigger"];
-  const triggerMap: Record<string, Trigger> = {
-    qualified_handoff: "qualified_handoff",
-    stall_followup:    "stall_followup",
-  };
-  const bookTrigger: Trigger = triggerMap[trigger] ?? "inbound_sms";
-
-  const knownIssues = Array.isArray(lead.knownIssues)
-    ? (lead.knownIssues as string[])
-    : [];
-  const activeIssues = knownIssues.filter(
-    (i) => i !== "I haven't noticed anything",
-  );
-
+  const { id: threadId } = await getOrCreateThread(ghlContactId, 'book');
   const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const currentMessages = (thread?.messages as BotMessage[]) ?? [];
-  const lastUserMsg = [...currentMessages].reverse().find(
-    (m) => m.role === "user",
-  );
 
-  // Street-only partial address: store in thread metadata and ask for city/zip
-  if (
-    !addressCollected &&
-    trigger === "inbound_sms" &&
-    inboundMsg &&
-    !looksLikeAddress(inboundMsg) &&
-    looksLikeStreetOnly(inboundMsg)
-  ) {
-    const currentMeta = (thread?.metadata as Record<string, unknown>) ?? {};
-    await prisma.botThread.update({
-      where: { id: threadId },
-      data:  { metadata: { ...currentMeta, partialAddress: inboundMsg.trim() } },
-    });
-    await appendMessage(threadId, "user", inboundMsg);
-    const partialPrompt = `Got it — what city and zip should we add to that?`;
-    await sendGhlSms(ghlContactId, partialPrompt);
-    await appendMessage(threadId, "assistant", partialPrompt);
-    return;
-  }
+  const knownIssues = Array.isArray(lead.knownIssues) ? (lead.knownIssues as string[]) : [];
+  const activeIssues = knownIssues.filter(i => i !== "I haven't noticed anything");
 
   const lockedSlot = existingLock
-    ? {
-        date:  existingLock.date?.toISOString().slice(0, 10) ?? "",
-        time:  existingLock.time ?? "",
-        label: existingLock.label ?? rawSlots[0]?.label ?? "",
-      }
+    ? { date: existingLock.date?.toISOString().slice(0, 10) ?? '', time: existingLock.time ?? '', label: existingLock.label ?? rawSlots[0]?.label ?? '' }
     : rawSlots[0]
-      ? {
-          date:  rawSlots[0].date,
-          time:  rawSlots[0].time,
-          label: rawSlots[0].label,
-        }
+      ? { date: rawSlots[0].date, time: rawSlots[0].time, label: rawSlots[0].label }
       : null;
 
-  const context: BookContext = {
-    bot_type:              "book",
-    homeowner_name:        lead.customerName,
-    first_name:            lead.customerName.trim().split(/\s+/)[0],
-    source_zip:            lead.sourceZip ?? "",
-    zone:                  leadZone ?? "",
-    message_history_count: currentMessages.length,
-    last_message_context:  justCollectedAddress
-      ? "address_provided"
-      : detectBookLastMessageContext(lastUserMsg?.content ?? inboundMsg),
-    available_slots: rawSlots.map((s) => ({
-      date:       s.date,
-      time:       s.time,
-      label:      s.label,
-      zone_label: zone,
-    })),
-    locked_slot: lockedSlot,
+  const assemblerCtx: BookAssemblerContext = {
+    homeowner_name: lead.customerName,
+    first_name: lead.customerName.trim().split(/\s+/)[0],
+    zone: leadZone ?? '',
+    available_slots: rawSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
     qualify_summary: {
-      problem_confirmed:        activeIssues.length > 0,
-      specific_issue:           contextConfirmedIssue ?? activeIssues[0]?.toLowerCase() ?? null,
-      roof_age:                 lead.roofAge ?? null,
-      decision_maker_confirmed: lead.decisionMakerHome === "Yes",
+      problem_confirmed: activeIssues.length > 0,
+      specific_issue: activeIssues[0]?.toLowerCase() ?? null,
+      roof_age: lead.roofAge ?? null,
+      decision_maker_confirmed: lead.decisionMakerHome === 'Yes',
     },
-    trigger:             bookTrigger,
-    address_collected:   addressCollected,
-    confirmed_address:   confirmedAddress,
-    time_preference:     timePreference,
-    specific_start_hour: specificStartHour,
-    previousBotContext:  previousBotContext ?? undefined,
+    message_history_count: currentMessages.length,
+    bot_context,
+    area_appointments,
   };
 
-  const systemPrompt = assembleBookPrompt(context);
-
-  if (bookTrigger === "qualified_handoff") {
+  // ── Qualified handoff opener ──────────────────────────────────────────────────
+  if (trigger === 'qualified_handoff') {
     const fn = lead.customerName.trim().split(/\s+/)[0];
-    const issueLine = contextConfirmedIssue
-      ? `The homeowner mentioned a confirmed issue: "${contextConfirmedIssue}". Reference it briefly as the reason sending someone out makes sense.`
-      : "";
-    const timeLine = contextTimePreference
-      ? `The homeowner has already confirmed a time preference: "${contextTimePreference}". Acknowledge it naturally in one phrase — do not ask about scheduling or time.`
-      : "";
     const openerSystemPrompt = [
-      "You are Alex, a texting rep for Qntum Roofing.",
-      "Write exactly one SMS message. Do the following in order:",
-      issueLine,
-      timeLine,
-      `End by asking for the homeowner's address: "What address should we send our inspector to?"`,
-      "Do NOT ask about scheduling, availability, or time — those are already confirmed.",
-      "Sound natural and warm, not scripted. No emojis. Two sentences max.",
-      "Return only the SMS text, nothing else.",
-    ].filter(Boolean).join("\n");
+      'You are Alex, a texting rep for Qntum Roofing.',
+      'Write exactly one SMS message asking for the homeowner\'s inspection address.',
+      'Sound natural and warm, not scripted. No emojis. Two sentences max.',
+      'Do NOT ask about scheduling, availability, or time.',
+      'Return only the SMS text, nothing else.',
+    ].join('\n');
     const openerRaw = await runBot(openerSystemPrompt, [
-      { role: "user", content: `Homeowner first name: ${fn}.`, timestamp: new Date().toISOString() },
+      { role: 'user', content: `Homeowner first name: ${fn}.`, timestamp: new Date().toISOString() },
     ]);
     if (openerRaw !== null) {
-      await sendGhlSms(ghlContactId, stripAnySignals(openerRaw));
-      await appendMessage(threadId, "assistant", openerRaw);
+      await sendGhlSms(ghlContactId, openerRaw);
+      await appendMessage(threadId, 'assistant', openerRaw);
     }
     return;
   }
 
-  if (inboundMsg && !["qualified_handoff", "stall_followup"].includes(trigger)) {
-    await appendMessage(threadId, "user", inboundMsg);
+  if (inboundMsg && trigger !== 'stall_followup') {
+    await appendMessage(threadId, 'user', inboundMsg);
   }
 
-  if (bookTrigger === "stall_followup") {
-    const stalledThread = await prisma.botThread.findUnique({
-      where: { id: threadId },
-    });
+  // ── Stall followup ────────────────────────────────────────────────────────────
+  if (trigger === 'stall_followup') {
+    const stalledThread = await prisma.botThread.findUnique({ where: { id: threadId } });
     const stalledMessages = (stalledThread?.messages as BotMessage[]) ?? [];
-    const stalledBotMessages = stalledMessages.map((m) => ({
-      role:      m.role as "user" | "assistant",
-      content:   m.content,
-      timestamp: m.timestamp,
-    }));
-    stalledBotMessages.push({
-      role:      "user",
-      content:   "stall_followup",
-      timestamp: new Date().toISOString(),
-    });
-    const rawResponse = await runBot(systemPrompt, stalledBotMessages);
-    if (rawResponse === null) {
-      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
-        console.error("[book/stall] updateSrLead silent failed", err),
-      );
+    const systemPrompt = assembleBookPrompt(assemblerCtx);
+    const botMessages = [
+      ...stalledMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp })),
+      { role: 'user' as const, content: 'stall_followup', timestamp: new Date().toISOString() },
+    ];
+    const response = await runBot(systemPrompt, botMessages, { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
+    if (response === null) {
+      await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
       return;
     }
-    await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
-    await appendMessage(threadId, "assistant", rawResponse);
-    if (rawResponse.includes("[STALL]")) {
-      await addGhlTag(ghlContactId, "booking_stall_exhausted");
-      await addGhlTag(ghlContactId, "sr_follow_up");
+    await writeBotContext(ghlOpportunityId, response.bot_context);
+    if (!response.stage_change && response.message) {
+      await sendGhlSms(ghlContactId, response.message);
+      await appendMessage(threadId, 'assistant', response.message);
+    }
+    if (response.signal === 'STALL') {
+      await addGhlTag(ghlContactId, 'booking_stall_exhausted');
+      await addGhlTag(ghlContactId, 'sr_follow_up');
+    } else if (response.signal === 'BOOKED' && response.booked_slot) {
+      await handleBooked(response.booked_slot, response.bot_context, lead, ghlContactId, zone, distanceZone);
     }
     return;
   }
 
-  const reloadedThread = await prisma.botThread.findUnique({
-    where: { id: threadId },
-  });
+  // ── Main inbound_sms conversation ─────────────────────────────────────────────
+  const reloadedThread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const reloadedMessages = (reloadedThread?.messages as BotMessage[]) ?? [];
-  const botMessages = reloadedMessages.map((m) => ({
-    role:      m.role as "user" | "assistant",
-    content:   m.content,
-    timestamp: m.timestamp,
-  }));
-  const rawResponse = await runBot(systemPrompt, botMessages);
-  if (rawResponse === null) {
-    await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>
-      console.error("[book] updateSrLead silent failed", err),
-    );
+  const freshBotCtx = await readBotContext(ghlOpportunityId);
+
+  const freshCtx: BookAssemblerContext = { ...assemblerCtx, message_history_count: reloadedMessages.length, bot_context: freshBotCtx };
+  const systemPrompt = assembleBookPrompt(freshCtx);
+  const botMessages = reloadedMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp }));
+
+  const response = await runBot(systemPrompt, botMessages, { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: freshBotCtx });
+  if (response === null) {
+    await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
     return;
   }
 
-  // ── [CHECK_MORE_SLOTS] ─────────────────────────────────────────────────────
-  const checkSlotsMatch = rawResponse.match(
-    /\[CHECK_MORE_SLOTS(?::\s*(\d{2}:\d{2}))?\]/,
-  );
-  if (checkSlotsMatch) {
-    let retryPreference: TimeOfDay = timePreference;
-    let retryStartHour: number | undefined = specificStartHour;
-    const timeStr = checkSlotsMatch[1];
-    if (timeStr) {
-      retryStartHour = parseInt(timeStr.split(":")[0], 10);
-      if (retryStartHour < 12)      retryPreference = "morning";
-      else if (retryStartHour < 17) retryPreference = "afternoon";
-      else                          retryPreference = "evening";
+  await writeBotContext(ghlOpportunityId, response.bot_context);
+
+  const atLimit = reloadedMessages.length >= CONVERSATION_LIMIT;
+  if (response.stage_change || atLimit) {
+    if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
+      await writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
     }
-    const freshSlots = await getAvailableSlots(
-      zone,
-      distanceZone,
-      retryPreference,
-      retryStartHour,
-    );
-    if (freshSlots.length > 0) {
-      const [fy, fm, fd] = freshSlots[0].date.split("-").map(Number);
-      await createSlotLock({
-        date:   new Date(fy, fm - 1, fd),
-        time:   freshSlots[0].time,
-        zone,
-        leadId: lead.id,
-        label:  freshSlots[0].label || freshSlots[0].time,
-      });
+  }
+
+  // Handle address accumulation in bot_context
+  if (response.bot_context.address && response.bot_context.address !== freshBotCtx.address) {
+    const newAddr = response.bot_context.address;
+    await prisma.lead.update({ where: { id: lead.id }, data: { address: newAddr } }).catch(() => null);
+    if (lead.ghlContactId) {
+      await updateGhlContact(lead.ghlContactId, { address1: newAddr }).catch(() => null);
     }
-    const freshContext: BookContext = {
-      ...context,
-      available_slots: freshSlots.map((s) => ({
-        date:       s.date,
-        time:       s.time,
-        label:      s.label,
-        zone_label: zone,
-      })),
-      locked_slot: freshSlots[0]
-        ? { date: freshSlots[0].date, time: freshSlots[0].time, label: freshSlots[0].label }
-        : null,
-      time_preference:     retryPreference,
-      specific_start_hour: retryStartHour,
-    };
-    const retryResponse = await runBot(
-      assembleBookPrompt(freshContext),
-      botMessages,
-    );
-    if (retryResponse !== null) {
-      if (retryResponse.includes("[STALL]")) {
-        await addGhlTag(ghlContactId, "booking_stall");
-      }
-      await sendGhlSms(ghlContactId, stripAnySignals(retryResponse));
-      await appendMessage(threadId, "assistant", retryResponse);
-    }
+  }
+
+  if (!response.stage_change && response.message) {
+    await sendGhlSms(ghlContactId, response.message);
+    await appendMessage(threadId, 'assistant', response.message);
+  }
+
+  if (response.signal === 'BOOKED' && response.booked_slot) {
+    await handleBooked(response.booked_slot, response.bot_context, lead, ghlContactId, zone, distanceZone);
     return;
   }
 
-  // ── [BOOKED] ───────────────────────────────────────────────────────────────
-  const bookedMatch = rawResponse.match(
-    /\[BOOKED:\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]/,
-  );
-
-  if (bookedMatch) {
-    const [, dateStr, timePart] = bookedMatch;
-    const [year, month, day]    = dateStr.split("-").map(Number);
-    const [hour, minute]        = timePart.split(":").map(Number);
-
-    // Convert MT wall-clock time to UTC for DB storage
-    const _tz    = process.env.BOT_TIMEZONE ?? "America/Denver";
-    const _guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
-    const _off   = ((): number => {
-      const pts = new Intl.DateTimeFormat("en-US", {
-        timeZone: _tz, hour: "numeric", minute: "2-digit", hour12: false,
-      }).formatToParts(_guess);
-      const h = parseInt(pts.find((p) => p.type === "hour")?.value   ?? "0", 10);
-      const m = parseInt(pts.find((p) => p.type === "minute")?.value ?? "0", 10);
-      return h * 60 + m - (hour * 60 + minute);
-    })();
-    const date = new Date(_guess.getTime() - _off * 60 * 1000);
-
-    const slotLabel = context.locked_slot?.label?.trim()
-      ? context.locked_slot.label
-      : `${dateStr} at ${timePart}`;
-
-    const validation = await validateSlotBeforeConfirm(
-      lead.id,
-      date,
-      timePart,
-      zone,
-    );
-
-    if (!validation.ok) {
-      console.warn("[book] slot conflict on confirm:", validation.reason);
-      const freshSlots = await getAvailableSlots(
-        zone,
-        distanceZone,
-        timePreference,
-        specificStartHour,
-      );
-      if (freshSlots.length > 0) {
-        const [fy, fm, fd] = freshSlots[0].date.split("-").map(Number);
-        await createSlotLock({
-          date:   new Date(fy, fm - 1, fd),
-          time:   freshSlots[0].time,
-          zone,
-          leadId: lead.id,
-          label:  freshSlots[0].label || freshSlots[0].time,
-        });
-      }
-      return;
-    }
-
-    try {
-      await confirmBooking(
-        lead.id,
-        ghlContactId,
-        date,
-        slotLabel,
-        confirmedAddress ?? undefined,
-      );
-    } catch (err) {
-      console.error("[book] confirmBooking failed:", err);
-      const freshSlots = await getAvailableSlots(
-        zone,
-        distanceZone,
-        timePreference,
-        specificStartHour,
-      );
-      if (freshSlots.length > 0) {
-        const [fy, fm, fd] = freshSlots[0].date.split("-").map(Number);
-        await createSlotLock({
-          date:   new Date(fy, fm - 1, fd),
-          time:   freshSlots[0].time,
-          zone,
-          leadId: lead.id,
-          label:  freshSlots[0].label || freshSlots[0].time,
-        });
-      }
-      return;
-    }
-
-    await transitionLead(
-      lead.id,
-      ghlContactId,
-      "sr_booking",
-      "sr_appointment_set",
-      "INSPECTION_SCHEDULED",
-      "silent",
-      {
-        sr_status:         "INSPECTION_SCHEDULED",
-        sr_appointment_at: date.toISOString(),
-        sr_bot_stage:      "silent",
-      },
-    );
-
-    if (lead.ghlOpportunityId) {
-      await moveGhlOpportunityStage(
-        lead.ghlOpportunityId,
-        process.env.GHL_STAGE_APPOINTMENT_SET!,
-      ).catch((err) =>
-        console.error("[book] moveStage APPOINTMENT_SET failed:", err),
-      );
-    }
-
-    const confirmationSms =
-      `You're all set — got you down for ${slotLabel}. ` +
-      `Our inspector will reach out the morning of with an ETA.`;
-    await sendGhlSms(ghlContactId, confirmationSms);
-
-    if (lead.assignedUserId) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.scopereports.com";
-      const repMsg =
-        `New inspection booked!\n\n` +
-        `Homeowner: ${lead.customerName}\n` +
-        `Address:   ${confirmedAddress ?? "not provided"}\n` +
-        `Date/Time: ${slotLabel}\n` +
-        `Phone:     ${lead.phone ?? "not on file"}\n\n` +
-        `${appUrl}/leads/${lead.id}`;
-      await notifyRep(lead.assignedUserId, lead.id, repMsg).catch((err) =>
-        console.error("[book] notifyRep failed:", err),
-      );
-    }
-  } else {
-    if (rawResponse.includes("[STALL]")) {
-      await addGhlTag(ghlContactId, "booking_stall");
-    }
-    await sendGhlSms(ghlContactId, stripAnySignals(rawResponse));
+  if (response.signal === 'STALL') {
+    await addGhlTag(ghlContactId, 'booking_stall');
+    return;
   }
 
-  await appendMessage(threadId, "assistant", rawResponse);
+  if (response.stage_change) {
+    if (response.signal === 'NOT_INTERESTED') {
+      await updateSrLead(lead.id, { sr_bot_stage: 'silent', sr_status: 'DEAD' });
+      await Promise.allSettled([
+        addGhlTag(ghlContactId, 'sr_dead'),
+        removeGhlTag(ghlContactId, 'sr_booking'),
+        lead.ghlOpportunityId
+          ? moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_DEAD!)
+          : Promise.resolve(),
+      ]);
+    } else if (response.signal === 'SOFT_CLOSE') {
+      await addGhlTag(ghlContactId, 'sr_soft_close');
+      await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
+    } else if (response.signal === 'ESCALATE') {
+      await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
+    }
+  }
+}
+
+async function handleBooked(
+  bookedSlot: string,
+  botCtx: BotContext,
+  lead: Lead,
+  ghlContactId: string,
+  zone: string,
+  distanceZone: boolean,
+): Promise<void> {
+  void distanceZone;
+
+  if (!BOOKED_SLOT_RE.test(bookedSlot)) {
+    console.error(`[book] BOOKED signal has invalid booked_slot format: "${bookedSlot}"`);
+    return;
+  }
+
+  const [datePart, timePart] = bookedSlot.split(' ');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute] = timePart.split(':').map(Number);
+
+  // Convert MT wall-clock to UTC
+  const tz = process.env.BOT_TIMEZONE ?? 'America/Denver';
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const off = ((): number => {
+    const pts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: false }).formatToParts(guess);
+    const h = parseInt(pts.find(p => p.type === 'hour')?.value ?? '0', 10);
+    const m = parseInt(pts.find(p => p.type === 'minute')?.value ?? '0', 10);
+    return h * 60 + m - (hour * 60 + minute);
+  })();
+  const appointmentDate = new Date(guess.getTime() - off * 60 * 1000);
+
+  const formattedDatetime = formatAppointmentDatetime(bookedSlot);
+
+  const validation = await validateSlotBeforeConfirm(lead.id, appointmentDate, timePart, zone);
+  if (!validation.ok) {
+    console.warn('[book] slot conflict on confirm:', validation.reason);
+    return;
+  }
+
+  try {
+    await confirmBooking(lead.id, ghlContactId, appointmentDate, formattedDatetime, botCtx.address ?? undefined);
+  } catch (err) {
+    console.error('[book] confirmBooking failed:', err);
+    return;
+  }
+
+  await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_appointment_set', 'INSPECTION_SCHEDULED', 'silent', {
+    sr_status: 'INSPECTION_SCHEDULED', sr_appointment_at: appointmentDate.toISOString(), sr_bot_stage: 'silent',
+  });
+
+  if (lead.ghlOpportunityId) {
+    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_APPOINTMENT_SET!).catch(err =>
+      console.error('[book] moveStage APPOINTMENT_SET failed:', err),
+    );
+  }
+
+  if (lead.assignedUserId) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.scopereports.com';
+    const repMsg =
+      `New inspection booked!\n\n` +
+      `Homeowner: ${lead.customerName}\n` +
+      `Address:   ${botCtx.address ?? 'not provided'}\n` +
+      `Date/Time: ${formattedDatetime}\n` +
+      `Phone:     ${lead.phone ?? 'not on file'}\n\n` +
+      `Summary: ${botCtx.summary}\n\n` +
+      `${appUrl}/leads/${lead.id}`;
+    await notifyRep(lead.assignedUserId, lead.id, repMsg).catch(err =>
+      console.error('[book] notifyRep failed:', err),
+    );
+  }
 }

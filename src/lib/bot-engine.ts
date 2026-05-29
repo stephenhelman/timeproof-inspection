@@ -17,6 +17,8 @@ import {
   type TimeOfDay,
 } from "@/src/lib/time-utils";
 import type { LeadStatus } from "@prisma/client";
+import type { BotResponse, BotContext, AreaAppointment } from "@/src/lib/prompts/qntum/types";
+import { EMPTY_BOT_CONTEXT } from "@/src/lib/prompts/qntum/types";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -24,6 +26,67 @@ export interface BotMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+}
+
+// ── Alex bot utilities ─────────────────────────────────────────
+
+export function formatAppointmentDatetime(slot: string): string {
+  // Input:  "2026-05-29 17:00"
+  // Output: "05-29-2026 5:00 PM"
+  const [datePart, timePart] = slot.split(" ");
+  const [year, month, day] = datePart.split("-");
+  const [hourStr, minute] = timePart.split(":");
+  const hour = parseInt(hourStr);
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+  return `${month}-${day}-${year} ${hour12}:${minute} ${ampm}`;
+}
+
+function getZipsForZone(zone: string): string[] {
+  return SERVICE_ZONES[zone]?.zips ?? [];
+}
+
+function extractStreetName(address: string): string {
+  // "7370 Mesa Hills Dr, El Paso TX" -> "Mesa Hills Dr"
+  const parts = address.split(",")[0].trim().split(" ");
+  return parts.slice(1).join(" ");
+}
+
+export async function getAreaAppointments(zone: string): Promise<AreaAppointment[]> {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+
+  const nextWeek = new Date(tomorrow);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+
+  const inspections = await prisma.inspection.findMany({
+    where: {
+      status: "scheduled",
+      appointmentAt: { gte: tomorrow, lte: nextWeek },
+      lead: { sourceZip: { in: getZipsForZone(zone) } },
+    },
+    select: {
+      appointmentAt: true,
+      lead: { select: { streetAddress: true } },
+    },
+    take: 5,
+  });
+
+  return inspections
+    .filter((i) => i.appointmentAt && i.lead?.streetAddress)
+    .map((i) => {
+      const date = new Date(i.appointmentAt!);
+      const hour = date.getHours();
+      return {
+        street: extractStreetName(i.lead!.streetAddress!),
+        day: date.toLocaleDateString("en-US", {
+          weekday: "long",
+          timeZone: "America/Denver",
+        }),
+        time_of_day: (hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening") as AreaAppointment["time_of_day"],
+      };
+    });
 }
 
 // ── Thread management ──────────────────────────────────────────
@@ -65,19 +128,13 @@ export async function appendMessage(
 
 // ── Claude API ─────────────────────────────────────────────────
 
-// Fallback: add SDK here if raw fetch is replaced with @anthropic-ai/sdk
-// Returns null when Claude signals [ESCALATE] — caller must skip sending SMS.
-export async function runBot(
+async function callClaudeRaw(
   systemPrompt: string,
-  messages: BotMessage[]
+  messages: BotCallMessage[],
+  maxTokens: number,
 ): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.warn("[bot-engine] ANTHROPIC_API_KEY not set — bot call skipped");
-    return "Hey, just wanted to follow up — is now a good time to connect?";
-  }
-
-  const apiMessages = messages.map((m) => ({ role: m.role, content: m.content }));
+  if (!apiKey) return null;
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -88,7 +145,119 @@ export async function runBot(
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`[bot-engine] Claude API error ${res.status}: ${body}`);
+  }
+
+  const data = (await res.json()) as { content: { text: string }[] };
+  return data.content[0]?.text ?? "";
+}
+
+// Callers may include a timestamp field alongside role/content — it is ignored by the API.
+export type BotCallMessage = { role: string; content: string; timestamp?: string }
+
+// Overload: JSON mode — returns BotResponse | null
+export async function runBot(
+  systemPrompt: string,
+  messages: BotCallMessage[],
+  options: { isJsonMode: true; maxTokens?: number; ghlContactId?: string; previousContext?: BotContext }
+): Promise<BotResponse | null>
+
+// Overload: string mode — returns string | null (Jordan-compatible)
+export async function runBot(
+  systemPrompt: string,
+  messages: BotCallMessage[],
+  options?: { isJsonMode?: false; maxTokens?: number }
+): Promise<string | null>
+
+// Implementation
+export async function runBot(
+  systemPrompt: string,
+  messages: BotCallMessage[],
+  options?: { isJsonMode?: boolean; maxTokens?: number; ghlContactId?: string; previousContext?: BotContext }
+): Promise<BotResponse | string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.warn("[bot-engine] ANTHROPIC_API_KEY not set — bot call skipped");
+    if (options?.isJsonMode) return null;
+    return "Hey, just wanted to follow up — is now a good time to connect?";
+  }
+
+  const apiMessages = messages.map((m) => ({ role: m.role, content: m.content }));
+
+  // ── JSON mode: three-attempt retry ──────────────────────────
+  if (options?.isJsonMode) {
+    const maxTokens = options.maxTokens ?? 600;
+
+    // Attempt 1
+    const raw1 = await callClaudeRaw(systemPrompt, apiMessages, maxTokens);
+    if (raw1 === null) return null;
+    try {
+      return JSON.parse(raw1) as BotResponse;
+    } catch { /* fall through to attempt 2 */ }
+
+    // Attempt 2: correct the malformed response
+    const retryInstruction =
+      `CRITICAL: Your previous response was not valid JSON. Here is what you returned:\n` +
+      `<malformed>\n${raw1}\n</malformed>\n\n` +
+      `You MUST return only a valid JSON object matching this exact shape:\n` +
+      `{\n` +
+      `  "bot_context": { "motivation": [], "urgency": false, "decision_makers": false, "time_of_day_preference": null, "appointment_day_preference": null, "appointment_time_preference": null, "address": null, "proximity_angle_used": false, "source_type": null, "rep_name": null, "summary": "" },\n` +
+      `  "intent": "nurture",\n` +
+      `  "stage_change": false,\n` +
+      `  "message": "your message here",\n` +
+      `  "signal": null,\n` +
+      `  "booked_slot": null\n` +
+      `}\n` +
+      `Return nothing else. No prose. No markdown. No explanation. Only the JSON object.`;
+
+    const retryMessages = [
+      ...apiMessages,
+      { role: "assistant", content: raw1 },
+      { role: "user", content: retryInstruction },
+    ];
+    const raw2 = await callClaudeRaw(systemPrompt, retryMessages, maxTokens);
+    if (raw2 === null) return null;
+    try {
+      return JSON.parse(raw2) as BotResponse;
+    } catch { /* fall through to attempt 3 */ }
+
+    // Attempt 3: plain text fallback
+    const fallbackSystem =
+      "You are Alex, a roofing assistant. Based on this conversation, write one natural response to send to the homeowner. Return only the message text with no formatting or explanation.";
+    const raw3 = await callClaudeRaw(fallbackSystem, apiMessages, 200);
+    const ghlContactId = options.ghlContactId ?? "unknown";
+    console.log(`[bot-engine] JSON fallback used for contact ${ghlContactId}`);
+    if (!raw3) return null;
+    return {
+      bot_context: options.previousContext ?? EMPTY_BOT_CONTEXT,
+      intent: "nurture",
+      stage_change: false,
+      message: raw3.trim(),
+      signal: null,
+      booked_slot: null,
+    } satisfies BotResponse;
+  }
+
+  // ── String mode (Jordan-compatible, original behavior) ───────
+  const maxTokens = options?.maxTokens ?? 300;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages: apiMessages,
     }),

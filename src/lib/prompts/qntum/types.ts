@@ -271,3 +271,48 @@ export interface FinanceContext {
 
   options_surfaced: string[];
 }
+
+// ─── ALEX BOT — JSON RESPONSE CONTRACT ────────────────────────────────────────
+
+export interface AreaAppointment {
+  street: string
+  day: string
+  time_of_day: "morning" | "afternoon" | "evening"
+}
+
+export interface BotContext {
+  motivation: string[]
+  urgency: boolean
+  decision_makers: boolean
+  time_of_day_preference: "morning" | "afternoon" | "evening" | null
+  appointment_day_preference: string | null
+  appointment_time_preference: string | null
+  address: string | null
+  proximity_angle_used: boolean
+  source_type: "door" | "card" | "organic" | "facebook" | null
+  rep_name: string | null
+  summary: string
+}
+
+export interface BotResponse {
+  bot_context: BotContext
+  intent: "nurture" | "qualify" | "book" | "revive" | "finance" | "reschedule"
+  stage_change: boolean
+  message: string | null
+  signal: "QUALIFIED" | "BOOKED" | "STALL" | "NOT_INTERESTED" | "SOFT_CLOSE" | "ESCALATE" | null
+  booked_slot: string | null
+}
+
+export const EMPTY_BOT_CONTEXT: BotContext = {
+  motivation: [],
+  urgency: false,
+  decision_makers: false,
+  time_of_day_preference: null,
+  appointment_day_preference: null,
+  appointment_time_preference: null,
+  address: null,
+  proximity_angle_used: false,
+  source_type: null,
+  rep_name: null,
+  summary: "",
+}
