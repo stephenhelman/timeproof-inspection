@@ -27,7 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const dbUser = await prisma.user.findUniqueOrThrow({
     where: { id: session.user.id },
-    select: { profileImageUrl: true, role: true, isActive: true, repSlug: true },
+    select: { profileImageUrl: true, role: true, isActive: true },
   });
 
   // PRESERVED — not active in Qntum build (revival queue)
@@ -76,7 +76,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               Revival ...
             </a>
             */}
-            <DoorApproachButton repSlug={dbUser.repSlug ?? null} />
+            <DoorApproachButton />
           </div>
 
           {/* Right side */}
@@ -152,7 +152,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <CreditCard size={14} strokeWidth={1.75} />
             Card
           </a>
-          <DoorApproachButton repSlug={dbUser.repSlug ?? null} mobile />
+          <DoorApproachButton mobile />
         </div>
       </nav>
 
