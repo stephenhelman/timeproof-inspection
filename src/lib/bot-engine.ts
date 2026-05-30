@@ -30,6 +30,52 @@ export interface BotMessage {
 
 // ── Alex bot utilities ─────────────────────────────────────────
 
+export async function readBotContextFromDb(
+  ghlContactId: string
+): Promise<BotContext> {
+  const thread = await prisma.botThread.findFirst({
+    where: { ghlContactId },
+    orderBy: { lastMessageAt: 'desc' }
+  })
+
+  const metadata = thread?.metadata as Record<string, unknown> | null
+  const stored = metadata?.bot_context
+
+  if (!stored) return { ...EMPTY_BOT_CONTEXT }
+
+  try {
+    return stored as BotContext
+  } catch {
+    return { ...EMPTY_BOT_CONTEXT }
+  }
+}
+
+export async function writeBotContextToDb(
+  ghlContactId: string,
+  botType: string,
+  context: BotContext
+): Promise<void> {
+  const thread = await prisma.botThread.findFirst({
+    where: { ghlContactId, botType },
+    orderBy: { lastMessageAt: 'desc' }
+  })
+
+  if (!thread) {
+    console.warn('[bot-engine] writeBotContextToDb: no thread found for', ghlContactId, botType)
+    return
+  }
+
+  const existingMetadata = (thread.metadata as Record<string, unknown>) ?? {}
+
+  await prisma.botThread.update({
+    where: { id: thread.id },
+    data: {
+      metadata: { ...existingMetadata, bot_context: context } as unknown as never,
+      lastMessageAt: new Date()
+    }
+  })
+}
+
 export function formatAppointmentDatetime(slot: string): string {
   console.info('[bot-engine] formatAppointmentDatetime input:', slot, '→ split:', slot.split(' '));
   // Input:  "2026-05-29 17:00"

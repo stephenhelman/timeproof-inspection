@@ -6,15 +6,15 @@ import {
   runBot,
   transitionLead,
   getAreaAppointments,
+  readBotContextFromDb,
+  writeBotContextToDb,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
-  getGhlOpportunityCustomField,
   writeGhlContactCustomField,
   writeGhlOpportunityCustomField,
 } from "@/src/lib/ghl-contacts";
 import { assembleNurturePrompt } from "@/src/lib/prompts/qntum/assemblers/nurture";
-import { EMPTY_BOT_CONTEXT } from "@/src/lib/prompts/qntum/types";
 import type { BotContext } from "@/src/lib/prompts/qntum/types";
 import type { NurtureAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/nurture";
 import { getZoneForZip, getZipTier } from "@/src/lib/service-zones";
@@ -41,22 +41,6 @@ async function mergeSourceFields(
   };
 }
 
-async function readBotContext(ghlOpportunityId: string | null): Promise<BotContext> {
-  if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return EMPTY_BOT_CONTEXT;
-  const raw = await getGhlOpportunityCustomField(ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT).catch(() => null);
-  if (!raw) return EMPTY_BOT_CONTEXT;
-  try { return JSON.parse(raw) as BotContext; } catch { return EMPTY_BOT_CONTEXT; }
-}
-
-async function writeBotContext(ghlOpportunityId: string | null, ctx: BotContext): Promise<void> {
-  if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return;
-  await writeGhlOpportunityCustomField(
-    ghlOpportunityId,
-    process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT,
-    JSON.stringify(ctx),
-  ).catch(err => console.warn('[nurture] writeBotContext failed:', err));
-}
-
 export async function handleNurtureWebhook(ctx: {
   lead: Lead;
   srLead: SrLead;
@@ -67,7 +51,6 @@ export async function handleNurtureWebhook(ctx: {
 }): Promise<void> {
   const { lead, srLead, ghlContactId, trigger, inboundMsg, dripPosition } = ctx;
   const rawLead = lead as unknown as Record<string, unknown>;
-  const ghlOpportunityId = (rawLead.ghlOpportunityId as string | null) ?? null;
 
   const sourceRaw = (rawLead.guideSource as string) ?? (rawLead.source as string) ?? 'organic';
   const srcMap: Record<string, NurtureAssemblerContext['source']> = {
@@ -92,7 +75,7 @@ export async function handleNurtureWebhook(ctx: {
     const currentMessages = (thread?.messages as BotMessage[]) ?? [];
 
     const bot_context = await mergeSourceFields(
-      await readBotContext(ghlOpportunityId),
+      await readBotContextFromDb(ghlContactId),
       sourceTypeMapped,
       lead.assignedUserId,
     );
@@ -122,12 +105,16 @@ export async function handleNurtureWebhook(ctx: {
       return;
     }
 
-    await writeBotContext(ghlOpportunityId, response.bot_context);
+    await writeBotContextToDb(ghlContactId, 'nurture', response.bot_context);
+    // Mirror to GHL — fire and forget
+    if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+      writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
+    }
 
     const atLimit = currentMessages.length >= CONVERSATION_LIMIT;
     if (response.stage_change || atLimit) {
       if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-        await writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
+        writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
       }
     }
 
@@ -155,7 +142,7 @@ export async function handleNurtureWebhook(ctx: {
   const currentMessages = (thread?.messages as BotMessage[]) ?? [];
 
   const bot_context = await mergeSourceFields(
-    await readBotContext(ghlOpportunityId),
+    await readBotContextFromDb(ghlContactId),
     sourceTypeMapped,
     lead.assignedUserId,
   );
@@ -181,7 +168,10 @@ export async function handleNurtureWebhook(ctx: {
     ], { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
 
     if (openerResponse !== null) {
-      await writeBotContext(ghlOpportunityId, openerResponse.bot_context);
+      await writeBotContextToDb(ghlContactId, 'nurture', openerResponse.bot_context);
+      if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+        writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(openerResponse.bot_context)).catch(() => null);
+      }
       if (!openerResponse.stage_change && openerResponse.message) {
         await sendGhlSms(ghlContactId, openerResponse.message);
         await appendMessage(threadId, 'assistant', openerResponse.message);
@@ -195,7 +185,7 @@ export async function handleNurtureWebhook(ctx: {
   const freshThread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const freshMessages = (freshThread?.messages as BotMessage[]) ?? [];
   const freshBotContext = await mergeSourceFields(
-    await readBotContext(ghlOpportunityId),
+    await readBotContextFromDb(ghlContactId),
     sourceTypeMapped,
     lead.assignedUserId,
   );
@@ -217,12 +207,15 @@ export async function handleNurtureWebhook(ctx: {
     return;
   }
 
-  await writeBotContext(ghlOpportunityId, response.bot_context);
+  await writeBotContextToDb(ghlContactId, 'nurture', response.bot_context);
+  if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+    writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
+  }
 
   const atLimit = freshMessages.length >= CONVERSATION_LIMIT;
   if (response.stage_change || atLimit) {
     if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-      await writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
+      writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
     }
   }
 

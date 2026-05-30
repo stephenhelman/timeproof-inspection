@@ -14,18 +14,17 @@ import {
   notifyRep,
   formatAppointmentDatetime,
   getAreaAppointments,
+  readBotContextFromDb,
+  writeBotContextToDb,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
-  getGhlContactCustomField,
-  getGhlOpportunityCustomField,
   writeGhlContactCustomField,
   writeGhlOpportunityCustomField,
   moveGhlOpportunityStage,
   updateGhlContact,
 } from "@/src/lib/ghl-contacts";
 import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
-import { EMPTY_BOT_CONTEXT } from "@/src/lib/prompts/qntum/types";
 import type { BotContext } from "@/src/lib/prompts/qntum/types";
 import type { BookAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/book";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
@@ -36,23 +35,6 @@ type BotMessage = { role: string; content: string; timestamp: string };
 const CONVERSATION_LIMIT = 20;
 
 const BOOKED_SLOT_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
-
-async function readBotContext(ghlOpportunityId: string | null): Promise<BotContext> {
-  if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return EMPTY_BOT_CONTEXT;
-  const rawValue = await getGhlOpportunityCustomField(ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT).catch(() => null);
-  console.info('[book] readBotContext raw field value:', rawValue?.slice(0, 100));
-  if (!rawValue) return EMPTY_BOT_CONTEXT;
-  try { return JSON.parse(rawValue) as BotContext; } catch { return EMPTY_BOT_CONTEXT; }
-}
-
-async function writeBotContext(ghlOpportunityId: string | null, ctx: BotContext): Promise<void> {
-  if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return;
-  await writeGhlOpportunityCustomField(
-    ghlOpportunityId,
-    process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT,
-    JSON.stringify(ctx),
-  ).catch(err => console.warn('[book] writeBotContext failed:', err));
-}
 
 async function handleStallExhaustedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
   await updateSrLead(lead.id, { sr_bot_stage: 'revival', sr_status: 'DEMO_NOT_SOLD' });
@@ -108,7 +90,6 @@ export async function handleBookWebhook(ctx: {
 }): Promise<void> {
   const { lead, ghlContactId, trigger, inboundMsg } = ctx;
   const rawLead = lead as unknown as Record<string, unknown>;
-  const ghlOpportunityId = (rawLead.ghlOpportunityId as string | null) ?? lead.ghlOpportunityId ?? null;
 
   // ── Named trigger dispatch ────────────────────────────────────────────────────
   if (trigger === 'stall_exhausted') {
@@ -146,19 +127,9 @@ export async function handleBookWebhook(ctx: {
   const distanceZone = leadZone ? isDistanceZone(leadZone) : false;
   const zone = leadZone ?? 'el_paso_central';
 
-  const rawBotContext = await readBotContext(ghlOpportunityId);
-  console.info('[book] readBotContext result:', JSON.stringify(rawBotContext).slice(0, 200));
-
-  // Fallback: race condition where qualify writes context then immediately fires qualified_handoff.
-  // GHL opportunity field reads may return stale data. If context is empty, use SR_PREVIOUS_CONTEXT summary.
-  let bot_context = rawBotContext;
-  if (rawBotContext.motivation.length === 0 && rawBotContext.summary === '' && process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-    const prevCtxRaw = await getGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT).catch(() => null);
-    if (prevCtxRaw) {
-      bot_context = { ...rawBotContext, summary: prevCtxRaw };
-      console.info('[book] used SR_PREVIOUS_CONTEXT fallback for summary');
-    }
-  }
+  // Read context from DB — immediately consistent, no race condition
+  const bot_context = await readBotContextFromDb(ghlContactId);
+  console.info('[book] readBotContextFromDb result — motivation:', bot_context.motivation, 'summary:', bot_context.summary?.slice(0, 80));
 
   const area_appointments = await getAreaAppointments(zone).catch(() => []);
 
@@ -201,12 +172,6 @@ export async function handleBookWebhook(ctx: {
   const knownIssues = Array.isArray(lead.knownIssues) ? (lead.knownIssues as string[]) : [];
   const activeIssues = knownIssues.filter(i => i !== "I haven't noticed anything");
 
-  const lockedSlot = existingLock
-    ? { date: existingLock.date?.toISOString().slice(0, 10) ?? '', time: existingLock.time ?? '', label: existingLock.label ?? rawSlots[0]?.label ?? '' }
-    : rawSlots[0]
-      ? { date: rawSlots[0].date, time: rawSlots[0].time, label: rawSlots[0].label }
-      : null;
-
   const assemblerCtx: BookAssemblerContext = {
     homeowner_name: lead.customerName,
     first_name: lead.customerName.trim().split(/\s+/)[0],
@@ -231,8 +196,12 @@ export async function handleBookWebhook(ctx: {
       { role: 'user', content: 'qualified_handoff', timestamp: new Date().toISOString() },
     ], { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
     if (openerResponse !== null) {
-      await writeBotContext(ghlOpportunityId, openerResponse.bot_context);
-      console.info('[book] writeBotContext complete for opp:', lead.ghlOpportunityId, 'motivation:', openerResponse.bot_context.motivation);
+      await writeBotContextToDb(ghlContactId, 'book', openerResponse.bot_context);
+      console.info('[book] writeBotContextToDb complete — motivation:', openerResponse.bot_context.motivation);
+      // Mirror to GHL — fire and forget
+      if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+        writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(openerResponse.bot_context)).catch(() => null);
+      }
       if (!openerResponse.stage_change && openerResponse.message) {
         await sendGhlSms(ghlContactId, openerResponse.message);
         await appendMessage(threadId, 'assistant', openerResponse.message);
@@ -259,8 +228,11 @@ export async function handleBookWebhook(ctx: {
       await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
       return;
     }
-    await writeBotContext(ghlOpportunityId, response.bot_context);
-    console.info('[book] writeBotContext complete for opp:', lead.ghlOpportunityId, 'motivation:', response.bot_context.motivation);
+    await writeBotContextToDb(ghlContactId, 'book', response.bot_context);
+    console.info('[book] writeBotContextToDb complete — motivation:', response.bot_context.motivation);
+    if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+      writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
+    }
     if (!response.stage_change && response.message) {
       await sendGhlSms(ghlContactId, response.message);
       await appendMessage(threadId, 'assistant', response.message);
@@ -277,7 +249,7 @@ export async function handleBookWebhook(ctx: {
   // ── Main inbound_sms conversation ─────────────────────────────────────────────
   const reloadedThread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const reloadedMessages = (reloadedThread?.messages as BotMessage[]) ?? [];
-  const freshBotCtx = await readBotContext(ghlOpportunityId);
+  const freshBotCtx = await readBotContextFromDb(ghlContactId);
 
   const freshCtx: BookAssemblerContext = { ...assemblerCtx, message_history_count: reloadedMessages.length, bot_context: freshBotCtx };
   const systemPrompt = assembleBookPrompt(freshCtx);
@@ -289,13 +261,16 @@ export async function handleBookWebhook(ctx: {
     return;
   }
 
-  await writeBotContext(ghlOpportunityId, response.bot_context);
-  console.info('[book] writeBotContext complete for opp:', lead.ghlOpportunityId, 'motivation:', response.bot_context.motivation);
+  await writeBotContextToDb(ghlContactId, 'book', response.bot_context);
+  console.info('[book] writeBotContextToDb complete — motivation:', response.bot_context.motivation);
+  if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+    writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
+  }
 
   const atLimit = reloadedMessages.length >= CONVERSATION_LIMIT;
   if (response.stage_change || atLimit) {
     if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-      await writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
+      writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
     }
   }
 

@@ -7,17 +7,17 @@ import {
   transitionLead,
   isCancellation,
   getAreaAppointments,
+  readBotContextFromDb,
+  writeBotContextToDb,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
   getGhlContactCustomField,
-  getGhlOpportunityCustomField,
   writeGhlContactCustomField,
   writeGhlOpportunityCustomField,
   moveGhlOpportunityStage,
 } from "@/src/lib/ghl-contacts";
 import { assembleQualifyPrompt } from "@/src/lib/prompts/qntum/assemblers/qualify";
-import { EMPTY_BOT_CONTEXT } from "@/src/lib/prompts/qntum/types";
 import type { BotContext } from "@/src/lib/prompts/qntum/types";
 import type { QualifyAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/qualify";
 import { getZoneForZip } from "@/src/lib/service-zones";
@@ -49,22 +49,6 @@ const QUALIFY_OPENER =
   `Following up on your inspection request. ` +
   `What made you want to get your roof looked at?`;
 
-async function readBotContext(ghlOpportunityId: string | null): Promise<BotContext> {
-  if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return EMPTY_BOT_CONTEXT;
-  const raw = await getGhlOpportunityCustomField(ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT).catch(() => null);
-  if (!raw) return EMPTY_BOT_CONTEXT;
-  try { return JSON.parse(raw) as BotContext; } catch { return EMPTY_BOT_CONTEXT; }
-}
-
-async function writeBotContext(ghlOpportunityId: string | null, ctx: BotContext): Promise<void> {
-  if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return;
-  await writeGhlOpportunityCustomField(
-    ghlOpportunityId,
-    process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT,
-    JSON.stringify(ctx),
-  ).catch(err => console.warn('[qualify] writeBotContext failed:', err));
-}
-
 export async function handleQualifyWebhook(ctx: {
   lead: Lead;
   srLead: SrLead;
@@ -74,7 +58,6 @@ export async function handleQualifyWebhook(ctx: {
 }): Promise<void> {
   const { lead, srLead, ghlContactId, trigger, inboundMsg } = ctx;
   const rawLead = lead as unknown as Record<string, unknown>;
-  const ghlOpportunityId = (rawLead.ghlOpportunityId as string | null) ?? null;
 
   // ── Opener triggers ───────────────────────────────────────────────────────────
   if (trigger === 'new_inspection_lead' || trigger === 'scheduling_approved') {
@@ -157,7 +140,7 @@ export async function handleQualifyWebhook(ctx: {
     : null;
 
   const bot_context = await mergeSourceFields(
-    await readBotContext(ghlOpportunityId),
+    await readBotContextFromDb(ghlContactId),
     sourceTypeMapped,
     lead.assignedUserId,
   );
@@ -207,12 +190,16 @@ export async function handleQualifyWebhook(ctx: {
     }
   }
 
-  await writeBotContext(ghlOpportunityId, response.bot_context);
+  await writeBotContextToDb(ghlContactId, 'qualify', response.bot_context);
+  // Mirror to GHL — fire and forget
+  if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
+    writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
+  }
 
   const atLimit = currentMessages.length >= CONVERSATION_LIMIT;
   if (response.stage_change || atLimit) {
     if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-      await writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
+      writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
     }
   }
 
@@ -264,4 +251,5 @@ export async function handleQualifyWebhook(ctx: {
   } else if (response.signal === 'ESCALATE') {
     await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
   }
+  void srLead;
 }
