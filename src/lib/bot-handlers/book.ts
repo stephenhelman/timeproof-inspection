@@ -39,9 +39,10 @@ const BOOKED_SLOT_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
 async function readBotContext(ghlOpportunityId: string | null): Promise<BotContext> {
   if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return EMPTY_BOT_CONTEXT;
-  const raw = await getGhlOpportunityCustomField(ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT).catch(() => null);
-  if (!raw) return EMPTY_BOT_CONTEXT;
-  try { return JSON.parse(raw) as BotContext; } catch { return EMPTY_BOT_CONTEXT; }
+  const rawValue = await getGhlOpportunityCustomField(ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT).catch(() => null);
+  console.info('[book] readBotContext raw field value:', rawValue?.slice(0, 100));
+  if (!rawValue) return EMPTY_BOT_CONTEXT;
+  try { return JSON.parse(rawValue) as BotContext; } catch { return EMPTY_BOT_CONTEXT; }
 }
 
 async function writeBotContext(ghlOpportunityId: string | null, ctx: BotContext): Promise<void> {

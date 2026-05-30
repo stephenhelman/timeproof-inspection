@@ -30,9 +30,14 @@ export function assembleBookPrompt(context: BookAssemblerContext): string {
         : '') +
       `- Ends with asking for the address: "What address should we send our inspector to?"\n` +
       `- Does NOT ask about scheduling or time preference if already in bot_context\n` +
-      `- Sounds warm and specific, not generic\n\n` +
+      `- Sounds warm and specific, not generic\n` +
+      `- Do NOT start with a greeting like "Hey [name]" or "Hi [name]" — the homeowner already knows who you are\n` +
+      `- Start directly with the issue reference or the transition statement\n` +
+      `- Never re-introduce yourself\n\n` +
       `Example if motivation contains ["granule loss", "10 year old roof"]:\n` +
-      `"With that granule loss and a 10-year-old roof, let's get someone out there before monsoon season hits. What address should we send our inspector to?"\n\n` +
+      `"With that granule loss and a 10-year-old roof, let's get someone out there before monsoon season hits. What address should we send our inspector to?"\n` +
+      `Example if motivation contains ["missing shingles", "water damage"]:\n` +
+      `"With those missing shingles and the water damage risk, let's get someone out there. What address should we send our inspector to?"\n\n` +
       `Never open with "We'd love to get your roof inspected" or any generic line.\n`
     : ''
 
