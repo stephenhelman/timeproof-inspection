@@ -439,6 +439,28 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
+// Parse a GHL slot ISO string (e.g. "2026-06-01T17:00:00-05:00") and return
+// the equivalent Mountain Time hour and HH:MM string. Falls back to raw slice
+// if the string is not a valid ISO datetime (e.g. plain "09:00:00").
+function slotToMountainTime(slotStr: string): { hour: number; timeStr: string } {
+  const date = new Date(slotStr);
+  if (isNaN(date.getTime())) {
+    // Plain time string like "09:00:00" or "09:00" — assume already MT
+    const timeStr = slotStr.slice(0, 5);
+    const hour = parseInt(timeStr.split(':')[0], 10);
+    return { hour, timeStr };
+  }
+  const mtStr = date.toLocaleString('en-US', {
+    timeZone: process.env.BOT_TIMEZONE ?? 'America/Denver',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const [hour, minute] = mtStr.split(':').map(Number);
+  const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+  return { hour, timeStr };
+}
+
 function formatDateLabel(dateStr: string, time: string, timezone: string): string {
   // Parse the datetime as a Mountain Time wall-clock value so the formatter
   // never double-converts. We find the UTC instant that equals dateStr+time in
@@ -525,10 +547,14 @@ async function fetchGhlFreeSlots(
     const raw: Record<string, any> = data?._dates_ ?? data?.slots ?? {};
     const result: Record<string, string[]> = {};
     for (const [date, val] of Object.entries(raw)) {
-      if (Array.isArray(val)) {
-        result[date] = val.map((t: string) => t.slice(0, 5)); // "09:00:00" → "09:00"
-      } else if (val?.slots && Array.isArray(val.slots)) {
-        result[date] = val.slots.map((t: string) => t.slice(0, 5));
+      const slots: string[] = Array.isArray(val)
+        ? val
+        : val?.slots && Array.isArray(val.slots)
+          ? val.slots
+          : [];
+      if (slots.length > 0) {
+        // Convert each slot to Mountain Time — handles ISO strings like "2026-06-01T17:00:00-05:00"
+        result[date] = slots.map((t: string) => slotToMountainTime(t).timeStr);
       }
     }
     return result;
@@ -578,10 +604,13 @@ export async function getAvailableSlots(
   for (let d = minDaysAhead; d <= BOOKING_WINDOW_DAYS && results.length < 3; d++) {
     const dayDate = addDays(today, d);
 
-    const dateStr = dayDate.toISOString().slice(0, 10);
+    const dateStr = dayDate.toISOString().slice(0, 10); // UTC date — used for DB inspection/lock queries
+    // MT calendar date — used for GHL slot key lookup, lock date comparison, and returned slot data.
+    // GHL returns slot keys in the timezone we requested (America/Denver), so we must match that.
+    const ghlDateKey = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(dayDate);
 
     // Filter out Sunday — calendar marked unavailable
-    const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+    const dayOfWeek = new Date(ghlDateKey + 'T12:00:00').getDay();
     if (dayOfWeek === 0) continue;
 
     const dayStart = new Date(dayDate);
@@ -622,7 +651,7 @@ export async function getAvailableSlots(
     );
     if (hasIncompatibleLock) continue;
 
-    const ghlAvail = new Set(ghlSlots[dateStr] ?? AVAILABLE_TIMES);
+    const ghlAvail = new Set(ghlSlots[ghlDateKey] ?? AVAILABLE_TIMES);
 
     for (const time of AVAILABLE_TIMES) {
       if (results.length >= 3) break;
@@ -634,16 +663,16 @@ export async function getAvailableSlots(
       // Check 1: GHL calendar free
       if (Object.keys(ghlSlots).length > 0 && !ghlAvail.has(time)) continue;
 
-      // Check 2: no exact SlotLock on this date+time
+      // Check 2: no exact SlotLock on this date+time (compare against MT date key)
       const exactLock = existingLocks.find(
-        (l) => l.date.toISOString().slice(0, 10) === dateStr && l.time === time
+        (l) => l.date.toISOString().slice(0, 10) === ghlDateKey && l.time === time
       );
       if (exactLock) continue;
 
       results.push({
-        date: dateStr,
+        date: ghlDateKey,
         time,
-        label: formatDateLabel(dateStr, time, timezone),
+        label: formatDateLabel(ghlDateKey, time, timezone),
       });
     }
   }
