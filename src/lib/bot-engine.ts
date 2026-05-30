@@ -31,6 +31,7 @@ export interface BotMessage {
 // ── Alex bot utilities ─────────────────────────────────────────
 
 export function formatAppointmentDatetime(slot: string): string {
+  console.info('[bot-engine] formatAppointmentDatetime input:', slot, '→ split:', slot.split(' '));
   // Input:  "2026-05-29 17:00"
   // Output: "05-29-2026 5:00 PM"
   const [datePart, timePart] = slot.split(" ");
@@ -39,6 +40,7 @@ export function formatAppointmentDatetime(slot: string): string {
   const hour = parseInt(hourStr, 10);
   const ampm = hour >= 12 ? "PM" : "AM";
   const hour12 = hour % 12 || 12;
+  console.info('[bot-engine] formatAppointmentDatetime output:', `${month}-${day}-${year} ${hour12}:${minute} ${ampm}`);
   return `${month}-${day}-${year} ${hour12}:${minute} ${ampm}`;
 }
 
