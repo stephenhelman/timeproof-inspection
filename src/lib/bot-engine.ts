@@ -128,13 +128,22 @@ export async function appendMessage(
 
 // ── Claude API ─────────────────────────────────────────────────
 
+const JSON_FORMAT_INSTRUCTION =
+  `\n\nRESPONSE FORMAT — MANDATORY:\n` +
+  `Return ONLY a raw JSON object. No markdown. No code fences. No backticks. No prose before or after.\n` +
+  `The first character of your response must be { and the last character must be }.\n` +
+  `JSON.parse() will be called directly on your response. Any wrapping will cause a failure.`;
+
 async function callClaudeRaw(
   systemPrompt: string,
   messages: BotCallMessage[],
   maxTokens: number,
+  jsonMode?: boolean,
 ): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
+
+  const effectiveSystem = jsonMode ? systemPrompt + JSON_FORMAT_INSTRUCTION : systemPrompt;
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -146,7 +155,7 @@ async function callClaudeRaw(
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
       max_tokens: maxTokens,
-      system: systemPrompt,
+      system: effectiveSystem,
       messages,
     }),
   });
@@ -196,12 +205,22 @@ export async function runBot(
   if (options?.isJsonMode) {
     const maxTokens = options.maxTokens ?? 600;
 
+    function extractJson(raw: string): string {
+      // Strip markdown code fences — ```json ... ``` or ``` ... ```
+      const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (fenceMatch) return fenceMatch[1].trim()
+      return raw.trim()
+    }
+
     // Attempt 1
-    const raw1 = await callClaudeRaw(systemPrompt, apiMessages, maxTokens);
+    const raw1 = await callClaudeRaw(systemPrompt, apiMessages, maxTokens, true);
     if (raw1 === null) return null;
     try {
-      return JSON.parse(raw1) as BotResponse;
-    } catch { /* fall through to attempt 2 */ }
+      return JSON.parse(extractJson(raw1)) as BotResponse;
+    } catch (e) {
+      console.warn('[bot-engine] JSON attempt 1 parse failed. Raw response (first 300 chars):', raw1.slice(0, 300));
+      // fall through to attempt 2
+    }
 
     // Attempt 2: correct the malformed response
     const retryInstruction =
@@ -223,17 +242,21 @@ export async function runBot(
       { role: "assistant", content: raw1 },
       { role: "user", content: retryInstruction },
     ];
-    const raw2 = await callClaudeRaw(systemPrompt, retryMessages, maxTokens);
+    const raw2 = await callClaudeRaw(systemPrompt, retryMessages, maxTokens, true);
     if (raw2 === null) return null;
     try {
-      return JSON.parse(raw2) as BotResponse;
-    } catch { /* fall through to attempt 3 */ }
+      return JSON.parse(extractJson(raw2)) as BotResponse;
+    } catch (e) {
+      console.warn('[bot-engine] JSON attempt 2 parse failed. Raw response (first 300 chars):', raw2.slice(0, 300));
+      // fall through to attempt 3
+    }
 
     // Attempt 3: plain text fallback
     const fallbackSystem =
       "You are Alex, a roofing assistant. Based on this conversation, write one natural response to send to the homeowner. Return only the message text with no formatting or explanation.";
     const raw3 = await callClaudeRaw(fallbackSystem, apiMessages, 200);
     const ghlContactId = options.ghlContactId ?? "unknown";
+    console.warn('[bot-engine] JSON fallback used. Attempt 1 raw:', raw1?.slice(0, 200), 'Attempt 2 raw:', raw2?.slice(0, 200));
     console.log(`[bot-engine] JSON fallback used for contact ${ghlContactId}`);
     if (!raw3) return null;
     return {
