@@ -36,7 +36,7 @@ export function formatAppointmentDatetime(slot: string): string {
   const [datePart, timePart] = slot.split(" ");
   const [year, month, day] = datePart.split("-");
   const [hourStr, minute] = timePart.split(":");
-  const hour = parseInt(hourStr);
+  const hour = parseInt(hourStr, 10);
   const ampm = hour >= 12 ? "PM" : "AM";
   const hour12 = hour % 12 || 12;
   return `${month}-${day}-${year} ${hour12}:${minute} ${ampm}`;

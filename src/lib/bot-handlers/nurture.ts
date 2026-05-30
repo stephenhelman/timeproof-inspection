@@ -24,6 +24,23 @@ type BotMessage = { role: string; content: string; timestamp: string };
 
 const CONVERSATION_LIMIT = 15;
 
+async function mergeSourceFields(
+  bot_context: BotContext,
+  sourceType: BotContext['source_type'],
+  assignedUserId: string | null,
+): Promise<BotContext> {
+  let repName = bot_context.rep_name;
+  if (repName === null && (sourceType === 'door' || sourceType === 'card') && assignedUserId) {
+    const user = await prisma.user.findUnique({ where: { id: assignedUserId }, select: { name: true } });
+    repName = user?.name ?? null;
+  }
+  return {
+    ...bot_context,
+    source_type: bot_context.source_type ?? sourceType,
+    rep_name: repName,
+  };
+}
+
 async function readBotContext(ghlOpportunityId: string | null): Promise<BotContext> {
   if (!ghlOpportunityId || !process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) return EMPTY_BOT_CONTEXT;
   const raw = await getGhlOpportunityCustomField(ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT).catch(() => null);
@@ -58,6 +75,12 @@ export async function handleNurtureWebhook(ctx: {
   };
   const source: NurtureAssemblerContext['source'] = srcMap[sourceRaw] ?? 'organic';
 
+  const sourceTypeMapped: BotContext['source_type'] =
+    source === 'door' ? 'door'
+    : source === 'card' ? 'card'
+    : source === 'facebook-guide' ? 'facebook'
+    : 'organic';
+
   const leadZone = lead.sourceZip ? (getZoneForZip(lead.sourceZip) ?? 'el_paso_central') : 'el_paso_central';
 
   const { id: threadId, messages, isNew } = await getOrCreateThread(ghlContactId, 'nurture');
@@ -68,7 +91,11 @@ export async function handleNurtureWebhook(ctx: {
     const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
     const currentMessages = (thread?.messages as BotMessage[]) ?? [];
 
-    const bot_context = await readBotContext(ghlOpportunityId);
+    const bot_context = await mergeSourceFields(
+      await readBotContext(ghlOpportunityId),
+      sourceTypeMapped,
+      lead.assignedUserId,
+    );
     const area_appointments = await getAreaAppointments(leadZone).catch(() => []);
 
     const assemblerCtx: NurtureAssemblerContext = {
@@ -127,7 +154,11 @@ export async function handleNurtureWebhook(ctx: {
   const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const currentMessages = (thread?.messages as BotMessage[]) ?? [];
 
-  const bot_context = await readBotContext(ghlOpportunityId);
+  const bot_context = await mergeSourceFields(
+    await readBotContext(ghlOpportunityId),
+    sourceTypeMapped,
+    lead.assignedUserId,
+  );
   const area_appointments = await getAreaAppointments(leadZone).catch(() => []);
 
   const assemblerCtx: NurtureAssemblerContext = {
@@ -163,7 +194,11 @@ export async function handleNurtureWebhook(ctx: {
   // Reload thread after potential opener write
   const freshThread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const freshMessages = (freshThread?.messages as BotMessage[]) ?? [];
-  const freshBotContext = await readBotContext(ghlOpportunityId);
+  const freshBotContext = await mergeSourceFields(
+    await readBotContext(ghlOpportunityId),
+    sourceTypeMapped,
+    lead.assignedUserId,
+  );
 
   const freshCtx: NurtureAssemblerContext = {
     ...assemblerCtx,

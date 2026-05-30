@@ -27,6 +27,23 @@ type BotMessage = { role: string; content: string; timestamp: string };
 
 const CONVERSATION_LIMIT = 12;
 
+async function mergeSourceFields(
+  bot_context: BotContext,
+  sourceType: BotContext['source_type'],
+  assignedUserId: string | null,
+): Promise<BotContext> {
+  let repName = bot_context.rep_name;
+  if (repName === null && (sourceType === 'door' || sourceType === 'card') && assignedUserId) {
+    const user = await prisma.user.findUnique({ where: { id: assignedUserId }, select: { name: true } });
+    repName = user?.name ?? null;
+  }
+  return {
+    ...bot_context,
+    source_type: bot_context.source_type ?? sourceType,
+    rep_name: repName,
+  };
+}
+
 const QUALIFY_OPENER =
   `Hey {firstName} — this is Alex with Qntum Roofing. ` +
   `Following up on your inspection request. ` +
@@ -132,7 +149,18 @@ export async function handleQualifyWebhook(ctx: {
     ? await getGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT).catch(() => null)
     : null;
 
-  const bot_context = await readBotContext(ghlOpportunityId);
+  const sourceTypeMapped: BotContext['source_type'] =
+    source === 'door' ? 'door'
+    : source === 'card' ? 'card'
+    : (source === 'facebook-inspection' || source === 'facebook-guide') ? 'facebook'
+    : source !== null ? 'organic'
+    : null;
+
+  const bot_context = await mergeSourceFields(
+    await readBotContext(ghlOpportunityId),
+    sourceTypeMapped,
+    lead.assignedUserId,
+  );
   const area_appointments = await getAreaAppointments(leadZone).catch(() => []);
 
   const assemblerCtx: QualifyAssemblerContext = {
@@ -164,6 +192,19 @@ export async function handleQualifyWebhook(ctx: {
   if (response === null) {
     await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
     return;
+  }
+
+  // Ensure motivation is populated before transitioning
+  if (response.stage_change && response.signal === 'QUALIFIED' && response.bot_context.motivation.length === 0) {
+    console.warn('[qualify] stage_change fired with empty motivation — scanning thread for issues');
+    const issueKeywords = ['shingle', 'stain', 'leak', 'damage', 'old', 'crack', 'water', 'granule', 'hail', 'missing', 'rot'];
+    const found = currentMessages
+      .filter(m => m.role === 'user')
+      .map(m => m.content)
+      .filter(msg => issueKeywords.some(kw => msg.toLowerCase().includes(kw)));
+    if (found.length > 0) {
+      response.bot_context.motivation = found.slice(0, 3);
+    }
   }
 
   await writeBotContext(ghlOpportunityId, response.bot_context);
