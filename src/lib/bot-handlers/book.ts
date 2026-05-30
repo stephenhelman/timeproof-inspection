@@ -231,6 +231,7 @@ export async function handleBookWebhook(ctx: {
     ], { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
     if (openerResponse !== null) {
       await writeBotContext(ghlOpportunityId, openerResponse.bot_context);
+      console.info('[book] writeBotContext complete for opp:', lead.ghlOpportunityId, 'motivation:', openerResponse.bot_context.motivation);
       if (!openerResponse.stage_change && openerResponse.message) {
         await sendGhlSms(ghlContactId, openerResponse.message);
         await appendMessage(threadId, 'assistant', openerResponse.message);
@@ -258,6 +259,7 @@ export async function handleBookWebhook(ctx: {
       return;
     }
     await writeBotContext(ghlOpportunityId, response.bot_context);
+    console.info('[book] writeBotContext complete for opp:', lead.ghlOpportunityId, 'motivation:', response.bot_context.motivation);
     if (!response.stage_change && response.message) {
       await sendGhlSms(ghlContactId, response.message);
       await appendMessage(threadId, 'assistant', response.message);
@@ -287,6 +289,7 @@ export async function handleBookWebhook(ctx: {
   }
 
   await writeBotContext(ghlOpportunityId, response.bot_context);
+  console.info('[book] writeBotContext complete for opp:', lead.ghlOpportunityId, 'motivation:', response.bot_context.motivation);
 
   const atLimit = reloadedMessages.length >= CONVERSATION_LIMIT;
   if (response.stage_change || atLimit) {

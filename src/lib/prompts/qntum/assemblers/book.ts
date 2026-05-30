@@ -121,6 +121,15 @@ SLOT OFFERING:
 - Offer no more than 2 slots at once.
 - When homeowner confirms a slot, set booked_slot to "YYYY-MM-DD HH:MM" using 24-hour time.
 
+CRITICAL — booked_slot value:
+You MUST copy the date and time EXACTLY from the available_slots list provided above.
+The format must be "YYYY-MM-DD HH:MM" in 24-hour time.
+NEVER invent a date. NEVER use today's date. NEVER calculate a date.
+If the homeowner confirms "Monday at 10am" and the available_slots list contains:
+  { date: "2026-06-01", time: "10:00", label: "Monday, June 1 at 10:00 am" }
+Then booked_slot MUST be: "2026-06-01 10:00"
+Copy date and time directly from the matching slot object. No exceptions.
+
 SIGNAL RULES:
 - When homeowner confirms a slot:
   → stage_change: false, signal: "BOOKED", booked_slot: "YYYY-MM-DD HH:MM", message: short confirmation text
