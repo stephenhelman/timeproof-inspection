@@ -531,6 +531,11 @@ export async function getAvailableSlots(
     const dayDate = addDays(today, d);
 
     const dateStr = dayDate.toISOString().slice(0, 10);
+
+    // Filter out Sunday — calendar marked unavailable
+    const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+    if (dayOfWeek === 0) continue;
+
     const dayStart = new Date(dayDate);
     dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(dayDate);

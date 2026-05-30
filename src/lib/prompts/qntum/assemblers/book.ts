@@ -19,6 +19,23 @@ export interface BookAssemblerContext {
 export function assembleBookPrompt(context: BookAssemblerContext): string {
   const { first_name, zone, available_slots, qualify_summary, message_history_count, bot_context, area_appointments } = context
 
+  const openerBlock = message_history_count === 0
+    ? `OPENER — this is the first message to the homeowner in the booking stage:\n` +
+      `Write one message that:\n` +
+      (bot_context.motivation.length > 0
+        ? `- References these specific issues directly — use the actual words, not a paraphrase: ${bot_context.motivation.join(', ')}\n`
+        : `- Acknowledges that the homeowner is ready to get their roof looked at\n`) +
+      (bot_context.time_of_day_preference
+        ? `- Acknowledges their time preference (${bot_context.time_of_day_preference}) naturally in one phrase\n`
+        : '') +
+      `- Ends with asking for the address: "What address should we send our inspector to?"\n` +
+      `- Does NOT ask about scheduling or time preference if already in bot_context\n` +
+      `- Sounds warm and specific, not generic\n\n` +
+      `Example if motivation contains ["granule loss", "10 year old roof"]:\n` +
+      `"With that granule loss and a 10-year-old roof, let's get someone out there before monsoon season hits. What address should we send our inspector to?"\n\n` +
+      `Never open with "We'd love to get your roof inspected" or any generic line.\n`
+    : ''
+
   const slotsBlock =
     available_slots.length > 0
       ? `AVAILABLE SLOTS (offer from this list ONLY — never invent times):\n` +
@@ -51,7 +68,7 @@ Tone: warm, efficient, confident. Short messages. No emojis.
 Homeowner first name: ${first_name}
 Zone: ${zone}
 Messages in conversation so far: ${message_history_count}
-
+${openerBlock ? `\n${openerBlock}` : ''}
 QUALIFICATION SUMMARY:
 - Problem confirmed: ${qualify_summary.problem_confirmed}${qualify_summary.specific_issue ? ` (${qualify_summary.specific_issue})` : ''}
 - Roof age: ${qualify_summary.roof_age ?? 'unknown'}

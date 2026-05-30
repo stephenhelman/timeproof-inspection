@@ -17,6 +17,7 @@ import {
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
+  getGhlContactCustomField,
   getGhlOpportunityCustomField,
   writeGhlContactCustomField,
   writeGhlOpportunityCustomField,
@@ -144,7 +145,20 @@ export async function handleBookWebhook(ctx: {
   const distanceZone = leadZone ? isDistanceZone(leadZone) : false;
   const zone = leadZone ?? 'el_paso_central';
 
-  const bot_context = await readBotContext(ghlOpportunityId);
+  const rawBotContext = await readBotContext(ghlOpportunityId);
+  console.info('[book] readBotContext result:', JSON.stringify(rawBotContext).slice(0, 200));
+
+  // Fallback: race condition where qualify writes context then immediately fires qualified_handoff.
+  // GHL opportunity field reads may return stale data. If context is empty, use SR_PREVIOUS_CONTEXT summary.
+  let bot_context = rawBotContext;
+  if (rawBotContext.motivation.length === 0 && rawBotContext.summary === '' && process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
+    const prevCtxRaw = await getGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT).catch(() => null);
+    if (prevCtxRaw) {
+      bot_context = { ...rawBotContext, summary: prevCtxRaw };
+      console.info('[book] used SR_PREVIOUS_CONTEXT fallback for summary');
+    }
+  }
+
   const area_appointments = await getAreaAppointments(zone).catch(() => []);
 
   // Address: prefer bot_context.address (Claude-accumulated) over lead record
@@ -210,20 +224,17 @@ export async function handleBookWebhook(ctx: {
 
   // ── Qualified handoff opener ──────────────────────────────────────────────────
   if (trigger === 'qualified_handoff') {
-    const fn = lead.customerName.trim().split(/\s+/)[0];
-    const openerSystemPrompt = [
-      'You are Alex, a texting rep for Qntum Roofing.',
-      'Write exactly one SMS message asking for the homeowner\'s inspection address.',
-      'Sound natural and warm, not scripted. No emojis. Two sentences max.',
-      'Do NOT ask about scheduling, availability, or time.',
-      'Return only the SMS text, nothing else.',
-    ].join('\n');
-    const openerRaw = await runBot(openerSystemPrompt, [
-      { role: 'user', content: `Homeowner first name: ${fn}.`, timestamp: new Date().toISOString() },
-    ]);
-    if (openerRaw !== null) {
-      await sendGhlSms(ghlContactId, openerRaw);
-      await appendMessage(threadId, 'assistant', openerRaw);
+    const openerCtx: BookAssemblerContext = { ...assemblerCtx, message_history_count: 0 };
+    const systemPrompt = assembleBookPrompt(openerCtx);
+    const openerResponse = await runBot(systemPrompt, [
+      { role: 'user', content: 'qualified_handoff', timestamp: new Date().toISOString() },
+    ], { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
+    if (openerResponse !== null) {
+      await writeBotContext(ghlOpportunityId, openerResponse.bot_context);
+      if (!openerResponse.stage_change && openerResponse.message) {
+        await sendGhlSms(ghlContactId, openerResponse.message);
+        await appendMessage(threadId, 'assistant', openerResponse.message);
+      }
     }
     return;
   }
@@ -357,6 +368,7 @@ async function handleBooked(
   })();
   const appointmentDate = new Date(guess.getTime() - off * 60 * 1000);
 
+  console.info('[book] booked_slot raw value from Claude:', bookedSlot);
   const formattedDatetime = formatAppointmentDatetime(bookedSlot);
 
   const validation = await validateSlotBeforeConfirm(lead.id, appointmentDate, timePart, zone);

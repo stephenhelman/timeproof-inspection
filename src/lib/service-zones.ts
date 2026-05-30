@@ -219,6 +219,7 @@ export const SLOT_LOCK_EXPIRY_MINUTES = 15;
 export const DISTANCE_ZONE_MIN_DAYS_AHEAD = 1;
 
 export const AVAILABLE_TIMES = [
+  "08:00",
   "09:00",
   "10:00",
   "11:00",
@@ -226,6 +227,10 @@ export const AVAILABLE_TIMES = [
   "14:00",
   "15:00",
   "16:00",
+  "17:00",
+  "18:00",
+  "19:00",
+  "20:00",
 ];
 
 export function getZoneForZip(zip: string): string | null {
