@@ -24,7 +24,7 @@ export function CoverRenderer({
     QRCode.toDataURL(url, {
       width: 200,
       margin: 2,
-      color: { dark: C.textPrimary, light: C.bgBase },
+      color: { dark: "#0b1220", light: "#ffffff" },
     })
       .then(setQrDataUrl)
       .catch(console.error);
@@ -32,63 +32,69 @@ export function CoverRenderer({
 
   return (
     <div
-      className="flex flex-col items-center justify-center min-h-full px-8 py-10 text-center gap-6"
+      className="flex flex-col items-center justify-start min-h-full gap-18"
       style={{ background: C.bgBase }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={colorMode === "dark" ? "/sr_logo_light_transparent.svg" : "/sr_logo_dark_transparent.svg"}
-        alt="Scope Reports"
-        style={{ height: 44, width: "auto" }}
-      />
-
-      <div
-        className="flex items-center gap-2 px-4 py-2 rounded-full"
-        style={{ background: "#0f1e3d" }}
-      >
+      <div className="flex flex-col pt-18 gap-9 justify-center items-center">
+        <img
+          src={
+            colorMode === "dark"
+              ? "/sr_logo_light_transparent.svg"
+              : "/sr_logo_dark_transparent.svg"
+          }
+          alt="Scope Reports"
+          style={{ height: 45, width: "auto" }}
+        />
         <p
           className="text-xs font-semibold tracking-wider uppercase"
-          style={{ color: "#8fa8bf" }}
+          style={{ color: C.cardTitle }}
         >
           Powered by
         </p>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/qntum-logo.svg"
+          src={
+            colorMode === "light"
+              ? "/qntum_logo_dark_transparent.png"
+              : "/qntum_logo_light_transparent.png"
+          }
           alt="Qntum Roofing"
-          style={{ height: 18, width: "auto" }}
+          style={{ height: 28, width: "auto" }}
         />
       </div>
 
-      <div>
-        <h1
-          className="text-3xl sm:text-4xl font-bold leading-tight"
-          style={{ color: C.textPrimary, lineHeight: 1.15 }}
-        >
+      <div className="flex flex-col justify-start items-center gap-3">
+        <p className="text-lg" style={{ color: C.textPrimary }}>
           EL PASO&apos;S
-          <br />
-          <span style={{ color: "#F06B30" }}>PERSONALIZED</span>
-          <br />
+        </p>
+
+        <p className="text-5xl font-bold" style={{ color: C.cardTitle }}>
+          PERSONALIZED
+        </p>
+
+        <p className="text-[28px]" style={{ color: C.textPrimary }}>
           ROOF HEALTH GUIDE
-        </h1>
+        </p>
+        <div
+          style={{ backgroundColor: C.textPrimary }}
+          className="w-32 h-0.5"
+        />
+        <p
+          className="text-[12px] leading-relaxed max-w-xs"
+          style={{ color: C.textSecondary }}
+        >
+          {slide.sub}
+        </p>
       </div>
 
-      <div className="w-12 h-px" style={{ background: C.border }} />
-
-      <p
-        className="text-sm leading-relaxed max-w-xs"
-        style={{ color: C.textSecondary }}
-      >
-        {slide.sub}
-      </p>
-
-      <div className="flex flex-col items-center gap-2">
+      <div className="flex flex-col items-center gap-3">
         {qrDataUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={qrDataUrl}
             alt="Scan to get your personalized guide"
-            className="w-44 h-44 rounded-xl"
+            className="w-50 h-50 rounded-xl border border-[0b1220]"
           />
         ) : (
           <div
@@ -96,7 +102,7 @@ export function CoverRenderer({
             style={{ background: C.bgElevated }}
           />
         )}
-        <p className="text-xs" style={{ color: C.textHint }}>
+        <p className="text-xs" style={{ color: C.textPrimary }}>
           {slide.qrLabel}
         </p>
       </div>

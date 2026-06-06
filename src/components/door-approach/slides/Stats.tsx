@@ -7,7 +7,7 @@ import { Eyebrow } from "./components/Eyebrow";
 import { Headline } from "./components/Headline";
 import { Callout } from "./components/Callout";
 import { StatRow } from "./components/StatRow";
-import { DiagramHeader } from "./components/DiagramHeader";
+import { Slide } from "./components/Slide";
 
 export function StatsRenderer({
   slide,
@@ -27,7 +27,7 @@ export function StatsRenderer({
       : "/door-approach/chart-roof-temp-dark.png";
 
   return (
-    <div className="px-5 py-4 max-w-180 mx-auto w-full min-h-full flex flex-col">
+    <Slide>
       <Eyebrow text={slide.eyebrow} color={C.textPrimary} />
       <Header text={slide.header} color={C.textHint} />
       <Headline text={slide.headline} color={C.textPrimary} />
@@ -91,6 +91,6 @@ export function StatsRenderer({
           style={{ border: `2px solid ${C.cardBackground}` }}
         />
       </div>
-    </div>
+    </Slide>
   );
 }

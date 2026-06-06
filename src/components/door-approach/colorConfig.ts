@@ -13,8 +13,11 @@ export const COLOR_CONFIG = {
     subtitle: "#4A5568",
     tagline: "#718090",
     cardBackground: "#e4eef4",
-    cardTitle: "#7AB3D4",
+    cardTitle: "#4a7fa5",
     cardSubtitle: "#94A3B8",
+    red: "#8B1F1F",
+    green: "#1A6B3C",
+    question: "#0b1220",
   },
   dark: {
     bgBase: "#0B1220",
@@ -32,6 +35,9 @@ export const COLOR_CONFIG = {
     cardBackground: "#162035",
     cardTitle: "#7AB3D4",
     cardSubtitle: "#94A3B8",
+    red: "#F87171",
+    green: "#4ADE80",
+    question: "#0D1a32",
   },
 } as const;
 

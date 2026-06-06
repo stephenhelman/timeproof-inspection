@@ -5,8 +5,10 @@ interface Props {
 
 export function Headline({ text, color }: Props) {
   return (
-    <h2 className="text-[20px] font-bold mb-4" style={{ color }}>
-      {text}
-    </h2>
+    <div className="flex w-full items-center justify-center">
+      <h2 className="text-[20px] font-bold mb-4" style={{ color }}>
+        {text}
+      </h2>
+    </div>
   );
 }

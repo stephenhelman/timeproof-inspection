@@ -45,6 +45,7 @@ export interface TimelineSlide extends BaseSlide {
 
 export interface DiagramSlide extends BaseSlide {
   type: "diagram";
+  header: string;
   eyebrow: string;
   headline: string;
   intro: string;
@@ -68,6 +69,7 @@ export interface StatsSlide extends BaseSlide {
 
 export interface ComparisonSlide extends BaseSlide {
   type: "comparison";
+  header: string;
   eyebrow: string;
   headline: string;
   cols: [string, string, string];
@@ -76,6 +78,7 @@ export interface ComparisonSlide extends BaseSlide {
 
 export interface BulletsSlide extends BaseSlide {
   type: "bullets";
+  header: string;
   eyebrow: string;
   headline: string;
   items: { title: string; body: string; question: string }[];
@@ -83,6 +86,7 @@ export interface BulletsSlide extends BaseSlide {
 
 export interface CtaSlide extends BaseSlide {
   type: "cta";
+  header: string;
   eyebrow: string;
   headline: string;
   intro: string;
@@ -256,8 +260,8 @@ export const SHINGLE_SLIDES: SlideData[] = [
     label: "Cover",
     eyebrow: "Scope Reports / Qntum Roofing",
     headline: "Get your personalized Roof Health Guide.",
-    sub: "Scan the code to answer a few questions about your roof. We'll show you exactly what El Paso's climate is doing to it.",
-    qrLabel: "Scan to get your guide",
+    sub: "What your roof is hiding - and what tro do about it.",
+    qrLabel: "Scan to get your FREE personalized guide",
   },
 
   // 01 — Hidden Damage Timeline
@@ -311,10 +315,12 @@ export const SHINGLE_SLIDES: SlideData[] = [
     id: "02",
     type: "diagram",
     label: "02",
+
+    header: "THE 5 FAILURE ZONES — MOST INSPECTIONS CHECK ONLY 2",
     eyebrow: "Where Roofs Actually Fail",
-    headline: "5 zones. Most inspections only check 2.",
+    headline: "Most inspections only check 2 of these 5 failure zones",
     intro:
-      "Most companies only look at the field shingles — sometimes the ridge. There are 5 zones where roofs actually fail, and most of the serious ones are invisible from the ground. Tap any zone.",
+      "Most companies only look at the field shingles - sometimes the ridge. There are 5 zones where roofs actually fail, and most of the serious ones are invisible from the ground. Tap any zone.",
     imagePath: "/diagrams/failure-zones.png",
     imageAlt: "5 zones where roofs fail",
     diagramTitle: "Tap a zone to learn what it means",
@@ -355,10 +361,11 @@ export const SHINGLE_SLIDES: SlideData[] = [
     id: "04",
     type: "diagram",
     label: "04",
-    eyebrow: "Shingle Roof — What You're Actually Working With",
-    headline: "8 components. Most homeowners only know about one.",
+    header: "KNOW WHAT'S PROTECTING YOUR HOME",
+    eyebrow: "Components of a Shingle Roof",
+    headline: "Components of a shingle roof - what we inspect in every zone",
     intro:
-      "A shingle roof has 8 components. Most homeowners — and most inspectors — only talk about the shingles. Everything beneath them determines how long the roof actually lasts. Tap any zone.",
+      "A shingle roof has 8 components. Most homeowners - and most inspectors - only talk about the shingles. Everything beneath them determines how long the roof actually lasts. Tap any zone.",
     imagePath: "/diagrams/shingle-components.png",
     imageAlt: "Shingle roof components diagram",
     diagramTitle: "Components of a shingle roof",
@@ -370,10 +377,11 @@ export const SHINGLE_SLIDES: SlideData[] = [
     id: "05",
     type: "diagram",
     label: "05",
-    eyebrow: "What We Find in the Attic",
-    headline: "We go in. Most companies don't.",
+    header: "WHERE THE REAL STORY LIVES - WHAT MOST ROOFERS SKIP",
+    eyebrow: "Components of an Attic",
+    headline: "Most roofing companies never go into the attic",
     intro:
-      "The attic is where the real condition of your roof is visible — moisture staining, ventilation failure, insulation damage, rafter condition. None of that is visible from the ground or the street. Tap any zone.",
+      "The attic is where the real condition of your roof is visible - moisture staining, ventilation failure, insulation damage, rafter condition. None of that is visible from the ground or the street. Tap any zone.",
     imagePath: "/diagrams/attic-components.png",
     imageAlt: "Attic components diagram",
     diagramTitle: "What we look for in the attic",
@@ -385,24 +393,25 @@ export const SHINGLE_SLIDES: SlideData[] = [
     id: "06",
     type: "comparison",
     label: "06",
+    header: "WHAT WAS STANDARD 15 YEARS AGO IS NOT STANDARD ANYMORE",
     eyebrow: "Old Technology vs. Current Standards",
     headline: "The gap is significant in every measurable category.",
     cols: ["Feature", "Old Standard (3-Tab)", "Current (Architectural/IR)"],
     rows: [
-      { feature: "Wind rating", old: "60–70 mph", current: "130+ mph" },
+      { feature: "Wind rating", old: "60 - 70 mph", current: "130+ mph" },
       {
         feature: "Lifespan (rated)",
-        old: "15–20 years",
+        old: "15 - 20 years",
         current: "50 years",
       },
       {
         feature: "Lifespan in El Paso",
-        old: "10–15 years (if not voided)",
+        old: "10 - 15 years (if not voided)",
         current: "50 years",
       },
       {
         feature: "UV resistance",
-        old: "Standard granules — degrades rapidly",
+        old: "Standard granules - degrades rapidly",
         current: "UV-reflective, algae-resistant coating",
       },
       {
@@ -412,13 +421,13 @@ export const SHINGLE_SLIDES: SlideData[] = [
       },
       {
         feature: "Warranty",
-        old: "20–25 year warranty (if not voided)",
-        current: "50-year warranty",
+        old: "20 - 25 year warranty (if not voided)",
+        current: "50 - year warranty",
       },
       {
         feature: "Thickness",
-        old: "Single layer — minimal impact protection",
-        current: "Multi-layer laminate — hail and impact rated",
+        old: "Single layer - minimal impact protection",
+        current: "Multi-layer laminate - hail and impact rated",
       },
     ],
   },
@@ -428,8 +437,9 @@ export const SHINGLE_SLIDES: SlideData[] = [
     id: "07",
     type: "bullets",
     label: "07",
-    eyebrow: "What They Don't Tell You",
-    headline: "Three things most roofing companies won't mention.",
+    header: "THREE THINGS YOUR LAST ROOFER PROBABLY DIDN'T MENTION",
+    eyebrow: "What They Don't Tell You - Shingles",
+    headline: "Are you asking the right questions?",
     items: [
       {
         title: "The warranty problem",
@@ -456,10 +466,11 @@ export const SHINGLE_SLIDES: SlideData[] = [
     id: "11",
     type: "cta",
     label: "11",
-    eyebrow: "How Scope Reports Works",
+    header: "WHAT YOU GET — THAT NOBODY ELSE IN EL PASO PROVIDES",
+    eyebrow: "The Scope Reports Difference",
     headline: "Every inspection includes a full digital condition report.",
     intro:
-      "We don't do verbal summaries. Every Qntum inspection produces a written, documented report you keep — photos, findings, and attic results by zone.",
+      "Not a verbal summary. Not a handwritten note. A documented report with photos of every finding — organized by roof zone, delivered digitally, yours to keep, share, and reference.",
     items: [
       "We go into the attic. Most companies don't. That's where the real condition of your roof is visible.",
       "Full digital condition report — photos by zone, condition ratings, attic findings delivered same day.",

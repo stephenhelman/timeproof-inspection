@@ -39,9 +39,6 @@ export default function DoorApproachDiagram({
 
   const dismiss = useCallback(() => setActiveZoneId(null), []);
 
-  // Touch always gets a dark navy modal; desktop panel follows the colorMode
-  const panelDark = isTouch || colorMode === "dark";
-
   return (
     <div className="relative w-full">
       <p
@@ -88,8 +85,8 @@ export default function DoorApproachDiagram({
                   y={zone.hotspot.y}
                   width={zone.hotspot.width}
                   height={zone.hotspot.height}
-                  fill="rgba(240,107,48,0.15)"
-                  stroke="#F06B30"
+                  fill={C.cardBackground}
+                  stroke={C.cardTitle}
                   strokeWidth="0.6"
                   rx="1"
                   opacity={0.85}
@@ -123,8 +120,16 @@ export default function DoorApproachDiagram({
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all"
             style={
               activeZoneId === zone.id
-                ? { background: "#F06B30", borderColor: "#F06B30", color: "#ffffff" }
-                : { background: C.bgElevated, borderColor: C.border, color: C.textSecondary }
+                ? {
+                    background: C.cardBackground,
+                    borderColor: C.cardTitle,
+                    color: C.subtitle,
+                  }
+                : {
+                    background: C.bgSurface,
+                    borderColor: C.border,
+                    color: C.textSecondary,
+                  }
             }
           >
             <span className="shrink-0 w-4 h-4 rounded-full border border-current flex items-center justify-center text-[9px] font-bold leading-none">
@@ -140,26 +145,37 @@ export default function DoorApproachDiagram({
         <>
           {isTouch ? (
             <div
-              className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-5"
+              className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 px-5"
               onClick={dismiss}
             >
               <div
                 className="w-full max-w-sm rounded-2xl p-5"
-                style={{ background: "#1a2744", border: "1px solid #1e3050" }}
+                style={{
+                  background: C.cardBackground,
+                  border: `1px solid ${C.border}`,
+                }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <ZonePanel zone={activeZone} onDismiss={dismiss} dark />
+                <ZonePanel
+                  zone={activeZone}
+                  onDismiss={dismiss}
+                  colorMode={colorMode}
+                />
               </div>
             </div>
           ) : (
             <div
               className="mt-4 rounded-xl p-5"
               style={{
-                background: panelDark ? "#1a2744" : C.bgSurface,
-                border: `1px solid ${panelDark ? "#1e3050" : C.border}`,
+                background: C.bgSurface,
+                border: `1px solid ${C.border}`,
               }}
             >
-              <ZonePanel zone={activeZone} onDismiss={dismiss} dark={panelDark} />
+              <ZonePanel
+                zone={activeZone}
+                onDismiss={dismiss}
+                colorMode={colorMode}
+              />
             </div>
           )}
         </>
@@ -171,27 +187,25 @@ export default function DoorApproachDiagram({
 function ZonePanel({
   zone,
   onDismiss,
-  dark,
+  colorMode,
 }: {
   zone: DiagramZone;
   onDismiss: () => void;
-  dark: boolean;
+  colorMode: "light" | "dark";
 }) {
-  const labelColor = dark ? "#E4EEF4" : "#111827";
-  const textColor = dark ? "#8fa8bf" : "#6b7280";
-  const iconColor = dark ? "#8fa8bf" : "#9ca3af";
+  const C = COLOR_CONFIG[colorMode];
 
   return (
     <div>
       <div className="flex items-start justify-between gap-3 mb-3">
-        <p className="font-bold text-sm" style={{ color: labelColor }}>
+        <p className="font-bold text-sm" style={{ color: C.cardTitle }}>
           {zone.label}
         </p>
         <button
           type="button"
           onClick={onDismiss}
           className="shrink-0 w-6 h-6 flex items-center justify-center transition-colors"
-          style={{ color: iconColor }}
+          style={{ color: C.textPrimary }}
           aria-label="Close"
         >
           <svg
@@ -209,12 +223,18 @@ function ZonePanel({
           </svg>
         </button>
       </div>
-      <p className="text-sm leading-relaxed" style={{ color: textColor }}>
+      <p className="text-sm leading-relaxed" style={{ color: C.cardSubtitle }}>
         {zone.description}
       </p>
       {zone.callout && (
-        <div className="mt-3 border-l-2 border-[#F06B30] pl-3">
-          <p className="text-sm leading-relaxed" style={{ color: labelColor }}>
+        <div
+          className="mt-3 border-l-2 pl-3"
+          style={{ borderColor: C.cardTitle }}
+        >
+          <p
+            className="text-sm leading-relaxed"
+            style={{ color: C.cardSubtitle }}
+          >
             {zone.callout}
           </p>
         </div>
