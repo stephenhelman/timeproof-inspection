@@ -31,11 +31,13 @@ export interface CoverSlide extends BaseSlide {
 
 export interface TimelineSlide extends BaseSlide {
   type: "timeline";
+  header: string;
   eyebrow: string;
   headline: string;
   intro: string;
+  keys: string[];
   rows: { years: string; visible: string; hidden: string }[];
-  callout: string;
+  callout: Record<string, string>;
 }
 
 export interface DiagramSlide extends BaseSlide {
@@ -50,6 +52,7 @@ export interface DiagramSlide extends BaseSlide {
 }
 
 export interface StatsSlide extends BaseSlide {
+  header: string;
   type: "stats";
   eyebrow: string;
   headline: string;
@@ -256,10 +259,13 @@ export const SHINGLE_SLIDES: SlideData[] = [
     id: "01",
     type: "timeline",
     label: "01",
+    header: "WHY WAITING COSTS MORE THAN ACTING",
     eyebrow: "The Hidden Damage Timeline",
-    headline: "What your roof is hiding right now.",
+    headline:
+      "By the time you see it inside, it's already been years in the making",
     intro:
-      "Most roof damage is invisible from the street — and from inside the house — until it's been building for years. El Paso's UV index ranks among the highest in the nation. Heat cycling, monsoon stress, and 297+ sunny days per year accelerate degradation faster than manufacturer ratings account for.",
+      "El Paso's UV index ranks among the highest in the nation. Heat cycling, monsoon stress, and 297+ sunny days per year accelerate roof degradation significantly faster than national manufacturer ratings account for.",
+    keys: ["YEAR", "LOOKS LIKE", "HAPPENING INSIDE"],
     rows: [
       {
         years: "Year 1–2",
@@ -287,8 +293,11 @@ export const SHINGLE_SLIDES: SlideData[] = [
         hidden: "Damage has been building for years",
       },
     ],
-    callout:
-      "⚠ El Paso Climate Reality: A standard shingle here realistically performs 10–15 years — not the 25 years on the box. That's why we install 50-year warranted architectural shingles rated for this climate.",
+    callout: {
+      title: "⚠ El Paso Climate Reality",
+      subtext:
+        "A standard shingle here realistically performs 10–15 years — not the 25 years on the box. That's why we install 50-year warranted architectural shingles rated for this climate.",
+    },
   },
 
   // 02 — Where Roofs Actually Fail (diagram)
@@ -309,6 +318,7 @@ export const SHINGLE_SLIDES: SlideData[] = [
   // 03 — El Paso Climate stats
   {
     id: "03",
+    header: "WHY EL PASO IS DIFFERENT FROM EVERYWHERE ELSE",
     type: "stats",
     label: "03",
     eyebrow: "El Paso Is Not Average",
@@ -419,7 +429,8 @@ export const SHINGLE_SLIDES: SlideData[] = [
       {
         title: "The warranty problem",
         body: "Most homeowners assume their roof is under warranty. In most cases it never was — if shingles weren't installed precisely to the manufacturer's specification, the warranty was void from day one.",
-        question: "When's the last time someone confirmed your installation was to spec?",
+        question:
+          "When's the last time someone confirmed your installation was to spec?",
       },
       {
         title: "It can look fine and be failing",
@@ -429,7 +440,8 @@ export const SHINGLE_SLIDES: SlideData[] = [
       {
         title: "That stain is not where the problem is",
         body: "Water stains inside the house show up at the lowest point water travels to — not where it entered. The actual entry point is almost always somewhere else on the roof entirely.",
-        question: "Have you traced it back, or are you still guessing where it started?",
+        question:
+          "Have you traced it back, or are you still guessing where it started?",
       },
     ],
   },

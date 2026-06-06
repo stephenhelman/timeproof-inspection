@@ -2,12 +2,14 @@
 
 import { useState, useCallback, useEffect } from "react";
 import type { DiagramZone } from "@/src/components/guide/InteractiveDiagram";
+import { COLOR_CONFIG, type ColorMode } from "./colorConfig";
 
 interface Props {
   imagePath: string;
   imageAlt: string;
   zones: DiagramZone[];
   title: string;
+  colorMode: ColorMode;
 }
 
 export default function DoorApproachDiagram({
@@ -15,10 +17,10 @@ export default function DoorApproachDiagram({
   imageAlt,
   zones,
   title,
+  colorMode,
 }: Props) {
+  const C = COLOR_CONFIG[colorMode];
   const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
-  // Touch devices (any pointer: coarse) always get the modal overlay.
-  // Only mouse/trackpad (pointer: fine) get the inline expansion panel.
   const [isTouch, setIsTouch] = useState(false);
 
   useEffect(() => {
@@ -37,16 +39,18 @@ export default function DoorApproachDiagram({
 
   const dismiss = useCallback(() => setActiveZoneId(null), []);
 
+  // Touch always gets a dark navy modal; desktop panel follows the colorMode
+  const panelDark = isTouch || colorMode === "dark";
+
   return (
     <div className="relative w-full">
       <p
         className="text-xs font-bold tracking-[0.2em] uppercase mb-4"
-        style={{ color: "#9ca3af" }}
+        style={{ color: C.textHint }}
       >
         {title}
       </p>
 
-      {/* Image + SVG hotspot overlay */}
       <div
         className="relative w-full select-none"
         style={{ touchAction: "manipulation" }}
@@ -56,7 +60,6 @@ export default function DoorApproachDiagram({
           src={imagePath}
           alt={imageAlt}
           className="w-full rounded-xl"
-          style={{ border: "1px solid #e5e7eb" }}
           draggable={false}
         />
 
@@ -121,7 +124,7 @@ export default function DoorApproachDiagram({
             style={
               activeZoneId === zone.id
                 ? { background: "#F06B30", borderColor: "#F06B30", color: "#ffffff" }
-                : { background: "#f1f3f4", borderColor: "#e5e7eb", color: "#6b7280" }
+                : { background: C.bgElevated, borderColor: C.border, color: C.textSecondary }
             }
           >
             <span className="shrink-0 w-4 h-4 rounded-full border border-current flex items-center justify-center text-[9px] font-bold leading-none">
@@ -136,7 +139,6 @@ export default function DoorApproachDiagram({
       {activeZone && (
         <>
           {isTouch ? (
-            /* Touch device: centered modal overlay */
             <div
               className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-5"
               onClick={dismiss}
@@ -150,12 +152,14 @@ export default function DoorApproachDiagram({
               </div>
             </div>
           ) : (
-            /* Mouse/desktop: inline card */
             <div
               className="mt-4 rounded-xl p-5"
-              style={{ background: "#f8f9fa", border: "1px solid #e5e7eb" }}
+              style={{
+                background: panelDark ? "#1a2744" : C.bgSurface,
+                border: `1px solid ${panelDark ? "#1e3050" : C.border}`,
+              }}
             >
-              <ZonePanel zone={activeZone} onDismiss={dismiss} dark={false} />
+              <ZonePanel zone={activeZone} onDismiss={dismiss} dark={panelDark} />
             </div>
           )}
         </>

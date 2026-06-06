@@ -1,0 +1,38 @@
+export const COLOR_CONFIG = {
+  light: {
+    bgBase: "#ffffff",
+    bgSurface: "#f8f9fa",
+    bgElevated: "#0a1628",
+    border: "#e5e7eb",
+    borderHover: "#d1d5db",
+    textPrimary: "#111827",
+    textSecondary: "#6b7280",
+    textHint: "#9ca3af",
+    blue: "#4a7fa5",
+    title: "#0F1E3C",
+    subtitle: "#4A5568",
+    tagline: "#718090",
+    cardBackground: "#e4eef4",
+    cardTitle: "#7AB3D4",
+    cardSubtitle: "#94A3B8",
+  },
+  dark: {
+    bgBase: "#0B1220",
+    bgSurface: "#050d1f",
+    bgElevated: "#f1f3f4",
+    border: "#1e3050",
+    borderHover: "#2a4070",
+    textPrimary: "#e4eef4",
+    textSecondary: "#8fa8bf",
+    textHint: "#4d6490",
+    blue: "#4a7fa5",
+    title: "#E8EDF5",
+    subtitle: "#94A3B8",
+    tagline: "#64748B",
+    cardBackground: "#162035",
+    cardTitle: "#7AB3D4",
+    cardSubtitle: "#94A3B8",
+  },
+} as const;
+
+export type ColorMode = "light" | "dark";
