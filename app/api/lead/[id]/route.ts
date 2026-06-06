@@ -16,9 +16,22 @@ export async function GET(
   const lead = await prisma.lead.findUnique({
     where: { id },
     include: {
-      inspections: { orderBy: { createdAt: "desc" } },
+      inspections: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          appointment: {
+            select: {
+              id: true,
+              status: true,
+              scheduledAt: true,
+              assignedUser: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
       assignedUser: { select: { id: true, name: true, email: true } },
       notes: { orderBy: { createdAt: "desc" } },
+      srLead: { select: { srBotStage: true, srStatus: true, srSource: true } },
     },
   });
 
@@ -26,7 +39,19 @@ export async function GET(
 
   if (!canViewLead(user.id, user.role, lead)) return forbidden();
 
-  return NextResponse.json(lead);
+  // Fetch bot context summary from most recent BotThread
+  let botContextSummary: string | null = null;
+  if (lead.ghlContactId) {
+    const botThread = await prisma.botThread.findFirst({
+      where: { ghlContactId: lead.ghlContactId },
+      orderBy: { updatedAt: "desc" },
+      select: { metadata: true, botType: true, updatedAt: true },
+    });
+    const meta = botThread?.metadata as Record<string, unknown> | null;
+    botContextSummary = (meta?.summary as string) ?? null;
+  }
+
+  return NextResponse.json({ ...lead, botContextSummary });
 }
 
 export async function PATCH(
@@ -47,6 +72,7 @@ export async function PATCH(
 
   const allowedFields = [
     "customerName",
+    "address",
     "streetAddress",
     "city",
     "state",

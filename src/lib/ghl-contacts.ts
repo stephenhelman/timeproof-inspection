@@ -283,6 +283,33 @@ export async function getGhlOpportunityCustomField(
   }
 }
 
+// Search for a GHL contact by phone number. Returns contact ID if found, null otherwise.
+export async function findGhlContactByPhone(
+  phone: string,
+): Promise<string | null> {
+  const apiKey = process.env.GHL_API_KEY;
+  const locationId = process.env.GHL_LOCATION_ID;
+  if (!apiKey || !locationId) return null;
+  try {
+    const digits = phone.replace(/\D/g, "");
+    const res = await fetch(
+      `https://services.leadconnectorhq.com/contacts/search/duplicate?locationId=${encodeURIComponent(locationId)}&phone=${encodeURIComponent(digits)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          Version: "2021-07-28",
+        },
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { contact?: { id?: string } };
+    return data?.contact?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Assign a rep (by GHL user ID) to an existing GHL opportunity.
 export async function assignGhlOpportunityRep(
   ghlOpportunityId: string,

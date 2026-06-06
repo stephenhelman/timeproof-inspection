@@ -6,6 +6,7 @@ import Image from "next/image";
 import {
   ClipboardList,
   Users,
+  CalendarDays,
   // PhoneCall,  // PRESERVED — not active in Qntum build (revival)
   CreditCard,
   LogOut,
@@ -45,6 +46,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const navLinks = [
     { href: "/inspections", label: "Inspections", icon: ClipboardList },
     { href: "/leads", label: "Leads", icon: Users },
+    { href: "/calendar", label: "Calendar", icon: CalendarDays },
     ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
   ];
 

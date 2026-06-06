@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import { usePermissions } from "@/src/lib/use-permissions";
+import AddLeadModal from "@/src/components/lead/AddLeadModal";
 
 const STATUS_OPTIONS = [
   "NEW",
@@ -86,166 +87,6 @@ function fmtDate(val) {
     day: "numeric",
     year: "numeric",
   });
-}
-
-// ── Add Lead Modal ──────────────────────────────────────────────────────────
-function AddLeadModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({
-    customerName: "",
-    streetAddress: "",
-    city: "",
-    state: "",
-    zip: "",
-    phone: "",
-    email: "",
-    assignedTech: "",
-    highestEstimateValue: "",
-    appointmentDate: "",
-    status: "NEW",
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [createdLead, setCreatedLead] = useState(null);
-  const router = useRouter();
-
-  const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.customerName.trim() || !form.streetAddress.trim()) {
-      setError("Customer name and street address are required.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      const res = await fetch("/api/lead", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          highestEstimateValue: form.highestEstimateValue
-            ? parseFloat(form.highestEstimateValue)
-            : null,
-          appointmentDate: form.appointmentDate || null,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const lead = await res.json();
-      setCreatedLead(lead);
-    } catch (err) {
-      setError(err.message || "Failed to create lead.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  if (createdLead) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative w-full sm:max-w-md bg-[#1a2236] border border-[#2a3a5c] rounded-t-2xl sm:rounded-2xl p-6 shadow-2xl">
-          <h3 className="text-[#f0f4ff] text-lg font-semibold mb-2">Lead created!</h3>
-          <p className="text-[#8fa3c8] text-sm mb-6">
-            Would you like to generate an inspection report for{" "}
-            <span className="text-[#f0f4ff]">{createdLead.customerName}</span>?
-          </p>
-          <div className="flex gap-3">
-            <button
-              onClick={() => router.push(`/inspection/new?leadId=${createdLead.id}`)}
-              className="flex-1 bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 text-white font-medium rounded-xl py-3 transition-colors"
-            >
-              Generate Report
-            </button>
-            <button
-              onClick={() => { onCreated(); onClose(); }}
-              className="flex-1 bg-[#2a3a5c] hover:bg-[#2a3a5c]/80 text-[#f0f4ff] font-medium rounded-xl py-3 transition-colors"
-            >
-              Not Now
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full sm:max-w-lg bg-[#1a2236] border border-[#2a3a5c] rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a3a5c]">
-          <h2 className="text-[#f0f4ff] text-lg font-semibold">Add Lead</h2>
-          <button
-            onClick={onClose}
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-[#8fa3c8] hover:text-[#f0f4ff] hover:bg-[#2a3a5c] transition-colors"
-          >
-            ✕
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4 overflow-y-auto max-h-[70vh]">
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-400 text-sm">
-              {error}
-            </div>
-          )}
-          <Field label="Customer Name *" value={form.customerName} onChange={(v) => set("customerName", v)} placeholder="Jane Smith" />
-          <Field label="Street Address *" value={form.streetAddress} onChange={(v) => set("streetAddress", v)} placeholder="123 Main St" />
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="City" value={form.city} onChange={(v) => set("city", v)} placeholder="El Paso" />
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="State" value={form.state} onChange={(v) => set("state", v)} placeholder="TX" />
-              <Field label="Zip" value={form.zip} onChange={(v) => set("zip", v)} placeholder="79912" />
-            </div>
-          </div>
-          <Field label="Phone" type="tel" value={form.phone} onChange={(v) => set("phone", v)} placeholder="(555) 000-0000" />
-          <Field label="Email" type="email" value={form.email} onChange={(v) => set("email", v)} placeholder="jane@example.com" />
-          <Field label="Assigned Tech" value={form.assignedTech} onChange={(v) => set("assignedTech", v)} placeholder="Technician name" />
-          <Field label="Highest Estimate Value" type="number" value={form.highestEstimateValue} onChange={(v) => set("highestEstimateValue", v)} placeholder="0" />
-          <Field label="Appointment Date" type="date" value={form.appointmentDate} onChange={(v) => set("appointmentDate", v)} />
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[#8fa3c8] text-sm font-medium">Status</label>
-            <select
-              value={form.status}
-              onChange={(e) => set("status", e.target.value)}
-              className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[48px] px-4 text-base focus:outline-none focus:border-blue-500 transition-colors"
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="w-full bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 disabled:opacity-50 text-white font-medium rounded-xl py-3 transition-colors min-h-[48px]"
-          >
-            {saving ? "Saving…" : "Create Lead"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, type = "text", value, onChange, placeholder }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[#8fa3c8] text-sm font-medium">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="bg-[#1e2a40] border border-[#2a3a5c] text-[#f0f4ff] rounded-xl min-h-[48px] px-4 text-base placeholder:text-[#8fa3c8]/50 focus:outline-none focus:border-blue-500 transition-colors"
-      />
-    </div>
-  );
 }
 
 // ── Import CSV Modal ─────────────────────────────────────────────────────────
@@ -517,6 +358,7 @@ export default function LeadsPage() {
           onCreated={fetchLeads}
         />
       )}
+
 
       {showImport && (
         <ImportModal

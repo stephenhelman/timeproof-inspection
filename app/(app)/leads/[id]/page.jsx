@@ -51,6 +51,14 @@ const INSPECTION_STATUS_BADGE = {
   complete: "bg-green-500/20 text-green-300",
 };
 
+const APPT_STATUS_BADGE = {
+  SCHEDULED: "bg-zinc-500/20 text-zinc-400",
+  EN_ROUTE: "bg-blue-500/20 text-blue-300",
+  IN_PROGRESS: "bg-orange-500/20 text-orange-300",
+  COMPLETED: "bg-green-500/20 text-green-300",
+  CANCELLED: "bg-red-500/20 text-red-400",
+};
+
 function fmtDate(val) {
   if (!val) return "—";
   return new Date(val).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -83,10 +91,9 @@ export default function LeadDetailPage() {
   const [revivalOutcome, setRevivalOutcome] = useState("");
   const [revivalNotes, setRevivalNotes] = useState("");
 
-  // Dispatch / arrived / dispo / reschedule
+  // Dispo / reschedule
   const [dispoOpen, setDispoOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
-  const [actionSaving, setActionSaving] = useState(false);
 
   const fetchLead = useCallback(async () => {
     setLoading(true);
@@ -124,28 +131,6 @@ export default function LeadDetailPage() {
   }, [id]);
 
   const handleStatusChange = (e) => patch({ status: e.target.value });
-
-  const handleDispatch = async () => {
-    setActionSaving(true);
-    try {
-      const res = await fetch(`/api/lead/${id}/dispatch`, { method: "POST" });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); showToast(d.error || "Dispatch failed."); return; }
-      await fetchLead();
-      showToast("Inspector marked en route — homeowner notified.");
-    } catch { showToast("Dispatch failed."); }
-    finally { setActionSaving(false); }
-  };
-
-  const handleArrived = async () => {
-    setActionSaving(true);
-    try {
-      const res = await fetch(`/api/lead/${id}/arrived`, { method: "POST" });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); showToast(d.error || "Failed."); return; }
-      await fetchLead();
-      showToast("Arrived — inspection in progress.");
-    } catch { showToast("Failed."); }
-    finally { setActionSaving(false); }
-  };
 
   const handleMarkCalled = async () => {
     const updates = {
@@ -300,6 +285,14 @@ export default function LeadDetailPage() {
                 )}
               </div>
 
+              {/* Editable address field */}
+              {canEdit && (
+                <AddressEditField
+                  currentAddress={lead.address || [lead.streetAddress, lead.city, lead.state, lead.zip].filter(Boolean).join(", ")}
+                  onSave={(addr) => patch({ address: addr })}
+                />
+              )}
+
               {/* Status dropdown */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[#8fa3c8] text-sm font-medium">Status</label>
@@ -315,45 +308,7 @@ export default function LeadDetailPage() {
                 </select>
               </div>
 
-              {/* Inspection action buttons — dispatch / arrived / dispo */}
-              {canEdit && (
-                <div className="flex flex-wrap gap-3 pt-1">
-                  {lead.status === "INSPECTION_SCHEDULED" && (
-                    <>
-                      <button
-                        onClick={handleDispatch}
-                        disabled={actionSaving}
-                        className="bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors min-h-[44px]"
-                      >
-                        {actionSaving ? "Saving…" : "Dispatch →"}
-                      </button>
-                      <button
-                        onClick={() => setRescheduleOpen(true)}
-                        className="border border-[#2a3a5c] hover:border-[#1B3A7A] text-[#8fa3c8] hover:text-[#f0f4ff] text-sm font-medium rounded-xl px-5 py-2.5 transition-colors min-h-[44px]"
-                      >
-                        Reschedule
-                      </button>
-                    </>
-                  )}
-                  {lead.status === "EN_ROUTE" && (
-                    <button
-                      onClick={handleArrived}
-                      disabled={actionSaving}
-                      className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors min-h-[44px]"
-                    >
-                      {actionSaving ? "Saving…" : "Arrived ✓"}
-                    </button>
-                  )}
-                  {(lead.status === "INSPECTION_IN_PROGRESS" || lead.status === "INSPECTION_COMPLETE") && (
-                    <button
-                      onClick={() => setDispoOpen(true)}
-                      className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors min-h-[44px]"
-                    >
-                      DISPO
-                    </button>
-                  )}
-                </div>
-              )}
+              {/* Dispatch and Arrive moved to inspection wizard sidebar */}
             </div>
 
             {/* Funnel Info — only shown for Facebook / funnel-sourced leads */}
@@ -575,42 +530,82 @@ export default function LeadDetailPage() {
               </div>
             )}
 
+            {/* Bot context summary */}
+            {(lead.botContextSummary || lead.srLead?.srBotStage) && (
+              <div className="bg-[#111827] border border-[#2a3a5c] rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[#f0f4ff] font-semibold text-sm">Bot Context</h3>
+                  {lead.srLead?.srBotStage && (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                      lead.srLead.srBotStage === "silent"
+                        ? "bg-zinc-500/20 text-zinc-400"
+                        : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                    }`}>
+                      {lead.srLead.srBotStage}
+                    </span>
+                  )}
+                </div>
+                {lead.botContextSummary ? (
+                  <p className="text-[#8fa3c8] text-sm leading-relaxed">{lead.botContextSummary}</p>
+                ) : (
+                  <p className="text-[#8fa3c8]/50 text-sm italic">No bot conversation summary yet.</p>
+                )}
+              </div>
+            )}
+
             {/* Notes section */}
             <LeadNotesPanel leadId={id} initialNotes={lead.notes || []} />
 
-            {/* Reports section */}
+            {/* Inspections section */}
             <div className="bg-[#111827] border border-[#2a3a5c] rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-[#f0f4ff] font-semibold">Reports</h3>
+                <h3 className="text-[#f0f4ff] font-semibold">Inspections</h3>
                 {canEdit && (
                   <a
                     href={`/inspection/new?leadId=${id}`}
                     className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 text-white text-sm font-medium rounded-xl px-4 py-2 transition-colors min-h-[44px] flex items-center"
                   >
-                    + Generate Report
+                    + New Inspection
                   </a>
                 )}
               </div>
 
               {lead.inspections && lead.inspections.length === 0 ? (
-                <p className="text-[#8fa3c8] text-sm">No inspection reports yet.</p>
+                <p className="text-[#8fa3c8] text-sm">No inspections yet.</p>
               ) : (
                 <div className="space-y-2">
                   {lead.inspections?.map((insp) => (
                     <a
                       key={insp.id}
                       href={`/inspection/${insp.id}`}
-                      className="flex items-center justify-between bg-[#0a0f1e] border border-[#2a3a5c] rounded-xl px-4 py-3 hover:border-[#1B3A7A] transition-colors"
+                      className="flex items-start justify-between bg-[#0a0f1e] border border-[#2a3a5c] rounded-xl px-4 py-3 hover:border-[#1B3A7A] transition-colors gap-3"
                     >
-                      <div>
-                        <p className="text-[#f0f4ff] text-sm font-medium">
-                          {insp.customer?.name || "Inspection"}
-                        </p>
-                        <p className="text-[#8fa3c8] text-xs mt-0.5">{fmtDate(insp.createdAt)}</p>
+                      <div className="min-w-0">
+                        {insp.appointment ? (
+                          <p className="text-[#f0f4ff] text-sm font-medium">
+                            {fmtDateFull(insp.appointment.scheduledAt)}
+                          </p>
+                        ) : (
+                          <p className="text-[#f0f4ff] text-sm font-medium">
+                            Created {fmtDate(insp.createdAt)}
+                          </p>
+                        )}
+                        {insp.appointment?.assignedUser && (
+                          <p className="text-[#8fa3c8] text-xs mt-0.5">
+                            Rep: {insp.appointment.assignedUser.name}
+                          </p>
+                        )}
                       </div>
-                      <span className={`px-2 py-1 rounded-md text-xs font-medium ${INSPECTION_STATUS_BADGE[insp.status] || "bg-zinc-500/20 text-zinc-400"}`}>
-                        {insp.status}
-                      </span>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {insp.appointment && (
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${APPT_STATUS_BADGE[insp.appointment.status] || "bg-zinc-500/20 text-zinc-400"}`}>
+                            {insp.appointment.status.replace(/_/g, " ")}
+                          </span>
+                        )}
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${INSPECTION_STATUS_BADGE[insp.status] || "bg-zinc-500/20 text-zinc-400"}`}>
+                          {insp.status}
+                        </span>
+                      </div>
                     </a>
                   ))}
                 </div>
@@ -750,6 +745,70 @@ function InfoRow({ label, children }) {
     <div className="flex flex-col gap-1">
       <span className="text-[#8fa3c8] text-xs font-medium uppercase tracking-wider">{label}</span>
       {children}
+    </div>
+  );
+}
+
+function AddressEditField({ currentAddress, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(currentAddress || "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(value.trim());
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 group">
+        <div className="flex-1 min-w-0">
+          <span className="text-[#8fa3c8] text-xs font-medium uppercase tracking-wider block mb-0.5">Address</span>
+          <span className="text-[#f0f4ff] text-sm">{currentAddress || "—"}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setValue(currentAddress || ""); setEditing(true); }}
+          className="text-[#8fa3c8] hover:text-[#f0f4ff] text-xs px-2 py-1 rounded hover:bg-[#2a3a5c] transition-colors opacity-0 group-hover:opacity-100"
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <span className="text-[#8fa3c8] text-xs font-medium uppercase tracking-wider block">Address</span>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        autoFocus
+        className="w-full bg-[#1e2a40] border border-blue-500 text-[#f0f4ff] rounded-xl min-h-[44px] px-4 text-sm focus:outline-none transition-colors"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={handleSave}
+          className="bg-[#1B3A7A] hover:bg-[#1B3A7A]/80 disabled:opacity-50 text-white text-sm font-medium rounded-xl px-4 py-2 transition-colors"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="text-[#8fa3c8] hover:text-[#f0f4ff] text-sm px-3 py-2 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

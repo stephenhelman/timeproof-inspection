@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
 import { canCreateLead, canViewAllLeads, buildLeadScope } from "@/src/lib/permissions";
+import {
+  upsertGhlContact,
+  createGhlOpportunity,
+  findGhlContactByPhone,
+} from "@/src/lib/ghl-contacts";
+import { createSrLead } from "@/src/lib/ghl-custom-object";
 
 export async function POST(req: Request) {
   const user = await getSessionUser();
@@ -12,6 +18,7 @@ export async function POST(req: Request) {
   const {
     customerName,
     streetAddress,
+    address,
     city,
     state,
     zip,
@@ -24,6 +31,9 @@ export async function POST(req: Request) {
     status,
     assignedUserId,
     setterUserId,
+    smsConsentAt,
+    smsConsentText,
+    syncGhl,
   } = body;
 
   if (!customerName || !streetAddress) {
@@ -33,10 +43,16 @@ export async function POST(req: Request) {
     );
   }
 
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("x-real-ip") ||
+    null;
+
   const lead = await prisma.lead.create({
     data: {
       customerName,
       streetAddress,
+      address: address || null,
       city: city || "",
       state: state || "",
       zip: zip || "",
@@ -49,11 +65,112 @@ export async function POST(req: Request) {
       status: status || "NEW",
       assignedUserId: assignedUserId || user.id,
       setterUserId: setterUserId || null,
+      smsConsentAt: smsConsentAt ? new Date(smsConsentAt) : null,
+      smsConsentIp: smsConsentAt ? ip : null,
+      smsConsentText: smsConsentText || null,
     },
     include: { inspections: true },
   });
 
+  // GHL sync — only for manual rep-created leads (syncGhl: true)
+  if (syncGhl && phone) {
+    void syncLeadToGhl(lead.id, {
+      customerName,
+      phone,
+      email: email || undefined,
+      streetAddress: streetAddress || undefined,
+      address: address || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      zip: zip || undefined,
+    }).catch((err) => console.error("[POST /api/lead] GHL sync error:", err));
+  }
+
   return NextResponse.json(lead, { status: 201 });
+}
+
+async function syncLeadToGhl(
+  leadId: string,
+  fields: {
+    customerName: string;
+    phone: string;
+    email?: string;
+    streetAddress?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  },
+): Promise<void> {
+  const { customerName, phone, email, streetAddress, address, city, state, zip } = fields;
+  const nameParts = customerName.trim().split(/\s+/);
+
+  try {
+    // Phone dedup: check GHL first, then upsert
+    const existingGhlContactId = await findGhlContactByPhone(phone);
+
+    const { ghlContactId } = await upsertGhlContact(
+      {
+        firstName: nameParts[0],
+        lastName: nameParts.slice(1).join(" ") || "",
+        phone,
+        email,
+        address1: streetAddress || address || undefined,
+        city,
+        state,
+        postalCode: zip,
+        srBotStage: "silent",
+        srSource: "manual",
+        leadId,
+      },
+      existingGhlContactId ?? undefined,
+    );
+
+    await prisma.lead.update({ where: { id: leadId }, data: { ghlContactId } });
+
+    // Create inspection pipeline opportunity at New Lead stage
+    let ghlOpportunityId: string | null = null;
+    if (process.env.GHL_PIPELINE_INSPECTION && process.env.GHL_STAGE_NEW_LEAD) {
+      try {
+        ghlOpportunityId = await createGhlOpportunity({
+          ghlContactId,
+          contactName: customerName,
+          pipelineId: process.env.GHL_PIPELINE_INSPECTION,
+          pipelineStageId: process.env.GHL_STAGE_NEW_LEAD,
+          sourceName: "door-inspection",
+        });
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { ghlOpportunityId },
+        });
+      } catch (err) {
+        console.error("[syncLeadToGhl] createGhlOpportunity failed:", err);
+      }
+    }
+
+    // Create SrLead record (GHL custom object + DB)
+    await createSrLead(ghlContactId, leadId, {
+      sr_lead_id: leadId,
+      sr_tier: "primary",
+      sr_zone: "el_paso_central",
+      sr_status: "NEW",
+      sr_qualify_status: "complete",
+      sr_bot_stage: "silent",
+      sr_source: "manual",
+      sr_opted_out: false,
+    });
+  } catch (err) {
+    console.error("[syncLeadToGhl] failed — logging to WebhookLog:", err);
+    await prisma.webhookLog.create({
+      data: {
+        source: "lead_ghl_sync_failed",
+        payload: { leadId, phone },
+        status: "error",
+        errorMessage: err instanceof Error ? err.message : String(err),
+        leadId,
+      },
+    }).catch(() => null);
+  }
 }
 
 export async function GET(req: Request) {

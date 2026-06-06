@@ -86,9 +86,10 @@ interface StepperProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   initialData?: Record<string, any>;
   lead?: { id: string; customerName: string } | null;
+  appointment?: { id: string; status: string } | null;
 }
 
-export default function Stepper({ inspectionId, initialData, lead }: StepperProps) {
+export default function Stepper({ inspectionId, initialData, lead, appointment }: StepperProps) {
   const router = useRouter();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -120,6 +121,50 @@ export default function Stepper({ inspectionId, initialData, lead }: StepperProp
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const [apptStatus, setApptStatus] = useState<string | null>(
+    appointment?.status ?? null,
+  );
+  const [apptSaving, setApptSaving] = useState(false);
+  const [apptError, setApptError] = useState<string | null>(null);
+
+  const handleDispatch = async () => {
+    if (!appointment) return;
+    setApptSaving(true);
+    setApptError(null);
+    try {
+      const res = await fetch(`/api/appointment/${appointment.id}/dispatch`, { method: "POST" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        setApptError(d.error ?? "Dispatch failed.");
+        return;
+      }
+      setApptStatus("EN_ROUTE");
+    } catch {
+      setApptError("Dispatch failed.");
+    } finally {
+      setApptSaving(false);
+    }
+  };
+
+  const handleArrive = async () => {
+    if (!appointment) return;
+    setApptSaving(true);
+    setApptError(null);
+    try {
+      const res = await fetch(`/api/appointment/${appointment.id}/arrive`, { method: "POST" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        setApptError(d.error ?? "Arrive failed.");
+        return;
+      }
+      setApptStatus("IN_PROGRESS");
+    } catch {
+      setApptError("Arrive failed.");
+    } finally {
+      setApptSaving(false);
+    }
+  };
 
   const [dispoOpen, setDispoOpen] = useState(false);
   const [resolvedLeadId, setResolvedLeadId] = useState<string | null>(
@@ -382,12 +427,42 @@ export default function Stepper({ inspectionId, initialData, lead }: StepperProp
               </button>
             );
           })}
+          {/* Dispatch / Arrive — shown above DISPO while appointment is pre-arrival */}
+          {appointment && apptStatus === "SCHEDULED" && (
+            <button
+              type="button"
+              onClick={handleDispatch}
+              disabled={apptSaving}
+              title={!sidebarOpen ? "Dispatch" : undefined}
+              className={`flex items-center justify-center gap-2 mt-auto rounded-xl min-h-10 text-sm font-semibold transition-colors bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white ${
+                sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+              }`}
+            >
+              {sidebarOpen ? (apptSaving ? "Sending…" : "DISPATCH →") : "→"}
+            </button>
+          )}
+          {appointment && apptStatus === "EN_ROUTE" && (
+            <button
+              type="button"
+              onClick={handleArrive}
+              disabled={apptSaving}
+              title={!sidebarOpen ? "Arrive" : undefined}
+              className={`flex items-center justify-center gap-2 mt-auto rounded-xl min-h-10 text-sm font-semibold transition-colors bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white ${
+                sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+              }`}
+            >
+              {sidebarOpen ? (apptSaving ? "Saving…" : "ARRIVED ✓") : "✓"}
+            </button>
+          )}
+          {apptError && sidebarOpen && (
+            <p className="text-red-400 text-xs px-1 leading-snug">{apptError}</p>
+          )}
           <button
             type="button"
             onClick={handleDispoOpen}
             disabled={creatingLead}
             title={!sidebarOpen ? "DISPO" : undefined}
-            className={`flex items-center justify-center gap-2 mt-auto rounded-xl min-h-10 text-sm font-semibold transition-colors bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-text-primary ${
+            className={`flex items-center justify-center gap-2 ${appointment && (apptStatus === "SCHEDULED" || apptStatus === "EN_ROUTE") ? "" : "mt-auto"} rounded-xl min-h-10 text-sm font-semibold transition-colors bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-text-primary ${
               sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
             }`}
           >
