@@ -40,7 +40,7 @@ export function StatsRenderer({
       />
 
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <div className="mt-2">
+      <div className="mt-4">
         <div
           style={{ backgroundColor: C.cardBackground }}
           className=" px-6 py-2 rounded-t-lg"
@@ -62,14 +62,16 @@ export function StatsRenderer({
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
 
-      <Callout
-        callout={slide.callout}
-        highlightColor={C.blue}
-        backgroundColor={C.cardBackground}
-        titleTextColor={C.cardTitle}
-        subtextColor={C.cardSubtitle}
-      />
-      <div className="mt-1.25">
+      <div className="my-auto">
+        <Callout
+          callout={slide.callout}
+          highlightColor={C.blue}
+          backgroundColor={C.cardBackground}
+          titleTextColor={C.cardTitle}
+          subtextColor={C.cardSubtitle}
+        />
+      </div>
+      <div className="mb-4">
         <div
           style={{ backgroundColor: C.cardBackground }}
           className=" px-6 py-2 rounded-t-lg"
