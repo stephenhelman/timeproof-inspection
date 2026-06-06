@@ -7,6 +7,7 @@ import { Eyebrow } from "./components/Eyebrow";
 import { Headline } from "./components/Headline";
 import { Intro } from "./components/Intro";
 import { TimelineTable } from "./components/TimelineTable";
+import { Callout } from "./components/Callout";
 
 function PhotoPlaceholder({
   label,
@@ -91,26 +92,13 @@ export function TimelineRenderer({
         keys={slide.keys}
         rows={slide.rows}
       />
-      <div
-        className="pl-4 py-4 mt-auto"
-        style={{
-          borderLeft: `2px solid ${C.blue}`,
-          backgroundColor: C.cardBackground,
-        }}
-      >
-        <p
-          className="text-[14px] leading-relaxed mb-2"
-          style={{ color: C.cardTitle }}
-        >
-          {slide.callout.title}
-        </p>
-        <p
-          className="text-[14px] leading-relaxed"
-          style={{ color: C.cardSubtitle }}
-        >
-          {slide.callout.subtext}
-        </p>
-      </div>
+      <Callout
+        callout={slide.callout}
+        backgroundColor={C.cardBackground}
+        titleTextColor={C.cardTitle}
+        subtextColor={C.subtitle}
+        highlightColor={C.blue}
+      />
     </div>
   );
 }

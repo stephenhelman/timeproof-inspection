@@ -3,6 +3,11 @@
 import type { StatsSlide } from "../slides";
 import { Header } from "./components/Header";
 import { COLOR_CONFIG, type ColorMode } from "../colorConfig";
+import { Eyebrow } from "./components/Eyebrow";
+import { Headline } from "./components/Headline";
+import { Callout } from "./components/Callout";
+import { StatRow } from "./components/StatRow";
+import { DiagramHeader } from "./components/DiagramHeader";
 
 export function StatsRenderer({
   slide,
@@ -22,61 +27,67 @@ export function StatsRenderer({
       : "/door-approach/chart-roof-temp-dark.png";
 
   return (
-    <div className="px-5 py-8 max-w-2xl mx-auto w-full">
+    <div className="px-5 py-4 max-w-180 mx-auto w-full min-h-full flex flex-col">
+      <Eyebrow text={slide.eyebrow} color={C.textPrimary} />
       <Header text={slide.header} color={C.textHint} />
-      <p
-        className="text-xs font-bold tracking-[0.25em] uppercase mb-3"
-        style={{ color: C.textHint }}
-      >
-        {slide.eyebrow}
-      </p>
-      <h2
-        className="text-2xl sm:text-3xl font-bold mb-8"
-        style={{ color: C.textPrimary }}
-      >
-        {slide.headline}
-      </h2>
+      <Headline text={slide.headline} color={C.textPrimary} />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-        {slide.stats.map(({ stat, body }) => (
-          <div
-            key={stat}
-            className="rounded-xl p-5"
-            style={{ background: C.bgSurface, border: `1px solid ${C.border}` }}
-          >
-            <p className="text-[#F06B30] text-sm font-bold mb-2">{stat}</p>
-            <p
-              className="text-sm leading-relaxed"
-              style={{ color: C.textSecondary }}
-            >
-              {body}
-            </p>
-          </div>
-        ))}
-      </div>
+      <StatRow
+        stats={slide.stats}
+        cardColor={C.cardBackground}
+        subtextColor={C.cardSubtitle}
+        titleColor={C.cardTitle}
+      />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <div className="mt-2">
+        <div
+          style={{ backgroundColor: C.cardBackground }}
+          className=" px-6 py-2 rounded-t-lg"
+        >
+          <p style={{ color: C.textPrimary }}>
+            Shingle lifespan - rated vs actual El Paso performance
+          </p>
+          <p style={{ color: C.textPrimary }}>
+            El Paso's UV index and heat cycling reduce standard shingle lifespan
+            significantly
+          </p>
+        </div>
         <img
           src={lifespanChart}
           alt="Bar chart: Shingle lifespan — rated vs El Paso actual vs Qntum 50yr"
-          className="w-full rounded-xl"
+          className="w-full rounded-b-lg"
+          style={{ border: `2px solid ${C.cardBackground}` }}
         />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+
+      <Callout
+        callout={slide.callout}
+        highlightColor={C.blue}
+        backgroundColor={C.cardBackground}
+        titleTextColor={C.cardTitle}
+        subtextColor={C.cardSubtitle}
+      />
+      <div className="mt-1.25">
+        <div
+          style={{ backgroundColor: C.cardBackground }}
+          className=" px-6 py-2 rounded-t-lg"
+        >
+          <p style={{ color: C.textPrimary }}>
+            Roof surface temperature by month
+          </p>
+          <p style={{ color: C.textPrimary }}>
+            El Paso vs. national average — shingles expand and contract with
+            every cycle
+          </p>
+        </div>
         <img
           src={tempChart}
           alt="Line chart: Roof surface temperature by month — El Paso vs national average"
-          className="w-full rounded-xl"
+          className="w-full rounded-b-lg"
+          style={{ border: `2px solid ${C.cardBackground}` }}
         />
-      </div>
-
-      <div className="border-l-2 border-[#F06B30] pl-4">
-        <p
-          className="text-sm leading-relaxed"
-          style={{ color: C.textSecondary }}
-        >
-          {slide.callout}
-        </p>
       </div>
     </div>
   );

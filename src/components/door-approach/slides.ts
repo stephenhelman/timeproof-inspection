@@ -37,7 +37,10 @@ export interface TimelineSlide extends BaseSlide {
   intro: string;
   keys: string[];
   rows: { years: string; visible: string; hidden: string }[];
-  callout: Record<string, string>;
+  callout: {
+    title: string;
+    subtext: string;
+  };
 }
 
 export interface DiagramSlide extends BaseSlide {
@@ -57,7 +60,10 @@ export interface StatsSlide extends BaseSlide {
   eyebrow: string;
   headline: string;
   stats: { stat: string; body: string }[];
-  callout: string;
+  callout: {
+    title: string;
+    subtext: string;
+  };
 }
 
 export interface ComparisonSlide extends BaseSlide {
@@ -321,28 +327,27 @@ export const SHINGLE_SLIDES: SlideData[] = [
     header: "WHY EL PASO IS DIFFERENT FROM EVERYWHERE ELSE",
     type: "stats",
     label: "03",
-    eyebrow: "El Paso Is Not Average",
-    headline: "Why your roof ages faster here.",
+    eyebrow: "El Paso Climate + Roof Lifespan",
+    headline: "Your roof was rated for a different climate",
     stats: [
       {
-        stat: "Top 3 UV Index Nationally",
-        body: "Manufacturer lifespan ratings are based on national averages. El Paso is not average — it's one of the most UV-intense markets in the country.",
+        stat: "Top 3",
+        body: "UV Index Nationally",
       },
       {
-        stat: "297 Sunny Days / Year",
-        body: "vs. 205 nationally. Every one of those days is UV exposure breaking down granule adhesion on your roof surface.",
+        stat: "297",
+        body: "Sunny days per year",
       },
       {
-        stat: "150–172°F Roof Surface",
-        body: "While air temps hit 104°F, roof surfaces reach 150–172°F in peak summer. Daily heat cycling stresses every seam and granule bond.",
-      },
-      {
-        stat: "Up to 40% Shorter Lifespan",
-        body: "A 3-tab shingle rated for 15–20 years realistically performs 10–15 years here. The climate matters more than the label.",
+        stat: "#1",
+        body: "Lifespan reduction on standard shingles",
       },
     ],
-    callout:
-      "Manufacturer warranty ratings assume average conditions. El Paso is not average — and most homeowners don't know that.",
+    callout: {
+      title: "⚠  What This Means for Your Home",
+      subtext:
+        "Older 3-tab shingles installed in El Paso realistically perform 10–15 years due to UV cycling, summer heat extremes, and monsoon moisture stress. Qntum installs 50-year warranted architectural shingles — built to handle this climate.",
+    },
   },
 
   // 04 — Shingle Components (diagram)
