@@ -18,6 +18,7 @@ export const COLOR_CONFIG = {
     red: "#8B1F1F",
     green: "#1A6B3C",
     question: "#0b1220",
+    questionText: "#E8EDF5",
   },
   dark: {
     bgBase: "#0B1220",
@@ -38,6 +39,7 @@ export const COLOR_CONFIG = {
     red: "#F87171",
     green: "#4ADE80",
     question: "#0D1a32",
+    questionText: "#E8EDF5",
   },
 } as const;
 

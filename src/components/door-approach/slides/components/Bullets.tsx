@@ -42,7 +42,7 @@ function Card({ colorMode, item, i }: CardType) {
         </p>
         <p
           className="p-2 mt-auto text-lg text-center rounded-lg"
-          style={{ backgroundColor: C.question, color: C.textPrimary }}
+          style={{ backgroundColor: C.question, color: C.questionText }}
         >
           {item.question}
         </p>
