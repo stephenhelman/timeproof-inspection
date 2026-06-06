@@ -10,7 +10,6 @@ const FIELD_IDS = {
   tpusa_lead_id:          process.env.GHL_FIELD_LEAD_ID           ?? "tpusa_lead_id",
   tpusa_highest_estimate: process.env.GHL_FIELD_HIGHEST_ESTIMATE  ?? "tpusa_highest_estimate",
   tpusa_assigned_tech:    process.env.GHL_FIELD_ASSIGNED_TECH     ?? "tpusa_assigned_tech",
-  tpusa_appointment_date: process.env.GHL_FIELD_APPOINTMENT_DATE  ?? "tpusa_appointment_date",
   tpusa_source:           process.env.GHL_FIELD_SOURCE            ?? "tpusa_source",
   tpusa_zip:              process.env.GHL_FIELD_ZIP               ?? "tpusa_zip",
 };
@@ -47,7 +46,6 @@ function buildContactPayload(lead: Lead) {
       { id: FIELD_IDS.tpusa_lead_id,          value: lead.id },
       { id: FIELD_IDS.tpusa_highest_estimate,  value: String(lead.highestEstimateValue ?? "") },
       { id: FIELD_IDS.tpusa_assigned_tech,     value: lead.assignedTech ?? "" },
-      { id: FIELD_IDS.tpusa_appointment_date,  value: lead.appointmentDate?.toISOString() ?? "" },
       { id: FIELD_IDS.tpusa_source,            value: lead.source },
       { id: FIELD_IDS.tpusa_zip,               value: lead.zip },
     ],
@@ -74,7 +72,6 @@ async function createOrUpdateContact(lead: Lead): Promise<string> {
         { id: FIELD_IDS.tpusa_lead_id,          field_value: lead.id },
         { id: FIELD_IDS.tpusa_highest_estimate,  field_value: String(lead.highestEstimateValue ?? "") },
         { id: FIELD_IDS.tpusa_assigned_tech,     field_value: lead.assignedTech ?? "" },
-        { id: FIELD_IDS.tpusa_appointment_date,  field_value: lead.appointmentDate?.toISOString() ?? "" },
         { id: FIELD_IDS.tpusa_source,            field_value: lead.source },
         { id: FIELD_IDS.tpusa_zip,               field_value: lead.zip },
       ],

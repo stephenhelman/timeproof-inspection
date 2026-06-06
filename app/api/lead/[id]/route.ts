@@ -66,7 +66,6 @@ export async function PATCH(
     "revivalNotes",
     "revivalCalledAt",
     "revivalCalledBy",
-    "appointmentDate",
     "jobCompletionDate",
     "assignedUserId",
     "setterUserId",
@@ -78,8 +77,7 @@ export async function PATCH(
     if (key in body) {
       const val = body[key];
       if (
-        (key === "appointmentDate" ||
-          key === "jobCompletionDate" ||
+        (key === "jobCompletionDate" ||
           key === "revivalCalledAt") &&
         val
       ) {

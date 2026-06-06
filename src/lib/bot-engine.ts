@@ -108,26 +108,25 @@ export async function getAreaAppointments(zone: string): Promise<AreaAppointment
   const nextWeek = new Date(tomorrow);
   nextWeek.setDate(nextWeek.getDate() + 7);
 
-  const inspections = await prisma.inspection.findMany({
+  const appointments = await prisma.appointment.findMany({
     where: {
-      status: "scheduled",
-      appointmentAt: { gte: tomorrow, lte: nextWeek },
+      scheduledAt: { gte: tomorrow, lte: nextWeek },
       lead: { sourceZip: { in: getZipsForZone(zone) } },
     },
     select: {
-      appointmentAt: true,
+      scheduledAt: true,
       lead: { select: { streetAddress: true } },
     },
     take: 5,
   });
 
-  return inspections
-    .filter((i) => i.appointmentAt && i.lead?.streetAddress)
-    .map((i) => {
-      const date = new Date(i.appointmentAt!);
+  return appointments
+    .filter((a) => a.lead?.streetAddress)
+    .map((a) => {
+      const date = new Date(a.scheduledAt);
       const hour = date.getHours();
       return {
-        street: extractStreetName(i.lead!.streetAddress!),
+        street: extractStreetName(a.lead!.streetAddress!),
         day: date.toLocaleDateString("en-US", {
           weekday: "long",
           timeZone: "America/Denver",
@@ -618,15 +617,15 @@ export async function getAvailableSlots(
     const dayEnd = new Date(dayDate);
     dayEnd.setHours(23, 59, 59, 999);
 
-    // Load confirmed inspections for this day to check zone conflicts + count
-    const dayInspections = await prisma.inspection.findMany({
-      where: { appointmentAt: { gte: dayStart, lte: dayEnd } },
+    // Load confirmed appointments for this day to check zone conflicts + count
+    const dayAppointments = await prisma.appointment.findMany({
+      where: { scheduledAt: { gte: dayStart, lte: dayEnd } },
       include: { lead: { select: { sourceZip: true } } },
     });
 
-    // Build zone list for confirmed inspections this day
-    const inspZones = dayInspections
-      .map((i) => i.lead?.sourceZip ? getZoneForZip(i.lead.sourceZip) : null)
+    // Build zone list for confirmed appointments this day
+    const inspZones = dayAppointments
+      .map((a) => a.lead?.sourceZip ? getZoneForZip(a.lead.sourceZip) : null)
       .filter(Boolean) as string[];
 
     // Check 3: no confirmed inspection in incompatible zone
@@ -716,17 +715,17 @@ export async function validateSlotBeforeConfirm(
   const dayEnd = new Date(date);
   dayEnd.setHours(23, 59, 59, 999);
 
-  const newInspections = await prisma.inspection.findMany({
+  const newAppointments = await prisma.appointment.findMany({
     where: {
-      appointmentAt: { gte: dayStart, lte: dayEnd },
+      scheduledAt: { gte: dayStart, lte: dayEnd },
       createdAt: { gt: lock.createdAt },
     },
     include: { lead: { select: { sourceZip: true } } },
   });
 
   const compatibleZones = new Set([zone, ...getCompatibleZones(zone)]);
-  const conflict = newInspections.some((i) => {
-    const z = i.lead?.sourceZip ? getZoneForZip(i.lead.sourceZip) : null;
+  const conflict = newAppointments.some((a) => {
+    const z = a.lead?.sourceZip ? getZoneForZip(a.lead.sourceZip) : null;
     return z && !compatibleZones.has(z);
   });
 
@@ -758,7 +757,7 @@ export async function confirmBooking(
   // 2. Update lead status
   await prisma.lead.update({
     where: { id: leadId },
-    data:  { status: 'INSPECTION_SCHEDULED', appointmentDate: datetime },
+    data:  { status: 'INSPECTION_SCHEDULED' },
   });
 
   // 3. Delete the SlotLock

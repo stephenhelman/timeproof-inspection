@@ -50,6 +50,39 @@ enum UserRole {
   REP
 }
 
+enum AppointmentStatus {
+  SCHEDULED
+  EN_ROUTE
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AppointmentSource {
+  ALEX
+  JORDAN
+  REP
+}
+
+enum TaskType {
+  SETTER_FOLLOWUP
+  REP_FOLLOWUP
+  FINANCE_REVIEW
+  ZIP_REVIEW
+  MANUAL_BOOKING
+  ESCALATION
+}
+
+enum TaskStatus {
+  PENDING
+  RESOLVED
+}
+
+enum TaskSource {
+  BOT
+  GHL_WEBHOOK
+}
+
 model User {
   id                  String          @id @default(cuid())
   email               String          @unique
@@ -71,7 +104,9 @@ model User {
   cardShowProfileImage Boolean        @default(true)
 
   ghlContactId   String?         // GHL contact ID for rep SMS notifications via bot-engine
+  ghlUserId      String?         @unique // GHL user ID for task assignment and rep calendar
   repSlug        String?         @unique // URL-safe slug for door approach QR codes e.g. "stephen-helman"
+  staffOnly      Boolean         @default(false) // staff accounts with no login required
 
   role           UserRole        @default(REP)
   isActive       Boolean         @default(true)
@@ -85,6 +120,8 @@ model User {
   trustedDevices TrustedDevice[]
   leads          Lead[]          @relation("LeadAssigned")
   setLeads       Lead[]          @relation("LeadSetter")
+  appointments   Appointment[]
+  tasks          Task[]
 }
 
 model Account {
@@ -112,13 +149,6 @@ model Session {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-  @@unique([identifier, token])
-}
-
 model Lead {
   id                   String          @id @default(cuid())
   createdAt            DateTime        @default(now())
@@ -143,7 +173,6 @@ model Lead {
   revivalNotes         String?
   revivalCalledAt      DateTime?
   revivalCalledBy      String?
-  appointmentDate      DateTime?
   jobCompletionDate    DateTime?
   assignedUserId       String?
   assignedUser         User?           @relation("LeadAssigned", fields: [assignedUserId], references: [id])
@@ -207,6 +236,8 @@ model Lead {
   inspections          Inspection[]
   notes                LeadNote[]
   srLead               SrLead?
+  appointments         Appointment[]
+  tasks                Task[]
 }
 
 model SrLead {
@@ -257,8 +288,6 @@ model Inspection {
   address           String?
   phone             String?
   email             String?
-  // PRESERVED — not active in Qntum build
-  // heardAboutUs   String?
 
   leadId            String?
   lead              Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -327,8 +356,14 @@ model Inspection {
   // GHL integration
   ghlEventId             String?   // GHL calendar event ID written on booking confirmation
 
-  // Appointment
-  appointmentAt          DateTime?
+  // Appointment fields (new — structured JSON storage for wizard passes)
+  intakePass1              Json?      // pre-diagnosis homeowner awareness
+  warningSignResponses     Json?      // warning sign checklist responses
+  aiDiagnosisDescription   String?    // human-readable Claude output
+  aiDiagnosisStructured    Json?      // machine-readable Claude output for Jordan
+  aiGeneratedAt            DateTime?  // when the Claude call fired
+  intakePass2              Json?      // post-diagnosis homeowner admission
+
   setterName             String?
 
   // Intake form — Pass 2 (After)
@@ -356,74 +391,51 @@ model Inspection {
   // Export tracking
   qntumExportedAt        DateTime?
 
-  structures        Structure[]
   photos            Photo[]
-  // PRESERVED — not active in Qntum build
-  packages          Package[]
-  // PRESERVED — not active in Qntum build
-  quote             Quote?
   reportVisits      ReportVisit[]
+  appointment       Appointment?
+  tasks             Task[]
 
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 }
 
-// PRESERVED — not active in Qntum build
-model Structure {
-  id            String     @id @default(cuid())
-  inspectionId  String
-  inspection    Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  name          String
-  inScope       Boolean    @default(true)
-  order         Int        @default(0)
+model Appointment {
+  id                 String            @id @default(cuid())
+  leadId             String
+  inspectionId       String            @unique
+  assignedUserId     String
+  scheduledAt        DateTime
+  status             AppointmentStatus @default(SCHEDULED)
+  createdBy          AppointmentSource
+  ghlCalendarEventId String?
+  ghlOpportunityId   String?
+  ghlSyncPending     Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
-  // PRESERVED — not active in Qntum build
-  // entryMode  String  @default("simple")
-
-  // Measurement totals — PRESERVED — not active in Qntum build
-  // pitch      String?
-  // sqft       Float?
-  // ridge      Float?
-  // hip        Float?
-  // valley     Float?
-  // rake       Float?
-  // eave       Float?
-  // flashing   Float?
-  // stepFlashing Float?
-  // parapets   Float?
-  // other      Float?
-
-  // Penetration counts — always structure-level
-  pipeBoots     Int?
-  skylights     Int?
-  chimneys      Int?
-  boxVents      Int?
-  turbines      Int?
-  atticFans     Int?
-
-  facets        Facet[]
+  lead               Lead              @relation(fields: [leadId], references: [id])
+  inspection         Inspection        @relation(fields: [inspectionId], references: [id])
+  assignedUser       User              @relation(fields: [assignedUserId], references: [id])
 }
 
-// PRESERVED — not active in Qntum build
-model Facet {
-  id          String    @id @default(cuid())
-  structureId String
-  structure   Structure @relation(fields: [structureId], references: [id], onDelete: Cascade)
-  order       Int       @default(0)
-  name        String    @default("Facet")
+model Task {
+  id                String      @id @default(cuid())
+  leadId            String
+  inspectionId      String?
+  assignedUserId    String
+  type              TaskType
+  status            TaskStatus  @default(PENDING)
+  context           String
+  outcome           String?
+  availableOutcomes String[]
+  createdBy         TaskSource
+  createdAt         DateTime    @default(now())
+  resolvedAt        DateTime?
 
-  // PRESERVED — not active in Qntum build
-  // pitch        String?
-  // sqft         Float?
-  // ridge        Float?
-  // hip          Float?
-  // valley       Float?
-  // rake         Float?
-  // eave         Float?
-  // flashing     Float?
-  // stepFlashing Float?
-  // parapets     Float?
-  // other        Float?
+  lead              Lead        @relation(fields: [leadId], references: [id])
+  inspection        Inspection? @relation(fields: [inspectionId], references: [id])
+  assignedUser      User        @relation(fields: [assignedUserId], references: [id])
 }
 
 model Photo {
@@ -439,38 +451,6 @@ model Photo {
   galleryEligible  Boolean    @default(false)
   cityArea         String?    // "East El Paso" | "Las Cruces" | etc — rep sets in wizard
   createdAt        DateTime   @default(now())
-}
-
-// PRESERVED — not active in Qntum build
-model Package {
-  id            String     @id @default(cuid())
-  inspectionId  String
-  inspection    Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  name          String
-  basePrice     Float      @default(0)
-  nationalPromo Boolean    @default(false)
-  localPromo    Boolean    @default(false)
-  fsp           Boolean    @default(false)
-  nisi          Float?
-  recommended   Boolean    @default(false)
-  order         Int        @default(0)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-}
-
-// PRESERVED — not active in Qntum build
-model Quote {
-  id             String     @id @default(cuid())
-  inspectionId   String     @unique
-  inspection     Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  basePrice      Float?
-  nationalPromo  Boolean    @default(false)
-  localPromo     Boolean    @default(false)
-  fsp            Boolean    @default(false)
-  nisi           Float?
-  commissionRate Float?
-  commission     Float?
-  estMonthly     Float?
 }
 
 model ReportVisit {

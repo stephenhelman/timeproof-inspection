@@ -7,13 +7,7 @@ async function fetchInspection(id: string) {
   return prisma.inspection.findUnique({
     where: { id },
     include: {
-      structures: {
-        include: { facets: { orderBy: { order: "asc" } } },
-        orderBy: { order: "asc" },
-      },
       photos: { orderBy: { photoNumber: "asc" } },
-      packages: { orderBy: { order: "asc" } },
-      quote: true,
       reportVisits: { include: { sections: true } },
     },
   });
@@ -49,26 +43,7 @@ export async function PATCH(
   if (!canEditInspection(user.id, user.role, existing)) return forbidden();
 
   const body = await req.json().catch(() => ({}));
-  const { quote: quoteData, ...inspectionData } = body;
-
-  if (quoteData) {
-    const { basePrice, nationalPromo, localPromo, fsp, estMonthly } = quoteData;
-    const bp = basePrice ?? existing.quote?.basePrice ?? 0;
-    const np = nationalPromo ?? existing.quote?.nationalPromo ?? false;
-    const lp = localPromo ?? existing.quote?.localPromo ?? false;
-    const fspVal = fsp ?? existing.quote?.fsp ?? false;
-    const nisi =
-      bp *
-      (1 - (np ? 0.05 : 0)) *
-      (1 - (lp ? 0.1 : 0)) *
-      (1 - (fspVal ? 0.1 : 0));
-
-    await prisma.quote.upsert({
-      where: { inspectionId: id },
-      create: { inspectionId: id, basePrice: bp, nationalPromo: np, localPromo: lp, fsp: fspVal, nisi, estMonthly: estMonthly ?? null },
-      update: { basePrice: bp, nationalPromo: np, localPromo: lp, fsp: fspVal, nisi, ...(estMonthly !== undefined && { estMonthly }) },
-    });
-  }
+  const inspectionData = body;
 
   const allowedFields = [
     "customerName", "address", "phone", "email",
@@ -86,7 +61,7 @@ export async function PATCH(
     "triggerMoment", "priorMeetingHad", "priorMeetingWho", "priorMeetingRecommended",
     "priorMeetingWhyNotFixed", "noPriorMeetingReason", "winDefinition",
     "personalFamily", "personalOccupation", "personalRecreation", "personalIdentity",
-    "decisionMakers", "decisionMakersWho", "appointmentAt", "setterName",
+    "decisionMakers", "decisionMakersWho", "setterName",
     "problemAwarenessBefore", "problemAwarenessAfter",
     "intakePass1Complete", "intakePass2Complete",
     "repNotes", "diagnosis", "warningSignsCovered", "qntumExportedAt",
@@ -101,13 +76,7 @@ export async function PATCH(
     where: { id },
     data: updateData,
     include: {
-      structures: {
-        include: { facets: { orderBy: { order: "asc" } } },
-        orderBy: { order: "asc" },
-      },
       photos: { orderBy: { photoNumber: "asc" } },
-      packages: { orderBy: { order: "asc" } },
-      quote: true,
       reportVisits: { include: { sections: true } },
     },
   });

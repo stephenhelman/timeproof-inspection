@@ -39,18 +39,11 @@ export async function POST(
   const inspection = lead.inspections[0];
 
   await prisma.$transaction(async (tx) => {
-    if (inspection) {
-      await tx.inspection.update({
-        where: { id: inspection.id },
-        data: { appointmentAt: newDate },
-      });
-    }
     await tx.lead.update({
       where: { id: params.id },
       data: {
         status: "INSPECTION_SCHEDULED",
         rescheduleReason: body.reason,
-        appointmentDate: newDate,
       },
     });
   });

@@ -20,7 +20,6 @@ export async function POST(req: Request) {
     assignedTech,
     source,
     highestEstimateValue,
-    appointmentDate,
     jobCompletionDate,
     status,
     assignedUserId,
@@ -46,7 +45,6 @@ export async function POST(req: Request) {
       assignedTech: assignedTech || null,
       source: source || "manual",
       highestEstimateValue: highestEstimateValue ?? null,
-      appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
       jobCompletionDate: jobCompletionDate ? new Date(jobCompletionDate) : null,
       status: status || "NEW",
       assignedUserId: assignedUserId || user.id,
@@ -105,8 +103,7 @@ export async function GET(req: Request) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let orderBy: Record<string, any> = { updatedAt: "desc" };
-  if (sortBy === "appointmentDate") orderBy = { appointmentDate: sortDir };
-  else if (sortBy === "zip") orderBy = { zip: sortDir };
+  if (sortBy === "zip") orderBy = { zip: sortDir };
   else if (sortBy === "highestEstimateValue") orderBy = { highestEstimateValue: sortDir };
 
   const leads = await prisma.lead.findMany({
@@ -116,9 +113,9 @@ export async function GET(req: Request) {
       _count: { select: { inspections: true } },
       inspections: {
         where: { status: "scheduled" },
-        orderBy: { appointmentAt: "asc" },
+        orderBy: { createdAt: "asc" },
         take: 1,
-        select: { appointmentAt: true },
+        select: { id: true, status: true },
       },
     },
   });

@@ -28,7 +28,6 @@ export async function GET(req: Request) {
     where: scopedWhere,
     orderBy: { updatedAt: "desc" },
     include: {
-      quote: true,
       _count: { select: { reportVisits: true } },
     },
   });
@@ -49,10 +48,7 @@ export async function POST(req: Request) {
       repName: repName || null,
     },
     include: {
-      structures: true,
       photos: true,
-      packages: { orderBy: { order: "asc" } },
-      quote: true,
     },
   });
 

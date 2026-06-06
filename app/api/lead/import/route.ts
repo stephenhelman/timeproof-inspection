@@ -112,7 +112,6 @@ export async function POST(req: Request) {
       createdBy: clean(row["Created By"]) || null,
       source: "servicetitan_import",
       highestEstimateValue: parseFloat2(row["Highest Estimate Value"]),
-      appointmentDate: parseDate(row["Created On"]),
       jobCompletionDate: parseDate(row["Job Completion Date"]),
       status,
       assignedUserId: session.user.id,

@@ -24,6 +24,7 @@ import {
   moveGhlOpportunityStage,
   updateGhlContact,
 } from "@/src/lib/ghl-contacts";
+import { createAppointmentWithInspection, deriveZoneForLead } from "@/src/lib/appointment-service";
 import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
 import type { BotContext } from "@/src/lib/prompts/qntum/types";
 import type { BookAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/book";
@@ -49,36 +50,32 @@ async function handleStallExhaustedWebhook(lead: Lead, ghlContactId: string): Pr
   ]);
 }
 
-async function handleAppointmentConfirmedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
-  const rawLead = lead as unknown as Record<string, unknown>;
+async function handleAppointmentConfirmedWebhook(lead: Lead, srLead: SrLead, ghlContactId: string): Promise<void> {
+  void ghlContactId;
+
   const assignedUserId = lead.assignedUserId ?? process.env.GHL_DEFAULT_ASSIGNEE_ID ?? null;
-  const inspectionAddress =
-    lead.address ??
-    [(rawLead.streetAddress as string | null), lead.city, lead.state].filter(Boolean).join(', ') ??
-    '';
-
-  const inspection = await prisma.inspection.create({
-    data: {
-      userId: assignedUserId,
-      leadId: lead.id,
-      customerName: lead.customerName,
-      address: inspectionAddress,
-      phone: lead.phone ?? null,
-      appointmentAt: lead.appointmentDate ?? new Date(),
-      status: 'scheduled',
-    },
-  });
-
-  if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_INSPECTION_ID) {
-    await writeGhlOpportunityCustomField(
-      lead.ghlOpportunityId,
-      process.env.GHL_FIELD_OPP_SR_INSPECTION_ID,
-      inspection.id,
-    ).catch(err => console.error('[book/appt_confirmed] writeGhlOpportunityCustomField inspection_id failed:', err));
+  if (!assignedUserId) {
+    console.error('[book/appt_confirmed] no assignedUserId — cannot create Appointment');
+    return;
   }
 
-  console.log(`[book/appt_confirmed] inspection created: ${inspection.id} for lead ${lead.id}`);
-  void ghlContactId;
+  // srAppointmentAt is written by transitionLead just before this webhook fires.
+  // Fall back to now() only if it's somehow missing.
+  const scheduledAt = srLead.srAppointmentAt ?? new Date();
+  const zone = deriveZoneForLead(lead.sourceZip ?? null);
+
+  try {
+    const { appointmentId, inspectionId } = await createAppointmentWithInspection({
+      leadId: lead.id,
+      assignedUserId,
+      scheduledAt,
+      zone,
+      createdBy: 'ALEX',
+    });
+    console.log(`[book/appt_confirmed] appointment ${appointmentId} + inspection ${inspectionId} created for lead ${lead.id}`);
+  } catch (err) {
+    console.error('[book/appt_confirmed] createAppointmentWithInspection failed:', err);
+  }
 }
 
 export async function handleBookWebhook(ctx: {
@@ -97,7 +94,7 @@ export async function handleBookWebhook(ctx: {
     return;
   }
   if (trigger === 'appointment_confirmed') {
-    await handleAppointmentConfirmedWebhook(lead, ghlContactId);
+    await handleAppointmentConfirmedWebhook(lead, ctx.srLead, ghlContactId);
     return;
   }
 

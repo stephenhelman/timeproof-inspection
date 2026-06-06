@@ -58,16 +58,6 @@ export default function Step1CustomerInfo({ data, onChange }: Props) {
           value={(data.setterName as string) || ""}
           onChange={(e) => onChange({ setterName: e.target.value })}
         />
-        <div className="flex flex-col gap-1.5">
-          <label className="text-text-secondary text-sm font-medium">Appointment Date & Time</label>
-          <input
-            type="datetime-local"
-            value={(data.appointmentAt as string) || ""}
-            onChange={(e) => onChange({ appointmentAt: e.target.value || null })}
-            className="bg-bg-input border border-border text-text-primary rounded-xl min-h-12 px-4 text-base focus:outline-none focus:border-text-accent focus:ring-1 focus:ring-text-accent/30 transition-colors"
-          />
-        </div>
-
         {/* Decision makers */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between min-h-12">

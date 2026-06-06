@@ -283,6 +283,15 @@ export async function getGhlOpportunityCustomField(
   }
 }
 
+// Assign a rep (by GHL user ID) to an existing GHL opportunity.
+export async function assignGhlOpportunityRep(
+  ghlOpportunityId: string,
+  ghlUserId: string,
+): Promise<void> {
+  const { opportunities } = getClients();
+  await opportunities.update(ghlOpportunityId, { assignedTo: ghlUserId });
+}
+
 // Write a single custom field value to a GHL opportunity.
 // Used to store sr_inspection_id and sr_pipeline_context.
 export async function writeGhlOpportunityCustomField(

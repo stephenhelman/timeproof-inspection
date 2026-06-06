@@ -39,7 +39,6 @@ const STEP_FIELDS: Record<number, string[]> = {
     "email",
     "repName",
     "setterName",
-    "appointmentAt",
     "decisionMakers",
     "decisionMakersWho",
   ],

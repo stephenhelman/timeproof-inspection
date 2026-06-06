@@ -44,8 +44,7 @@ export async function POST(req: Request) {
         email: payload.email ?? undefined,
         source: "terros_webhook",
         externalId: payload.externalId ?? undefined,
-        status: payload.appointmentAt ? "INSPECTION_SCHEDULED" : "NEW",
-        appointmentDate: payload.appointmentAt ? new Date(payload.appointmentAt) : undefined,
+        status: "NEW",
         assignedTech: payload.setterName ?? undefined,
       },
     });
