@@ -7,7 +7,7 @@ import {
   pdf,
 } from "@react-pdf/renderer";
 import React from "react";
-
+import { parseDiagnosisText } from "./diagnosis-parser";
 
 // PRESERVED — not active in Qntum build
 // import { getPackageById, getWarrantySummary, detectPackageId } from "./packages";
@@ -15,6 +15,12 @@ import React from "react";
 const NAVY = "#0a0e1a";
 const ACCENT = "#2a6db5";
 const GRAY_BG = "#f5f5f5";
+
+const SEV_COLOR: Record<string, string> = {
+  high:   "#c0392b",
+  medium: "#d97706",
+  low:    "#16a34a",
+};
 
 const styles = StyleSheet.create({
   page: { fontFamily: "Helvetica", padding: 40, backgroundColor: "#ffffff" },
@@ -86,6 +92,112 @@ const styles = StyleSheet.create({
   },
   admissionText: { fontSize: 10, color: "#374151", fontStyle: "italic", lineHeight: 1.5 },
   pageNumber: { position: "absolute", bottom: 20, right: 40, fontSize: 9, color: "#9ca3af" },
+  // Zone section styles
+  zoneSection: {
+    marginBottom: 10,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 4,
+  },
+  zoneHeader: {
+    fontSize: 11,
+    fontFamily: "Helvetica-Bold",
+    color: "#111827",
+    marginBottom: 6,
+  },
+  zoneParagraph: {
+    fontSize: 9,
+    color: "#374151",
+    lineHeight: 1.5,
+    marginBottom: 4,
+  },
+  zoneCallout: {
+    borderLeftWidth: 2,
+    borderLeftColor: ACCENT,
+    paddingLeft: 8,
+    marginVertical: 4,
+    paddingVertical: 4,
+    paddingRight: 4,
+    backgroundColor: "#eef3fb",
+  },
+  zoneCalloutLabel: {
+    fontSize: 7,
+    color: ACCENT,
+    fontFamily: "Helvetica-Bold",
+    marginBottom: 2,
+  },
+  zoneCalloutText: {
+    fontSize: 9,
+    color: "#374151",
+    fontStyle: "italic",
+    lineHeight: 1.5,
+  },
+  // Structured section styles
+  overallSeverityBox: {
+    padding: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  overallSeverityLabel: {
+    fontSize: 7,
+    fontFamily: "Helvetica-Bold",
+    marginBottom: 2,
+  },
+  overallSeverityText: {
+    fontSize: 12,
+    fontFamily: "Helvetica-Bold",
+  },
+  zoneFindingCard: {
+    marginBottom: 6,
+    padding: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#f9fafb",
+  },
+  zoneFindingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  zoneFindingName: {
+    fontSize: 10,
+    fontFamily: "Helvetica-Bold",
+    color: "#111827",
+  },
+  zoneFindingType: {
+    fontSize: 9,
+    color: "#374151",
+    marginBottom: 3,
+  },
+  zoneFindingMeta: {
+    fontSize: 8,
+    color: "#6b7280",
+  },
+  admissionsSection: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 4,
+    backgroundColor: "#f9fafb",
+    padding: 8,
+    marginTop: 4,
+  },
+  admissionsSectionTitle: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    color: "#6b7280",
+    marginBottom: 6,
+  },
+  admissionItem: {
+    fontSize: 9,
+    color: "#374151",
+    fontStyle: "italic",
+    lineHeight: 1.5,
+    marginBottom: 4,
+  },
 });
 
 interface DiagnosisFinding {
@@ -97,6 +209,25 @@ interface DiagnosisFinding {
   matchedRoofTags: string[];
   matchedAtticTags: string[];
   notes?: string;
+}
+
+interface StructuredZone {
+  zone: string;
+  findingType: string;
+  severity: "high" | "medium" | "low";
+  confidence: number;
+  referencedWarningSign: string | null;
+}
+
+interface StructuredDiagnosis {
+  zones?: StructuredZone[];
+  overallSeverity?: "high" | "medium" | "low";
+  primaryConcern?: string;
+  homeownerAdmissions?: string[];
+}
+
+function toTitleCase(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,11 +246,18 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
   });
 
   const aiDiagnosisDescription: string | null = inspection.aiDiagnosisDescription ?? null;
+  const aiDiagnosisStructured = (inspection.aiDiagnosisStructured as StructuredDiagnosis | null) ?? null;
+
   const intakePass2 = inspection.intakePass2 as Record<string, unknown> | null;
   const postDiagnosisAdmission: string | null =
     typeof intakePass2?.postDiagnosisAdmission === "string"
       ? intakePass2.postDiagnosisAdmission
       : null;
+
+  const parsedZones = aiDiagnosisDescription ? parseDiagnosisText(aiDiagnosisDescription) : [];
+
+  const overallSev = aiDiagnosisStructured?.overallSeverity;
+  const overallColor = overallSev ? (SEV_COLOR[overallSev] ?? ACCENT) : ACCENT;
 
   const doc = (
     <Document>
@@ -184,19 +322,121 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
         )}
 
         {/* Roof Diagnosis */}
-        {(aiDiagnosisDescription || postDiagnosisAdmission) && (
+        {(parsedZones.length > 0 || aiDiagnosisStructured || postDiagnosisAdmission) && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Roof Diagnosis</Text>
-            {aiDiagnosisDescription && (
-              <View style={{ marginBottom: postDiagnosisAdmission ? 10 : 0 }}>
-                <Text style={[styles.label, { marginBottom: 4 }]}>What We Found</Text>
-                <Text style={{ fontSize: 10, color: "#374151", lineHeight: 1.5 }}>{aiDiagnosisDescription}</Text>
+
+            {/* Zone sections — parsed prose with callout blocks */}
+            {parsedZones.map((zone, zi) => (
+              <View key={zi} style={styles.zoneSection}>
+                {zone.name ? (
+                  <Text style={styles.zoneHeader}>{zone.name}</Text>
+                ) : null}
+                {zone.blocks.map((block, bi) => {
+                  // Omit question blocks from the PDF (rep-only content)
+                  if (block.type === "question") return null;
+                  if (block.type === "paragraph") {
+                    return (
+                      <Text key={bi} style={styles.zoneParagraph}>
+                        {block.text}
+                      </Text>
+                    );
+                  }
+                  if (block.type === "callout") {
+                    return (
+                      <View key={bi} style={styles.zoneCallout}>
+                        <Text style={styles.zoneCalloutLabel}>IN THEIR WORDS</Text>
+                        <Text style={styles.zoneCalloutText}>
+                          {"“"}{block.text}{"”"}
+                        </Text>
+                      </View>
+                    );
+                  }
+                  return null;
+                })}
+              </View>
+            ))}
+
+            {/* Structured findings */}
+            {aiDiagnosisStructured && (
+              <View style={{ marginTop: parsedZones.length > 0 ? 8 : 0 }}>
+
+                {/* Overall severity */}
+                {overallSev && (
+                  <View
+                    style={[
+                      styles.overallSeverityBox,
+                      { borderColor: overallColor, backgroundColor: overallColor + "18" },
+                    ]}
+                  >
+                    <Text style={[styles.overallSeverityLabel, { color: overallColor }]}>
+                      OVERALL SEVERITY
+                    </Text>
+                    <Text style={[styles.overallSeverityText, { color: overallColor }]}>
+                      Overall: {overallSev.charAt(0).toUpperCase() + overallSev.slice(1)} Severity
+                    </Text>
+                    {aiDiagnosisStructured.primaryConcern && (
+                      <Text style={[styles.label, { marginTop: 2, color: overallColor }]}>
+                        Primary concern: {toTitleCase(aiDiagnosisStructured.primaryConcern)}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                {/* Zone finding cards */}
+                {aiDiagnosisStructured.zones &&
+                  aiDiagnosisStructured.zones.length > 0 &&
+                  aiDiagnosisStructured.zones.map((z, i) => {
+                    const sevColor = SEV_COLOR[z.severity] ?? ACCENT;
+                    return (
+                      <View key={i} style={styles.zoneFindingCard}>
+                        <View style={styles.zoneFindingRow}>
+                          <Text style={styles.zoneFindingName}>{z.zone}</Text>
+                          <Text style={{ fontSize: 8, color: sevColor, fontFamily: "Helvetica-Bold" }}>
+                            [{z.severity.toUpperCase()}]
+                          </Text>
+                        </View>
+                        <Text style={styles.zoneFindingType}>
+                          {toTitleCase(z.findingType)}
+                        </Text>
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          {z.confidence > 0 && (
+                            <Text style={styles.zoneFindingMeta}>
+                              {Math.round(z.confidence * 100)}% confidence
+                            </Text>
+                          )}
+                          {z.referencedWarningSign && (
+                            <Text style={styles.zoneFindingMeta}>
+                              {z.referencedWarningSign.replace(/_/g, " ")}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                {/* Homeowner admissions */}
+                {aiDiagnosisStructured.homeownerAdmissions &&
+                  aiDiagnosisStructured.homeownerAdmissions.length > 0 && (
+                    <View style={styles.admissionsSection}>
+                      <Text style={styles.admissionsSectionTitle}>
+                        WHAT THE HOMEOWNER ACKNOWLEDGED
+                      </Text>
+                      {aiDiagnosisStructured.homeownerAdmissions.map((admission, i) => (
+                        <Text key={i} style={styles.admissionItem}>
+                          {"• “"}{admission}{"”"}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
               </View>
             )}
+
+            {/* Post-diagnosis admission */}
             {postDiagnosisAdmission && (
-              <View>
+              <View style={{ marginTop: 8 }}>
                 <Text style={[styles.label, { marginBottom: 4 }]}>In Your Own Words</Text>
-                <Text style={[styles.label, { marginBottom: 6, color: "#6b7280", fontSize: 9 }]}>
+                <Text style={[styles.label, { marginBottom: 6, fontSize: 9 }]}>
                   {"After reviewing the inspection findings, here's how the homeowner described the condition of their roof:"}
                 </Text>
                 <View style={styles.admissionBox}>
@@ -248,7 +488,7 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
             <Text style={styles.sectionTitle}>Topics Reviewed</Text>
             {warningSignsCovered.map((id) => (
               <View key={id} style={styles.warningSignItem}>
-                <Text style={{ fontSize: 10, color: "#16a34a" }}>✓</Text>
+                <Text style={{ fontSize: 10, color: "#16a34a" }}>{"✓"}</Text>
                 <Text style={{ fontSize: 10, color: "#374151" }}>{id.replace(/-/g, " ")}</Text>
               </View>
             ))}
@@ -262,7 +502,7 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
       <Page size="LETTER" style={styles.page}>
         <View style={styles.headerBar}>
           <Text style={styles.headerWordmark}>Qntum Roofing</Text>
-          <Text style={styles.headerTitle}>Internal — Rep Copy</Text>
+          <Text style={styles.headerTitle}>Internal {"—"} Rep Copy</Text>
         </View>
 
         {/* Full intake form */}
