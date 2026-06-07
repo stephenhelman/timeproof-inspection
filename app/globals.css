@@ -99,6 +99,17 @@
   animation: slide-up 0.25s ease-out;
 }
 
+@keyframes progress-fill {
+  0%   { width: 0%; }
+  40%  { width: 60%; }
+  80%  { width: 85%; }
+  100% { width: 95%; }
+}
+
+.animate-progress {
+  animation: progress-fill 8s ease-out forwards;
+}
+
 /* ─────────────────────────────────────────────
    Shared component utilities
 ───────────────────────────────────────────── */

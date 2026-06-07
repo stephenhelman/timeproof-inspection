@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Users,
   CalendarDays,
+  ClipboardCheck,
   // PhoneCall,  // PRESERVED — not active in Qntum build (revival)
   CreditCard,
   LogOut,
@@ -43,11 +44,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const isAdmin = dbUser.role === "ADMIN" || dbUser.role === "REGIONAL";
 
+  const pendingTaskCount = await prisma.task.count({
+    where: {
+      status: "PENDING",
+      ...(isAdmin ? {} : { assignedUserId: session.user.id }),
+    },
+  });
+
   const navLinks = [
-    { href: "/inspections", label: "Inspections", icon: ClipboardList },
-    { href: "/leads", label: "Leads", icon: Users },
-    { href: "/calendar", label: "Calendar", icon: CalendarDays },
-    ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
+    { href: "/inspections", label: "Inspections", icon: ClipboardList, badge: null as number | null },
+    { href: "/leads", label: "Leads", icon: Users, badge: null },
+    { href: "/calendar", label: "Calendar", icon: CalendarDays, badge: null },
+    { href: "/tasks", label: "Tasks", icon: ClipboardCheck, badge: pendingTaskCount > 0 ? pendingTaskCount : null },
+    ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck, badge: null }] : []),
   ];
 
   return (
@@ -62,14 +71,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
           {/* Desktop centre nav */}
           <div className="hidden md:flex items-center gap-1 flex-1">
-            {navLinks.map(({ href, label, icon: Icon }) => (
+            {navLinks.map(({ href, label, icon: Icon, badge }) => (
               <a
                 key={href}
                 href={href}
-                className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary text-sm px-3 py-2 rounded-lg hover:bg-bg-elevated transition-colors"
+                className="relative flex items-center gap-1.5 text-text-secondary hover:text-text-primary text-sm px-3 py-2 rounded-lg hover:bg-bg-elevated transition-colors"
               >
                 <Icon size={15} strokeWidth={1.75} />
                 {label}
+                {badge !== null && badge !== undefined && badge > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-4.5 h-4.5 flex items-center justify-center bg-brand-blue text-white text-[10px] font-bold rounded-full px-1">
+                    {badge}
+                  </span>
+                )}
               </a>
             ))}
             {/* PRESERVED — not active in Qntum build (revival nav link)
@@ -134,14 +148,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
         {/* Mobile second row */}
         <div className="md:hidden flex border-t border-border overflow-x-auto">
-          {navLinks.map(({ href, label, icon: Icon }) => (
+          {navLinks.map(({ href, label, icon: Icon, badge }) => (
             <a
               key={href}
               href={href}
-              className="flex items-center gap-1.5 shrink-0 text-text-secondary hover:text-text-primary text-sm px-4 py-2.5 transition-colors"
+              className="relative flex items-center gap-1.5 shrink-0 text-text-secondary hover:text-text-primary text-sm px-4 py-2.5 transition-colors"
             >
               <Icon size={14} strokeWidth={1.75} />
               {label}
+              {badge !== null && badge !== undefined && badge > 0 && (
+                <span className="absolute top-1 right-1 min-w-4 h-4 flex items-center justify-center bg-brand-blue text-white text-[10px] font-bold rounded-full px-0.5">
+                  {badge}
+                </span>
+              )}
             </a>
           ))}
           {/* PRESERVED — not active in Qntum build (revival mobile nav link) */}

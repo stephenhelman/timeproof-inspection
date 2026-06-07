@@ -25,3 +25,31 @@ export const ATTIC_TAGS = [
 
 export type RoofTagId = typeof ROOF_TAGS[number]['id']
 export type AtticTagId = typeof ATTIC_TAGS[number]['id']
+
+export const ROOF_ZONES = [
+  "Ridge Cap",
+  "North Slope",
+  "South Slope",
+  "East Slope",
+  "West Slope",
+  "Valley",
+  "Rake Edge",
+  "Eave / Drip Edge",
+  "Flashing",
+  "Plumbing Vents",
+  "Skylight",
+  "Chimney",
+  "Other",
+] as const
+
+export const ATTIC_ZONES = [
+  "Ridge Area",
+  "North Rafter",
+  "South Rafter",
+  "East Rafter",
+  "West Rafter",
+  "Decking",
+  "Soffit / Eave",
+  "Ridge Vent",
+  "Other",
+] as const

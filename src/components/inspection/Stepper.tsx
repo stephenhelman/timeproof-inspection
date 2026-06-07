@@ -3,16 +3,17 @@
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import DispoModal from "./DispoModal";
-import RescheduleWizard from "./RescheduleWizard";
-import Step1CustomerInfo from "./steps/Step1CustomerInfo";
-import Step2RoofPhotos from "./steps/Step2RoofPhotos";
-import Step3AtticPhotos from "./steps/Step3AtticPhotos";
-import Step4Diagnosis from "./steps/Step4Diagnosis";
-import Step5IntakeForm from "./steps/Step5IntakeForm";
-import Step6WarningSigns from "./steps/Step6WarningSigns";
-import Step7ReviewShare from "./steps/Step7ReviewShare";
+import TasksPanel from "@/src/components/tasks/TasksPanel";
+import Step0Photos from "./steps/Step0Photos";
+import Step1IntakeForm from "./steps/Step5IntakeForm";
+import Step2WarningSigns from "./steps/Step6WarningSigns";
+import Step3PhotoSlideshow from "./steps/Step3PhotoSlideshow";
+import Step4AIDiagnosis from "./steps/Step4AIDiagnosis";
+import Step5IntakePass2 from "./steps/Step5IntakePass2";
+import Step6ReviewShare from "./steps/Step7ReviewShare";
 
 // PRESERVED — not active in Qntum build
+// import Step1CustomerInfo from "./steps/Step1CustomerInfo";
 // import Step2Discovery from "./steps/Step2Discovery";
 // import Step3Findings from "./steps/Step3Findings";
 // import Step4Photos from "./steps/Step4Photos";
@@ -22,62 +23,23 @@ import Step7ReviewShare from "./steps/Step7ReviewShare";
 // import Step8Review from "./steps/Step8Review";
 
 const STEPS = [
-  { id: "customer", label: "Customer", icon: "👤" },
-  { id: "roof-photos", label: "Roof Photos", icon: "🏠" },
-  { id: "attic-photos", label: "Attic Photos", icon: "🔦" },
-  { id: "diagnosis", label: "Diagnosis", icon: "🔬" },
+  { id: "photos", label: "Photos", icon: "📷" },
   { id: "intake", label: "Intake", icon: "📋" },
   { id: "warning-signs", label: "Warning Signs", icon: "⚠️" },
+  { id: "slideshow", label: "Slideshow", icon: "🖼" },
+  { id: "diagnosis", label: "Diagnosis", icon: "🔬" },
+  { id: "intake-pass-2", label: "Pass 2", icon: "✍️" },
   { id: "review", label: "Review", icon: "✅" },
 ];
 
+// Step 6 (Review & Share) uses shared stepData; all other steps manage their own saves.
 const STEP_FIELDS: Record<number, string[]> = {
-  0: [
-    "customerName",
-    "address",
-    "phone",
-    "email",
-    "repName",
-    "setterName",
-    "decisionMakers",
-    "decisionMakersWho",
-  ],
+  0: [],
   1: [],
   2: [],
-  3: ["diagnosis"],
-  4: [
-    "northStar",
-    "focusDrivers",
-    "timeInHome",
-    "yearBuilt",
-    "ageOfRoof",
-    "lastReplacedBy",
-    "pastRepairs",
-    "otherProjects",
-    "hoaPresent",
-    "hoaName",
-    "issuesConcerns",
-    "issueDuration",
-    "issueImpact",
-    "rootCauseBeliefBefore",
-    "triggerMoment",
-    "priorMeetingHad",
-    "priorMeetingWho",
-    "priorMeetingRecommended",
-    "priorMeetingWhyNotFixed",
-    "noPriorMeetingReason",
-    "winDefinition",
-    "colorPreference",
-    "personalFamily",
-    "personalOccupation",
-    "personalRecreation",
-    "personalIdentity",
-    "problemAwarenessBefore",
-    "repNotes",
-    "intakePass1Complete",
-    "intakePass2Complete",
-  ],
-  5: ["warningSignsCovered"],
+  3: [],
+  4: [],
+  5: [],
   6: ["status"],
 };
 
@@ -85,7 +47,7 @@ interface StepperProps {
   inspectionId: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   initialData?: Record<string, any>;
-  lead?: { id: string; customerName: string } | null;
+  lead?: { id: string; customerName: string; streetAddress?: string | null; city?: string | null } | null;
   appointment?: { id: string; status: string } | null;
 }
 
@@ -172,9 +134,16 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
   );
   const [creatingLead, setCreatingLead] = useState(false);
   const [dispoError, setDispoError] = useState<string | null>(null);
-  const [rescheduleOpen, setRescheduleOpen] = useState(false);
-  const [rescheduleReason, setRescheduleReason] = useState("");
-  const pendingRescheduleRef = useRef(false);
+
+  // Tasks drawer state
+  const [tasksOpen, setTasksOpen] = useState(false);
+
+  // Escalate state
+  const [escalateOpen, setEscalateOpen] = useState(false);
+  const [escalateNotes, setEscalateNotes] = useState("");
+  const [escalateSaving, setEscalateSaving] = useState(false);
+  const [escalateError, setEscalateError] = useState<string | null>(null);
+  const [escalateDone, setEscalateDone] = useState(false);
 
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => {
     const initial = buildInitialStepData();
@@ -263,6 +232,31 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
     }
   };
 
+  const handleEscalate = async () => {
+    if (!resolvedLeadId) return;
+    setEscalateSaving(true);
+    setEscalateError(null);
+    try {
+      const res = await fetch(`/api/inspection/${inspectionId}/escalate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: escalateNotes }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Escalation failed");
+      setEscalateDone(true);
+      setTimeout(() => {
+        setEscalateOpen(false);
+        setEscalateDone(false);
+        setEscalateNotes("");
+      }, 2000);
+    } catch (err) {
+      setEscalateError(err instanceof Error ? err.message : "Escalation failed");
+    } finally {
+      setEscalateSaving(false);
+    }
+  };
+
   const stepProps = {
     data: stepData[currentStep] || {},
     onChange: (updates: Record<string, unknown>) =>
@@ -272,83 +266,147 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
   };
 
   const stepComponents = [
-    <Step1CustomerInfo key={0} {...stepProps} />,
-    <Step2RoofPhotos
+    // Step 0 — Photos (roof + attic, single + bulk upload)
+    <Step0Photos key={0} inspectionId={inspectionId} initialData={initialData} />,
+
+    // Step 1 — Intake Pass 1 (NEPQ intake, ~25 fields, writes to intakePass1 JSON)
+    <Step1IntakeForm
       key={1}
       inspectionId={inspectionId}
       initialData={initialData}
+      onAdvanceToWarningSigns={() => {
+        setCompletedSteps((prev) => new Set([...Array.from(prev), 1]));
+        setCurrentStep(2);
+      }}
     />,
-    <Step3AtticPhotos
+
+    // Step 2 — Warning Signs checklist
+    <Step2WarningSigns
       key={2}
       inspectionId={inspectionId}
       initialData={initialData}
+      onReturnToIntake={() => setCurrentStep(1)}
     />,
-    <Step4Diagnosis
+
+    // Step 3 — Photo Slideshow + Get Diagnosis
+    <Step3PhotoSlideshow
       key={3}
       inspectionId={inspectionId}
       initialData={initialData}
-    />,
-    <Step5IntakeForm
-      key={4}
-      inspectionId={inspectionId}
-      initialData={initialData}
-      onAdvanceToWarningSigns={() => {
-        setCompletedSteps((prev) => new Set([...Array.from(prev), 4]));
-        setCurrentStep(5);
+      onDiagnosisReady={() => {
+        setCompletedSteps((prev) => new Set([...Array.from(prev), 3]));
+        setCurrentStep(4);
       }}
     />,
-    <Step6WarningSigns
-      key={5}
-      inspectionId={inspectionId}
-      initialData={initialData}
-      onReturnToIntake={() => setCurrentStep(4)}
-    />,
-    <Step7ReviewShare
+
+    // Step 4 — AI Diagnosis (Claude output)
+    <Step4AIDiagnosis key={4} inspectionId={inspectionId} initialData={initialData} />,
+
+    // Step 5 — Intake Pass 2 (read-only Pass 1 + postDiagnosisAdmission)
+    <Step5IntakePass2 key={5} inspectionId={inspectionId} initialData={initialData} />,
+
+    // Step 6 — Review & Share
+    <Step6ReviewShare
       key={6}
       {...stepProps}
-      reportUuid={initialData?.reportUuid}
+      reportUuid={initialData?.reportUuid as string | undefined}
     />,
   ];
 
-  // Step 5 (IntakeForm) manages its own "Complete Pass 1" button that advances to step 6.
-  // Step 6 (WarningSigns) has its own "Return to Intake" button.
-  // The standard Next/Back buttons still work for free navigation.
-  const hideNextButton = currentStep === 4; // IntakeForm handles its own advance
+  // Step 1 (Intake) manages its own advance button.
+  // Step 3 (Slideshow) manages its own advance (triggers after diagnosis ready).
+  const hideNextButton = currentStep === 1 || currentStep === 3;
+
+  const leadAddress = lead
+    ? [lead.streetAddress, lead.city].filter(Boolean).join(", ")
+    : undefined;
 
   return (
     <div className="h-dvh bg-bg-base flex overflow-hidden">
       {dispoOpen && resolvedLeadId && (
         <DispoModal
           leadId={resolvedLeadId}
+          leadName={lead?.customerName}
+          leadAddress={leadAddress}
           inspectionId={inspectionId}
+          appointmentId={appointment?.id ?? null}
           currentWizardStep={currentStep}
           onClose={() => setDispoOpen(false)}
-          onReschedule={(reason) => {
-            pendingRescheduleRef.current = true;
-            setRescheduleReason(reason);
-          }}
           onComplete={() => {
             setDispoOpen(false);
-            if (pendingRescheduleRef.current) {
-              pendingRescheduleRef.current = false;
-              setRescheduleOpen(true);
-            } else {
-              router.push(`/leads/${resolvedLeadId}`);
-            }
+            router.push(`/leads/${resolvedLeadId}`);
           }}
         />
       )}
 
-      {rescheduleOpen && resolvedLeadId && (
-        <RescheduleWizard
-          leadId={resolvedLeadId}
-          defaultReason={rescheduleReason}
-          onClose={() => setRescheduleOpen(false)}
-          onComplete={() => {
-            setRescheduleOpen(false);
-            router.push(`/leads/${resolvedLeadId}`);
-          }}
-        />
+      {/* ── Tasks drawer ── */}
+      {tasksOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-bg-surface border border-border rounded-2xl w-full max-w-sm max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+              <h3 className="text-text-primary font-semibold text-sm">Inspection Tasks</h3>
+              <button
+                type="button"
+                onClick={() => setTasksOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <TasksPanel inspectionId={inspectionId} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Escalate modal ── */}
+      {escalateOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-bg-surface border border-border rounded-2xl w-full max-w-sm p-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-text-primary font-semibold">Escalate</h3>
+              <button
+                type="button"
+                onClick={() => { setEscalateOpen(false); setEscalateError(null); }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {escalateDone ? (
+              <p className="text-success-text text-sm font-semibold text-center py-2">Escalated ✓</p>
+            ) : (
+              <>
+                <p className="text-text-secondary text-sm">
+                  Flag for manager review. Does not change appointment or bot status.
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-text-secondary text-xs font-semibold uppercase tracking-wider">Notes</label>
+                  <textarea
+                    value={escalateNotes}
+                    onChange={(e) => setEscalateNotes(e.target.value)}
+                    rows={3}
+                    placeholder="What needs manager attention?"
+                    className="bg-bg-elevated border border-border text-text-primary rounded-xl px-4 py-2.5 text-sm placeholder:text-text-hint focus:outline-none focus:border-brand-blue resize-none"
+                  />
+                </div>
+                {escalateError && (
+                  <p className="text-accent-red text-xs">{escalateError}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleEscalate}
+                  disabled={escalateSaving}
+                  className="w-full bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl py-3 text-sm font-semibold transition-colors"
+                >
+                  {escalateSaving ? "Escalating…" : "Confirm Escalation"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Sidebar ── */}
@@ -368,32 +426,12 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
             aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
             {sidebarOpen ? (
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M11 19l-7-7 7-7"
-                />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7" />
               </svg>
             ) : (
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 5l7 7-7 7"
-                />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" />
               </svg>
             )}
           </button>
@@ -427,6 +465,7 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
               </button>
             );
           })}
+
           {/* Dispatch / Arrive — shown above DISPO while appointment is pre-arrival */}
           {appointment && apptStatus === "SCHEDULED" && (
             <button
@@ -457,6 +496,8 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
           {apptError && sidebarOpen && (
             <p className="text-red-400 text-xs px-1 leading-snug">{apptError}</p>
           )}
+
+          {/* DISPO button */}
           <button
             type="button"
             onClick={handleDispoOpen}
@@ -469,34 +510,41 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
             {sidebarOpen ? (creatingLead ? "Creating…" : "DISPO") : "D"}
           </button>
           {dispoError && sidebarOpen && (
-            <p className="text-red-400 text-xs px-1 leading-snug">
-              {dispoError}
-            </p>
+            <p className="text-red-400 text-xs px-1 leading-snug">{dispoError}</p>
           )}
+
+          {/* Tasks button — above Escalate */}
+          <button
+            type="button"
+            onClick={() => setTasksOpen(true)}
+            title={!sidebarOpen ? "Tasks" : undefined}
+            className={`flex items-center justify-center gap-2 rounded-xl min-h-10 text-sm font-medium transition-colors bg-bg-elevated hover:bg-bg-elevated/80 border border-border text-text-secondary hover:text-text-primary ${
+              sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+            }`}
+          >
+            {sidebarOpen ? "Tasks" : "T"}
+          </button>
+
+          {/* Escalate button — below DISPO, always visible */}
+          <button
+            type="button"
+            onClick={() => { setEscalateOpen(true); setEscalateError(null); }}
+            title={!sidebarOpen ? "Escalate" : undefined}
+            className={`flex items-center justify-center gap-2 rounded-xl min-h-10 text-sm font-semibold transition-colors bg-rose-600/20 hover:bg-rose-600/30 border border-rose-600/40 text-rose-400 ${
+              sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+            }`}
+          >
+            {sidebarOpen ? "Escalate" : "!"}
+          </button>
         </nav>
 
         <div className="p-3 border-t border-border shrink-0 flex flex-col gap-2">
           <div className="min-h-5 flex items-center">
             {saving && (
               <span className="flex items-center gap-2 text-text-secondary text-xs">
-                <svg
-                  className="w-3 h-3 animate-spin shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v8z"
-                  />
+                <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                 </svg>
                 {sidebarOpen && "Saving…"}
               </span>
@@ -526,18 +574,8 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
               sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
             }`}
           >
-            <svg
-              className="w-4 h-4 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-              />
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
             {sidebarOpen && "Save & Exit"}
           </button>

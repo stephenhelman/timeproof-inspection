@@ -95,7 +95,10 @@ export default function Step6WarningSigns({ inspectionId, initialData, onReturnT
     await fetch(`/api/inspection/${inspectionId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ warningSignsCovered: next }),
+      body: JSON.stringify({
+        warningSignsCovered: next,
+        warningSignResponses: { covered: next, updatedAt: new Date().toISOString() },
+      }),
     });
   };
 
@@ -141,15 +144,8 @@ export default function Step6WarningSigns({ inspectionId, initialData, onReturnT
 
       <div className="bg-bg-elevated border border-border rounded-2xl p-5 flex flex-col gap-3">
         <p className="text-text-secondary text-sm">
-          Done reviewing? Return to the intake form to capture the homeowner&apos;s updated problem awareness.
+          Done reviewing warning signs? Use the <strong className="text-text-primary">Next</strong> button below to continue to the Photo Slideshow.
         </p>
-        <button
-          type="button"
-          onClick={onReturnToIntake}
-          className="w-full bg-brand-blue hover:bg-accent-blue-hover text-text-primary rounded-2xl min-h-12 text-base font-semibold transition-all"
-        >
-          Ready to capture updated problem awareness →
-        </button>
       </div>
     </div>
   );

@@ -160,7 +160,8 @@ export default function Step5IntakeForm({ inspectionId, initialData, onAdvanceTo
     setPass1Error("");
     setSaving(true);
     try {
-      await patchInspection({ ...form, intakePass1Complete: true });
+      // Write flat fields AND a JSON snapshot for the Claude API
+      await patchInspection({ ...form, intakePass1Complete: true, intakePass1: form });
       onAdvanceToWarningSigns?.();
     } finally {
       setSaving(false);

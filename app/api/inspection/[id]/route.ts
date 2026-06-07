@@ -65,6 +65,8 @@ export async function PATCH(
     "problemAwarenessBefore", "problemAwarenessAfter",
     "intakePass1Complete", "intakePass2Complete",
     "repNotes", "diagnosis", "warningSignsCovered", "qntumExportedAt",
+    "intakePass1", "warningSignResponses", "intakePass2",
+    "aiDiagnosisDescription", "aiGeneratedAt",
   ];
 
   const updateData: Record<string, unknown> = {};

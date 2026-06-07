@@ -7,6 +7,7 @@ import {
   PhoneCall,
   CheckCircle2,
   XCircle,
+  ClipboardCheck,
   Users,
   DollarSign,
   PhoneMissed,
@@ -72,6 +73,7 @@ export default async function DashboardPage() {
     leadStats,
     recentLeads,
     recentInspections,
+    pendingTaskCount,
   ] = await Promise.all([
     prisma.inspection.findMany({
       where: { userId },
@@ -120,6 +122,12 @@ export default async function DashboardPage() {
         updatedAt: true,
         customerName: true,
         _count: { select: { reportVisits: true } },
+      },
+    }),
+    prisma.task.count({
+      where: {
+        status: "PENDING",
+        ...(isAdmin ? {} : { assignedUserId: userId }),
       },
     }),
   ]);
@@ -190,8 +198,8 @@ export default async function DashboardPage() {
         <p className="text-text-secondary text-sm mt-1">Overview of leads, revival activity, and inspections.</p>
       </div>
 
-      {/* ── 6 Stat cards ───────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      {/* ── Stat cards ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
         <StatCard
           label="Total Leads"
           value={totalLeads}
@@ -230,6 +238,15 @@ export default async function DashboardPage() {
           iconColor="text-green-400"
           sub="sum of est. values"
         />
+        <a href="/tasks" className="block">
+          <StatCard
+            label="Pending Tasks"
+            value={pendingTaskCount}
+            icon={ClipboardCheck}
+            iconColor={pendingTaskCount > 0 ? "text-orange-400" : "text-text-secondary"}
+            sub={pendingTaskCount > 0 ? "tap to action" : "all clear"}
+          />
+        </a>
       </div>
 
       {/* ── Revival Funnel ─────────────────────────────────────── */}

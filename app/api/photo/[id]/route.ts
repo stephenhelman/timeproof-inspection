@@ -42,7 +42,7 @@ export async function PATCH(
   if (!photo) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
-  const { damageTags, description, galleryEligible, cityArea } = body;
+  const { damageTags, description, galleryEligible, cityArea, zone } = body;
 
   const updateData: Record<string, unknown> = {};
 
@@ -64,6 +64,10 @@ export async function PATCH(
 
   if (cityArea !== undefined) {
     updateData.cityArea = cityArea || null;
+  }
+
+  if (zone !== undefined) {
+    updateData.zone = zone || null;
   }
 
   const updated = await prisma.photo.update({ where: { id }, data: updateData });

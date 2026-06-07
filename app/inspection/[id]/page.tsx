@@ -24,7 +24,7 @@ export default async function InspectionPage({
     include: {
       photos: { orderBy: { photoNumber: "asc" } },
       reportVisits: { include: { sections: true } },
-      lead: { select: { id: true, customerName: true } },
+      lead: { select: { id: true, customerName: true, streetAddress: true, city: true } },
       appointment: { select: { id: true, status: true } },
     },
   });

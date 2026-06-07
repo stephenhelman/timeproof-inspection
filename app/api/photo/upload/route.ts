@@ -14,9 +14,20 @@ export async function POST(req: Request) {
     const file = formData.get("file") as File | null;
     const inspectionId = formData.get("inspectionId") as string | null;
     const photoSection = (formData.get("photoSection") as string | null) || "roof";
+    const zone = (formData.get("zone") as string | null) || null;
 
     if (!file || !inspectionId) {
       return NextResponse.json({ error: "Missing file or inspectionId" }, { status: 400 });
+    }
+
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"];
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return NextResponse.json({ error: "Invalid file type. Allowed: jpg, png, heic, webp" }, { status: 400 });
+    }
+
+    const MAX_BYTES = 20 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      return NextResponse.json({ error: "File too large. Maximum size is 20MB" }, { status: 400 });
     }
 
     // Verify ownership
@@ -57,6 +68,7 @@ export async function POST(req: Request) {
         damageTags: [],
         description: "",
         photoSection,
+        zone,
       },
     });
 

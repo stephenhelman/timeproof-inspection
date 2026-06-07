@@ -1,36 +1,31 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import AppointmentBookingModal from "@/src/components/appointment/AppointmentBookingModal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type OutcomeId =
   | "sold"
   | "demo_not_sold"
-  | "credit_fail"
   | "no_show"
   | "porched"
-  | "reschedule"
-  | "escalate";
+  | "reschedule";
 
 const TILES: { id: OutcomeId; icon: string; label: string; accent: string }[] = [
   { id: "sold",          icon: "✓",  label: "SOLD",          accent: "green" },
   { id: "demo_not_sold", icon: "✗",  label: "DEMO NOT SOLD", accent: "yellow" },
-  { id: "credit_fail",   icon: "💳", label: "CREDIT FAIL",   accent: "orange" },
   { id: "no_show",       icon: "🚫", label: "NO SHOW",       accent: "red" },
   { id: "porched",       icon: "🚪", label: "PORCHED",       accent: "purple" },
   { id: "reschedule",    icon: "📅", label: "RESCHEDULE",    accent: "blue" },
-  { id: "escalate",      icon: "🚨", label: "ESCALATE",      accent: "rose" },
 ];
 
 const TILE_STYLES: Record<string, { tile: string; label: string }> = {
   green:  { tile: "border-green-500/50 bg-green-500/10 active:bg-green-500/20",   label: "text-green-400" },
   yellow: { tile: "border-yellow-500/50 bg-yellow-500/10 active:bg-yellow-500/20", label: "text-yellow-400" },
-  orange: { tile: "border-orange-500/50 bg-orange-500/10 active:bg-orange-500/20", label: "text-orange-400" },
   red:    { tile: "border-red-500/50 bg-red-500/10 active:bg-red-500/20",         label: "text-red-400" },
   purple: { tile: "border-purple-500/50 bg-purple-500/10 active:bg-purple-500/20", label: "text-purple-400" },
   blue:   { tile: "border-blue-500/50 bg-blue-500/10 active:bg-blue-500/20",      label: "text-blue-400" },
-  rose:   { tile: "border-rose-600/50 bg-rose-600/10 active:bg-rose-600/20",      label: "text-rose-400" },
 };
 
 // ── Confetti ──────────────────────────────────────────────────────────────────
@@ -94,30 +89,6 @@ function Confetti() {
 
 // ── Shared field components ───────────────────────────────────────────────────
 
-function YesNo({ label, value, onChange }: { label: string; value: boolean | null; onChange: (v: boolean) => void }) {
-  return (
-    <div className="space-y-2">
-      <p className="text-text-secondary text-xs font-semibold uppercase tracking-wider">{label}</p>
-      <div className="flex gap-3">
-        {([true, false] as const).map((v) => (
-          <button
-            key={String(v)}
-            type="button"
-            onClick={() => onChange(v)}
-            className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition-all ${
-              value === v
-                ? "border-brand-blue bg-brand-blue/10 text-text-primary"
-                : "border-border text-text-secondary hover:border-border-hover"
-            }`}
-          >
-            {v ? "Yes" : "No"}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function NotesField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="space-y-2">
@@ -137,20 +108,24 @@ function NotesField({ value, onChange }: { value: string; onChange: (v: string) 
 
 interface Props {
   leadId: string;
+  leadName?: string;
+  leadAddress?: string;
   inspectionId?: string | null;
+  appointmentId?: string | null;
   currentWizardStep: number;
   onClose: () => void;
   onComplete: () => void;
-  onReschedule?: (reason: string) => void;
 }
 
 export default function DispoModal({
   leadId,
+  leadName = "Homeowner",
+  leadAddress,
   inspectionId,
+  appointmentId,
   currentWizardStep,
   onClose,
   onComplete,
-  onReschedule,
 }: Props) {
   const [screen, setScreen] = useState<"grid" | "fork">("grid");
   const [selected, setSelected] = useState<OutcomeId | null>(null);
@@ -158,14 +133,14 @@ export default function DispoModal({
   const [error, setError] = useState("");
   const [showConfetti, setShowConfetti] = useState(false);
 
-  // Fork fields
-  const [decisionMakerPresent, setDecisionMakerPresent] = useState<boolean | null>(null);
+  // Demo Not Sold fields
   const [primaryObjection, setPrimaryObjection] = useState("");
-  const [lenderAttempted, setLenderAttempted] = useState("");
-  const [madeContact, setMadeContact] = useState<boolean | null>(null);
-  const [waitTime, setWaitTime] = useState("");
-  const [respondedToContact, setRespondedToContact] = useState<boolean | null>(null);
-  const [rescheduleReason, setRescheduleReason] = useState("");
+
+  // Reschedule fields
+  const [reschedulePath, setReschedulePath] = useState<"manual" | "office">("office");
+  const [showBookingModal, setShowBookingModal] = useState(false);
+
+  // Shared notes
   const [notes, setNotes] = useState("");
 
   const soldLocked = currentWizardStep < 6;
@@ -175,6 +150,11 @@ export default function DispoModal({
     setSelected(id);
     setScreen("fork");
     setError("");
+    // Reset per-outcome state
+    setPrimaryObjection("");
+    setReschedulePath("office");
+    setShowBookingModal(false);
+    setNotes("");
   }
 
   function goBack() {
@@ -185,47 +165,40 @@ export default function DispoModal({
   function isConfirmDisabled() {
     if (saving) return true;
     switch (selected) {
-      case "demo_not_sold": return decisionMakerPresent === null || !primaryObjection;
-      case "no_show":       return madeContact === null;
-      case "porched":       return !waitTime || respondedToContact === null;
-      case "reschedule":    return !rescheduleReason;
+      case "demo_not_sold": return !primaryObjection;
       default:              return false;
     }
   }
 
   async function handleConfirm() {
+    // Manual reschedule: open booking modal instead of submitting
+    if (selected === "reschedule" && reschedulePath === "manual") {
+      setShowBookingModal(true);
+      return;
+    }
+
     setSaving(true);
     setError("");
 
     const body: Record<string, unknown> = {
       outcome: selected,
       ...(inspectionId ? { inspectionId } : {}),
+      ...(appointmentId ? { appointmentId } : {}),
     };
 
     switch (selected) {
       case "demo_not_sold":
-        body.dispoDecisionMakerPresent = decisionMakerPresent;
         body.dispoPrimaryObjection = primaryObjection || null;
         body.dispoNotes = notes || null;
         break;
-      case "credit_fail":
-        body.lenderAttempted = lenderAttempted || null;
-        body.dispoNotes = notes || null;
-        break;
       case "no_show":
-        body.madeContact = madeContact;
         body.dispoNotes = notes || null;
         break;
       case "porched":
-        body.waitTime = waitTime || null;
-        body.respondedToContact = respondedToContact;
         body.dispoNotes = notes || null;
         break;
       case "reschedule":
-        body.rescheduleReason = rescheduleReason;
-        body.dispoNotes = notes || null;
-        break;
-      case "escalate":
+        body.reschedulePath = reschedulePath;
         body.dispoNotes = notes || null;
         break;
     }
@@ -248,18 +221,36 @@ export default function DispoModal({
         return;
       }
 
-      if (selected === "porched") {
-        onReschedule?.("porched");
-        onComplete();
-        return;
-      }
+      onComplete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
 
-      if (selected === "reschedule") {
-        onReschedule?.(rescheduleReason);
-        onComplete();
-        return;
-      }
-
+  // Called after AppointmentBookingModal successfully books a new appointment
+  async function handleManualRescheduleBooked(
+    _newAppointmentId: string,
+    _newInspectionId: string,
+  ) {
+    setShowBookingModal(false);
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/lead/${leadId}/dispo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          outcome: "reschedule",
+          reschedulePath: "manual",
+          dispoNotes: notes || null,
+          ...(inspectionId ? { inspectionId } : {}),
+          ...(appointmentId ? { appointmentId } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Failed to save");
       onComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
@@ -273,6 +264,16 @@ export default function DispoModal({
   return (
     <>
       {showConfetti && <Confetti />}
+
+      {showBookingModal && (
+        <AppointmentBookingModal
+          leadId={leadId}
+          leadName={leadName}
+          address={leadAddress}
+          onClose={() => setShowBookingModal(false)}
+          onSuccess={handleManualRescheduleBooked}
+        />
+      )}
 
       <div className="fixed inset-0 z-50 flex flex-col bg-bg-base animate-slide-up">
         {/* Header */}
@@ -347,17 +348,16 @@ export default function DispoModal({
 
               {/* SOLD */}
               {selected === "sold" && (
-                <p className="text-text-secondary text-sm">Log this lead as SOLD?</p>
+                <div className="bg-bg-elevated border border-border rounded-xl p-4">
+                  <p className="text-text-secondary text-sm">
+                    This will move the lead to <span className="text-text-primary font-semibold">Pending Manager Approval</span>. A manager will confirm the sale.
+                  </p>
+                </div>
               )}
 
               {/* DEMO NOT SOLD */}
               {selected === "demo_not_sold" && (
                 <>
-                  <YesNo
-                    label="Were all decision makers present? *"
-                    value={decisionMakerPresent}
-                    onChange={setDecisionMakerPresent}
-                  />
                   <div className="space-y-2">
                     <p className="text-text-secondary text-xs font-semibold uppercase tracking-wider">Primary Objection *</p>
                     <select
@@ -366,32 +366,22 @@ export default function DispoModal({
                       className="w-full bg-bg-elevated border border-border text-text-primary rounded-xl min-h-12 px-4 text-sm focus:outline-none focus:border-brand-blue transition-colors"
                     >
                       <option value="">— select —</option>
+                      <option value="think_about_it">Think About It</option>
                       <option value="price">Price</option>
-                      <option value="timing">Timing — not ready yet</option>
-                      <option value="need_to_think">Need to think about it</option>
-                      <option value="spouse">Spouse / partner not on board</option>
-                      <option value="competitor">Going with a competitor</option>
-                      <option value="insurance_denial">Insurance denial</option>
+                      <option value="urgency">Urgency</option>
+                      <option value="insurance">Insurance</option>
+                      <option value="finance_decline">Finance Decline</option>
                       <option value="other">Other</option>
                     </select>
                   </div>
-                  <NotesField value={notes} onChange={setNotes} />
-                </>
-              )}
-
-              {/* CREDIT FAIL */}
-              {selected === "credit_fail" && (
-                <>
-                  <div className="space-y-2">
-                    <p className="text-text-secondary text-xs font-semibold uppercase tracking-wider">Lender Attempted</p>
-                    <input
-                      type="text"
-                      value={lenderAttempted}
-                      onChange={(e) => setLenderAttempted(e.target.value)}
-                      placeholder="e.g. Chase, local credit union…"
-                      className="w-full bg-bg-elevated border border-border text-text-primary rounded-xl min-h-12 px-4 text-sm focus:outline-none focus:border-brand-blue transition-colors"
-                    />
-                  </div>
+                  {primaryObjection === "finance_decline" && (
+                    <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3">
+                      <p className="text-orange-300 text-xs font-semibold mb-0.5">Finance Decline Path</p>
+                      <p className="text-text-secondary text-xs">
+                        Jordan will open Finance Discovery. Lead tagged <span className="text-text-primary">sr_finance_declined</span>.
+                      </p>
+                    </div>
+                  )}
                   <NotesField value={notes} onChange={setNotes} />
                 </>
               )}
@@ -399,7 +389,11 @@ export default function DispoModal({
               {/* NO SHOW */}
               {selected === "no_show" && (
                 <>
-                  <YesNo label="Did you make contact? *" value={madeContact} onChange={setMadeContact} />
+                  <div className="bg-bg-elevated border border-border rounded-xl px-4 py-3">
+                    <p className="text-text-secondary text-sm">
+                      Nobody home — zero contact. Jordan fires a soft re-engagement sequence.
+                    </p>
+                  </div>
                   <NotesField value={notes} onChange={setNotes} />
                 </>
               )}
@@ -407,31 +401,11 @@ export default function DispoModal({
               {/* PORCHED */}
               {selected === "porched" && (
                 <>
-                  <div className="space-y-2">
-                    <p className="text-text-secondary text-xs font-semibold uppercase tracking-wider">How long did you wait? *</p>
-                    <div className="space-y-2">
-                      {["Under 5 minutes", "5–10 minutes", "10+ minutes"].map((opt) => (
-                        <button
-                          key={opt}
-                          type="button"
-                          onClick={() => setWaitTime(opt)}
-                          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all ${
-                            waitTime === opt
-                              ? "border-brand-blue bg-brand-blue/10 text-text-primary"
-                              : "border-border text-text-secondary hover:border-border-hover"
-                          }`}
-                        >
-                          {opt}
-                          {waitTime === opt && <span className="text-brand-blue text-xs">✓</span>}
-                        </button>
-                      ))}
-                    </div>
+                  <div className="bg-bg-elevated border border-border rounded-xl px-4 py-3">
+                    <p className="text-text-secondary text-sm">
+                      Made contact, could not get in. Jordan surfaces resistance before attempting rebook.
+                    </p>
                   </div>
-                  <YesNo
-                    label="Did they respond to knocking or calling? *"
-                    value={respondedToContact}
-                    onChange={setRespondedToContact}
-                  />
                   <NotesField value={notes} onChange={setNotes} />
                 </>
               )}
@@ -440,29 +414,43 @@ export default function DispoModal({
               {selected === "reschedule" && (
                 <>
                   <div className="space-y-2">
-                    <p className="text-text-secondary text-xs font-semibold uppercase tracking-wider">Reason *</p>
-                    <select
-                      value={rescheduleReason}
-                      onChange={(e) => setRescheduleReason(e.target.value)}
-                      className="w-full bg-bg-elevated border border-border text-text-primary rounded-xl min-h-12 px-4 text-sm focus:outline-none focus:border-brand-blue transition-colors"
-                    >
-                      <option value="">— select —</option>
-                      <option value="homeowner_request">Cancelled by homeowner</option>
-                      <option value="one_legger">One legger — decision maker not present</option>
-                      <option value="time_constraint">Time constraint — ran out of time</option>
-                      <option value="rep_conflict">Rep schedule conflict</option>
-                      <option value="weather">Weather</option>
-                      <option value="other">Other</option>
-                    </select>
+                    <p className="text-text-secondary text-xs font-semibold uppercase tracking-wider">Reschedule Path</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {(["manual", "office"] as const).map((path) => (
+                        <button
+                          key={path}
+                          type="button"
+                          onClick={() => setReschedulePath(path)}
+                          className={`flex flex-col items-center gap-1.5 rounded-xl border py-4 px-3 text-center transition-all ${
+                            reschedulePath === path
+                              ? "border-brand-blue bg-brand-blue/10 text-text-primary"
+                              : "border-border text-text-secondary hover:border-border-hover"
+                          }`}
+                        >
+                          <span className="text-xl">{path === "manual" ? "📲" : "🤖"}</span>
+                          <span className="text-xs font-bold tracking-wide capitalize">{path === "manual" ? "Book Now" : "Send to Office"}</span>
+                          <span className="text-xs text-text-hint">
+                            {path === "manual" ? "Rep books directly" : "Jordan finds new time"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <NotesField value={notes} onChange={setNotes} />
-                </>
-              )}
-
-              {/* ESCALATE */}
-              {selected === "escalate" && (
-                <>
-                  <p className="text-text-secondary text-sm">Pause all bot contact and flag for manager review?</p>
+                  {reschedulePath === "office" && (
+                    <div className="bg-bg-elevated border border-border rounded-xl px-4 py-3">
+                      <p className="text-text-secondary text-xs">
+                        Jordan will reach out to find a new time. <span className="text-text-primary">sr_bot_stage</span> set to reschedule.
+                      </p>
+                    </div>
+                  )}
+                  {reschedulePath === "manual" && (
+                    <div className="bg-brand-navy border border-brand-blue/30 rounded-xl px-4 py-3">
+                      <p className="text-text-accent text-xs font-semibold mb-0.5">Book Now</p>
+                      <p className="text-text-secondary text-xs">
+                        Tapping Confirm will open the booking modal to schedule a new appointment directly.
+                      </p>
+                    </div>
+                  )}
                   <NotesField value={notes} onChange={setNotes} />
                 </>
               )}
@@ -473,7 +461,7 @@ export default function DispoModal({
                 onClick={handleConfirm}
                 className="w-full bg-brand-blue hover:bg-accent-blue-hover disabled:opacity-50 text-text-primary font-semibold rounded-xl py-3.5 text-base transition-all min-h-13"
               >
-                {saving ? "Saving…" : "Confirm"}
+                {saving ? "Saving…" : selected === "reschedule" && reschedulePath === "manual" ? "Book Appointment →" : "Confirm"}
               </button>
             </div>
           )}

@@ -448,6 +448,7 @@ model Photo {
   damageTags       String[]
   description      String?
   photoSection     String     @default("roof")  // "roof" | "attic"
+  zone             String?    // roof zone or attic zone label
   galleryEligible  Boolean    @default(false)
   cityArea         String?    // "East El Paso" | "Las Cruces" | etc — rep sets in wizard
   createdAt        DateTime   @default(now())

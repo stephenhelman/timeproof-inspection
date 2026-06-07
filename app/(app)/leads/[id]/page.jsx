@@ -8,6 +8,7 @@ import { MessageSquare, Send, Lock } from "lucide-react";
 import { usePermissions } from "@/src/lib/use-permissions";
 import DispoModal from "@/src/components/inspection/DispoModal";
 import RescheduleWizard from "@/src/components/inspection/RescheduleWizard";
+import TasksPanel from "@/src/components/tasks/TasksPanel";
 
 const LEAD_STATUS_OPTIONS = [
   "NEW",
@@ -552,6 +553,9 @@ export default function LeadDetailPage() {
                 )}
               </div>
             )}
+
+            {/* Tasks panel */}
+            <TasksPanel leadId={id} />
 
             {/* Notes section */}
             <LeadNotesPanel leadId={id} initialNotes={lead.notes || []} />
