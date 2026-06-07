@@ -532,7 +532,7 @@ export default function LeadDetailPage() {
             )}
 
             {/* Bot context summary */}
-            {(lead.botContextSummary || lead.srLead?.srBotStage) && (
+            {(lead.botContextSummary || lead.srLead?.srBotStage || lead.mostEngagedPhoto) && (
               <div className="bg-[#111827] border border-[#2a3a5c] rounded-2xl p-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-[#f0f4ff] font-semibold text-sm">Bot Context</h3>
@@ -550,6 +550,17 @@ export default function LeadDetailPage() {
                   <p className="text-[#8fa3c8] text-sm leading-relaxed">{lead.botContextSummary}</p>
                 ) : (
                   <p className="text-[#8fa3c8]/50 text-sm italic">No bot conversation summary yet.</p>
+                )}
+                {lead.mostEngagedPhoto && (
+                  <div className="border-t border-[#2a3a5c] pt-3">
+                    <p className="text-[#8fa3c8]/60 text-xs mb-0.5">Most viewed photo</p>
+                    <p className="text-[#f0f4ff] text-sm">
+                      {lead.mostEngagedPhoto.zone || "Unknown zone"}
+                      {lead.mostEngagedPhoto.damageTags?.length > 0
+                        ? ` — ${lead.mostEngagedPhoto.damageTags.join(", ")}`
+                        : ""}
+                    </p>
+                  </div>
                 )}
               </div>
             )}

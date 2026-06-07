@@ -3,16 +3,9 @@ import { prisma } from "@/src/lib/prisma";
 import { WARNING_SIGNS } from "@/src/lib/warning-signs";
 import ReportSection from "@/src/components/report/ReportSection";
 import SectionTracker from "@/src/components/report/SectionTracker";
+import PhotoSlideshow from "@/src/components/report/PhotoSlideshow";
 import { parseDiagnosisText } from "@/src/lib/diagnosis-parser";
 import type { ParsedZone } from "@/src/lib/diagnosis-parser";
-
-// PRESERVED — not active in Qntum build
-// import { DAMAGE_GROUPS } from "@/src/lib/findings";
-// import { detectPackageId } from "@/src/lib/packages";
-// import PhotoReveal from "@/src/components/inspection/PhotoReveal";
-// import PackageCard from "@/src/components/report/PackageCard";
-// function fmt(n: number) { ... }
-// function fmtLinear(decimal: number | null | undefined): string { ... }
 
 interface DiagnosisFinding {
   id: string;
@@ -39,13 +32,13 @@ interface StructuredDiagnosis {
   homeownerAdmissions?: string[];
 }
 
-const SEVERITY_STYLES: Record<string, string> = {
+const OLD_SEVERITY_STYLES: Record<string, string> = {
   critical: "bg-red-50 border-red-200 text-red-700",
   high:     "bg-amber-50 border-amber-200 text-amber-700",
   medium:   "bg-yellow-50 border-yellow-200 text-yellow-700",
 };
 
-const SEVERITY_BADGE: Record<string, string> = {
+const OLD_SEVERITY_BADGE: Record<string, string> = {
   critical: "bg-red-100 text-red-700",
   high:     "bg-amber-100 text-amber-700",
   medium:   "bg-yellow-100 text-yellow-700",
@@ -67,10 +60,9 @@ function toTitleCase(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Renders zone cards from parsed diagnosis text — no "Ask them:" labels
 function ReportZoneCard({ zone }: { zone: ParsedZone }) {
-  // Filter out question blocks — rep-only content
   const visibleBlocks = zone.blocks.filter((b) => b.type !== "question");
-
   return (
     <div className="bg-report-surface border border-report-border rounded-xl p-4 flex flex-col gap-3">
       {zone.name && (
@@ -125,34 +117,58 @@ export default async function SummaryPage({
   const customerName = inspection.customerName || "";
   const address = inspection.address || "";
   const repName = inspection.repName || "Qntum Roofing";
-  const firstName = customerName.split(" ")[0] || "You";
   const date = new Date(inspection.date).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
 
-  const diagnosis = (Array.isArray(inspection.diagnosis) ? inspection.diagnosis : []) as unknown as DiagnosisFinding[];
+  // --- Section: What You Came In Believing ---
+  // Read from flat fields first; fall back to intakePass1 JSON snapshot
+  const intakePass1 = inspection.intakePass1 as Record<string, unknown> | null;
+  function getIntakeField(flatVal: string | null | undefined, key: string): string | null {
+    if (flatVal && typeof flatVal === "string" && flatVal.trim()) return flatVal.trim();
+    const v = intakePass1?.[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    return null;
+  }
+  const issuesConcerns       = getIntakeField(inspection.issuesConcerns, "issuesConcerns");
+  const issueDuration        = getIntakeField(inspection.issueDuration, "issueDuration");
+  const rootCauseBeliefBefore = getIntakeField(inspection.rootCauseBeliefBefore, "rootCauseBeliefBefore");
+  const triggerMoment        = getIntakeField(inspection.triggerMoment, "triggerMoment");
+  const problemAwarenessBefore = getIntakeField(inspection.problemAwarenessBefore, "problemAwarenessBefore");
+  const hasBeliefContent = !!(issuesConcerns || issueDuration || rootCauseBeliefBefore || triggerMoment || problemAwarenessBefore);
+
+  // --- Section: Warning Signs ---
   const warningSignsCovered = (inspection.warningSignsCovered as string[]) || [];
-  const coveredSigns = WARNING_SIGNS.filter((s) => warningSignsCovered.includes(s.id));
+  const acknowledgedSigns = WARNING_SIGNS.filter((s) => warningSignsCovered.includes(s.id));
 
-  const roofPhotos = inspection.photos.filter((p) => p.photoSection === "roof");
-  const atticPhotos = inspection.photos.filter((p) => p.photoSection === "attic");
+  // --- Section: Photos ---
+  const allPhotos = inspection.photos.map((p) => ({
+    id: p.id,
+    r2Url: p.r2Url,
+    zone: p.zone,
+    damageTags: p.damageTags,
+    photoNumber: p.photoNumber,
+    photoSection: p.photoSection,
+  }));
 
-  const pass2Complete = inspection.intakePass2Complete;
-
+  // --- Section: AI Diagnosis ---
   const aiDiagnosisDescription = inspection.aiDiagnosisDescription ?? null;
   const aiDiagnosisStructured = (inspection.aiDiagnosisStructured as StructuredDiagnosis | null) ?? null;
+  const parsedZones = aiDiagnosisDescription ? parseDiagnosisText(aiDiagnosisDescription) : [];
 
+  const overallSev = aiDiagnosisStructured?.overallSeverity;
+
+  // --- Section: Post-diagnosis admission ---
   const intakePass2 = inspection.intakePass2 as Record<string, unknown> | null;
   const postDiagnosisAdmission =
-    typeof intakePass2?.postDiagnosisAdmission === "string"
-      ? intakePass2.postDiagnosisAdmission
+    typeof intakePass2?.postDiagnosisAdmission === "string" && intakePass2.postDiagnosisAdmission.trim()
+      ? intakePass2.postDiagnosisAdmission.trim()
       : null;
 
-  const parsedZones = aiDiagnosisDescription
-    ? parseDiagnosisText(aiDiagnosisDescription)
-    : [];
+  // --- Old diagnosis findings (kept as-is) ---
+  const diagnosis = (Array.isArray(inspection.diagnosis) ? inspection.diagnosis : []) as unknown as DiagnosisFinding[];
 
   return (
     <div className="min-h-screen bg-report-bg">
@@ -183,205 +199,8 @@ export default async function SummaryPage({
             </div>
           </ReportSection>
 
-          {/* Photos */}
-          {(roofPhotos.length > 0 || atticPhotos.length > 0) && (
-            <ReportSection sectionKey="photos" title="Photo Documentation">
-              {roofPhotos.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Roof ({roofPhotos.length})</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {roofPhotos.map((p) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={p.id}
-                        src={p.r2Url}
-                        alt={`Roof photo ${p.photoNumber}`}
-                        className="w-full aspect-square object-cover rounded-lg border border-report-border"
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {atticPhotos.length > 0 && (
-                <div>
-                  <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Attic ({atticPhotos.length})</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {atticPhotos.map((p) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={p.id}
-                        src={p.r2Url}
-                        alt={`Attic photo ${p.photoNumber}`}
-                        className="w-full aspect-square object-cover rounded-lg border border-report-border"
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </ReportSection>
-          )}
-
-          {/* Roof Diagnosis */}
-          {(parsedZones.length > 0 || aiDiagnosisStructured || postDiagnosisAdmission) && (
-            <ReportSection sectionKey="roof-diagnosis" title="Roof Diagnosis">
-              <div className="flex flex-col gap-5">
-
-                {/* Parsed zone cards — prose + homeowner callouts, no "Ask them:" */}
-                {parsedZones.length > 0 && (
-                  <div className="flex flex-col gap-3">
-                    {parsedZones.map((zone, i) => (
-                      <ReportZoneCard key={i} zone={zone} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Structured findings */}
-                {aiDiagnosisStructured && (
-                  <div className="flex flex-col gap-3">
-
-                    {/* Overall severity */}
-                    {aiDiagnosisStructured.overallSeverity && (
-                      <div
-                        className={`border rounded-xl px-4 py-3 ${OVERALL_SEVERITY_STYLES[aiDiagnosisStructured.overallSeverity] ?? OVERALL_SEVERITY_STYLES.medium}`}
-                      >
-                        <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5 opacity-70">
-                          Overall Severity
-                        </p>
-                        <p className="text-base font-bold">
-                          Overall:{" "}
-                          {aiDiagnosisStructured.overallSeverity.charAt(0).toUpperCase() +
-                            aiDiagnosisStructured.overallSeverity.slice(1)}{" "}
-                          Severity
-                        </p>
-                        {aiDiagnosisStructured.primaryConcern && (
-                          <p className="text-xs mt-0.5 opacity-80">
-                            Primary concern:{" "}
-                            {toTitleCase(aiDiagnosisStructured.primaryConcern)}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Zone finding cards */}
-                    {aiDiagnosisStructured.zones &&
-                      aiDiagnosisStructured.zones.length > 0 && (
-                        <div className="flex flex-col gap-2">
-                          {aiDiagnosisStructured.zones.map((z, i) => (
-                            <div
-                              key={i}
-                              className="bg-report-surface border border-report-border rounded-xl p-4 flex flex-col gap-2"
-                            >
-                              <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <p className="text-report-text font-semibold text-sm">
-                                  {z.zone}
-                                </p>
-                                <span
-                                  className={`text-xs font-bold px-2 py-0.5 rounded-full capitalize ${STRUCTURED_SEVERITY_BADGE[z.severity] ?? STRUCTURED_SEVERITY_BADGE.medium}`}
-                                >
-                                  {z.severity}
-                                </span>
-                              </div>
-                              <p className="text-gray-600 text-sm">
-                                {toTitleCase(z.findingType)}
-                              </p>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                {z.confidence > 0 && (
-                                  <span className="text-gray-400 text-xs">
-                                    {Math.round(z.confidence * 100)}% confidence
-                                  </span>
-                                )}
-                                {z.referencedWarningSign && (
-                                  <span className="bg-white border border-report-border rounded-full px-2 py-0.5 text-gray-500 text-xs">
-                                    {z.referencedWarningSign.replace(/_/g, " ")}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                    {/* Homeowner admissions */}
-                    {aiDiagnosisStructured.homeownerAdmissions &&
-                      aiDiagnosisStructured.homeownerAdmissions.length > 0 && (
-                        <div className="bg-report-surface border border-report-border rounded-xl p-4 flex flex-col gap-3">
-                          <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold">
-                            What you acknowledged
-                          </p>
-                          <ul className="flex flex-col gap-2">
-                            {aiDiagnosisStructured.homeownerAdmissions.map(
-                              (admission, i) => (
-                                <li
-                                  key={i}
-                                  className="flex items-start gap-2 text-report-text text-sm"
-                                >
-                                  <span className="text-[#2a6db5] shrink-0 mt-0.5">&ldquo;</span>
-                                  <span className="italic leading-relaxed">{admission}</span>
-                                </li>
-                              ),
-                            )}
-                          </ul>
-                        </div>
-                      )}
-                  </div>
-                )}
-
-                {/* Post-diagnosis homeowner quote */}
-                {postDiagnosisAdmission && (
-                  <div>
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">
-                      In Your Own Words
-                    </p>
-                    <p className="text-gray-600 text-sm mb-3">
-                      After reviewing the inspection findings, here&apos;s how you described the condition of your roof:
-                    </p>
-                    <blockquote className="border-l-3 border-report-heading pl-4 text-report-text text-sm italic leading-relaxed bg-report-surface rounded-r-xl py-3 pr-3">
-                      {postDiagnosisAdmission}
-                    </blockquote>
-                  </div>
-                )}
-              </div>
-            </ReportSection>
-          )}
-
-          {/* Diagnosis */}
-          {diagnosis.length > 0 && (
-            <ReportSection sectionKey="diagnosis" title="Inspection Findings">
-              <p className="text-gray-600 text-sm mb-4">
-                {diagnosis.length} finding{diagnosis.length !== 1 ? "s" : ""} identified
-              </p>
-              <div className="flex flex-col gap-4">
-                {diagnosis.map((f) => (
-                  <div
-                    key={f.id}
-                    className={`border rounded-xl p-4 ${SEVERITY_STYLES[f.severity] || "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${SEVERITY_BADGE[f.severity]}`}>
-                        {f.severity.toUpperCase()}
-                      </span>
-                      <h3 className="font-semibold text-base">{f.label}</h3>
-                      <span className="text-xs capitalize text-gray-500">({f.status})</span>
-                    </div>
-                    <p className="text-sm leading-relaxed">{f.explanation}</p>
-                    {(f.matchedRoofTags.length > 0 || f.matchedAtticTags.length > 0) && (
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
-                        {f.matchedRoofTags.map((t) => (
-                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
-                        ))}
-                        {f.matchedAtticTags.map((t) => (
-                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </ReportSection>
-          )}
-
-          {/* Property Background */}
-          {(inspection.timeInHome || inspection.yearBuilt || inspection.ageOfRoof || inspection.lastReplacedBy || inspection.pastRepairs) && (
+          {/* Section 1 — Property Background */}
+          {(inspection.timeInHome || inspection.yearBuilt || inspection.ageOfRoof || inspection.lastReplacedBy || inspection.pastRepairs || inspection.hoaPresent) && (
             <ReportSection sectionKey="property-background" title="Property Background">
               <div className="flex flex-col gap-2 text-sm">
                 {inspection.timeInHome && (
@@ -424,77 +243,241 @@ export default async function SummaryPage({
             </ReportSection>
           )}
 
-          {/* Issues & Concerns */}
-          {(inspection.issuesConcerns || inspection.issueDuration || inspection.issueImpact) && (
-            <ReportSection sectionKey="issues" title="Issues & Concerns">
-              <div className="flex flex-col gap-2 text-sm">
-                {inspection.issuesConcerns && (
+          {/* Section 2 — What You Came In Believing */}
+          {hasBeliefContent && (
+            <ReportSection sectionKey="pre-inspection-beliefs" title="What You Came In Believing">
+              <p className="text-gray-500 text-sm">
+                Before the inspection, here&apos;s what you shared with us.
+              </p>
+
+              <div className="flex flex-col gap-4 mt-1">
+                {issuesConcerns && (
                   <div>
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Concerns</p>
-                    <p className="text-report-text">{inspection.issuesConcerns}</p>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
+                      What you mentioned
+                    </p>
+                    <p className="text-report-text text-sm leading-relaxed">{issuesConcerns}</p>
                   </div>
                 )}
-                {inspection.issueDuration && (
-                  <div className="flex gap-3">
-                    <span className="text-gray-500 w-36">Duration</span>
-                    <span className="text-report-text">{inspection.issueDuration}</span>
+
+                {issueDuration && (
+                  <div className="flex gap-3 text-sm">
+                    <span className="text-gray-500 shrink-0">How long</span>
+                    <span className="text-report-text">{issueDuration}</span>
                   </div>
                 )}
-                {inspection.issueImpact && (
+
+                {rootCauseBeliefBefore && (
                   <div>
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mt-2 mb-1">Impact</p>
-                    <p className="text-report-text">{inspection.issueImpact}</p>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
+                      What you thought the cause was
+                    </p>
+                    <p className="text-report-text text-sm leading-relaxed">{rootCauseBeliefBefore}</p>
+                  </div>
+                )}
+
+                {triggerMoment && (
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
+                      What prompted this inspection
+                    </p>
+                    <p className="text-report-text text-sm leading-relaxed">{triggerMoment}</p>
+                  </div>
+                )}
+
+                {problemAwarenessBefore && (
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold mb-2">
+                      In your own words
+                    </p>
+                    <blockquote className="border-l-4 border-[#2a6db5] bg-[#eef3fb] pl-4 pr-3 py-3 rounded-r-xl text-report-text text-sm italic leading-relaxed">
+                      {problemAwarenessBefore}
+                    </blockquote>
                   </div>
                 )}
               </div>
             </ReportSection>
           )}
 
-          {/* Problem Awareness */}
-          {(inspection.problemAwarenessBefore || (pass2Complete && inspection.problemAwarenessAfter)) && (
-            <ReportSection sectionKey="problem-awareness" title="Problem Awareness">
-              {inspection.problemAwarenessBefore && (
-                <div className="mb-4">
-                  <p className="text-gray-600 text-sm mb-2">
-                    At the start of our visit, {firstName} described their concerns as:
-                  </p>
-                  <blockquote className="border-l-3 border-report-heading pl-4 text-report-text text-sm italic leading-relaxed bg-report-surface rounded-r-xl py-3 pr-3">
-                    {inspection.problemAwarenessBefore}
-                  </blockquote>
-                </div>
-              )}
-              {pass2Complete && inspection.problemAwarenessAfter && (
-                <div>
-                  <p className="text-gray-600 text-sm mb-2">
-                    After reviewing the inspection findings, {firstName} shared:
-                  </p>
-                  <blockquote className="border-l-3 border-gray-400 pl-4 text-report-text text-sm italic leading-relaxed bg-report-surface rounded-r-xl py-3 pr-3">
-                    {inspection.problemAwarenessAfter}
-                  </blockquote>
-                </div>
-              )}
-            </ReportSection>
-          )}
-
-          {/* Topics Reviewed */}
-          {coveredSigns.length > 0 && (
-            <ReportSection sectionKey="warning-signs-covered" title="Topics Reviewed">
-              <ul className="flex flex-col gap-1.5">
-                {coveredSigns.map((s) => (
-                  <li key={s.id} className="flex items-center gap-2 text-report-text text-sm">
-                    <span className="text-green-600">✓</span>
+          {/* Section 3 — Warning Signs You Recognized */}
+          {acknowledgedSigns.length > 0 && (
+            <ReportSection sectionKey="warning-signs-recognized" title="Warning Signs You Recognized">
+              <p className="text-gray-500 text-sm">
+                During the inspection, you identified these as concerns.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {acknowledgedSigns.map((s) => (
+                  <span
+                    key={s.id}
+                    className="bg-report-surface border border-report-border text-report-text text-sm font-medium px-3 py-1.5 rounded-full"
+                  >
                     {s.title}
-                  </li>
+                  </span>
                 ))}
-              </ul>
+              </div>
             </ReportSection>
           )}
 
-          {/* PRESERVED — not active in Qntum build */}
-          {/* structures section */}
-          {/* packages section */}
-          {/* package-details section */}
-          {/* production-notes section */}
+          {/* Section 4 — Photo Documentation (slideshow) */}
+          {allPhotos.length > 0 && (
+            <ReportSection sectionKey="photos" title="Photo Documentation">
+              <PhotoSlideshow photos={allPhotos} reportUuid={uuid} />
+            </ReportSection>
+          )}
+
+          {/* Section 5 — What We Found */}
+          {(parsedZones.length > 0 || aiDiagnosisStructured) && (
+            <ReportSection sectionKey="what-we-found" title="What We Found">
+              <div className="flex flex-col gap-4">
+
+                {/* Parsed zone cards */}
+                {parsedZones.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    {parsedZones.map((zone, i) => (
+                      <ReportZoneCard key={i} zone={zone} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Structured findings */}
+                {aiDiagnosisStructured && (
+                  <div className="flex flex-col gap-3">
+
+                    {/* Overall severity */}
+                    {overallSev && (
+                      <div
+                        className={`border rounded-xl px-4 py-3 ${OVERALL_SEVERITY_STYLES[overallSev] ?? OVERALL_SEVERITY_STYLES.medium}`}
+                      >
+                        <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5 opacity-70">
+                          Overall Severity
+                        </p>
+                        <p className="text-base font-bold">
+                          Overall:{" "}
+                          {overallSev.charAt(0).toUpperCase() + overallSev.slice(1)} Severity
+                        </p>
+                        {aiDiagnosisStructured.primaryConcern && (
+                          <p className="text-xs mt-0.5 opacity-80">
+                            Primary concern: {toTitleCase(aiDiagnosisStructured.primaryConcern)}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Zone finding cards */}
+                    {aiDiagnosisStructured.zones && aiDiagnosisStructured.zones.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        {aiDiagnosisStructured.zones.map((z, i) => (
+                          <div
+                            key={i}
+                            className="bg-report-surface border border-report-border rounded-xl p-4 flex flex-col gap-2"
+                          >
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <p className="text-report-text font-semibold text-sm">{z.zone}</p>
+                              <span
+                                className={`text-xs font-bold px-2 py-0.5 rounded-full capitalize ${STRUCTURED_SEVERITY_BADGE[z.severity] ?? STRUCTURED_SEVERITY_BADGE.medium}`}
+                              >
+                                {z.severity}
+                              </span>
+                            </div>
+                            <p className="text-gray-600 text-sm">{toTitleCase(z.findingType)}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {z.confidence > 0 && (
+                                <span className="text-gray-400 text-xs">
+                                  {Math.round(z.confidence * 100)}% confidence
+                                </span>
+                              )}
+                              {z.referencedWarningSign && (
+                                <span className="bg-white border border-report-border rounded-full px-2 py-0.5 text-gray-500 text-xs">
+                                  {z.referencedWarningSign.replace(/_/g, " ")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Homeowner admissions */}
+                    {aiDiagnosisStructured.homeownerAdmissions &&
+                      aiDiagnosisStructured.homeownerAdmissions.length > 0 && (
+                        <div className="bg-report-surface border border-report-border rounded-xl p-4 flex flex-col gap-3">
+                          <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold">
+                            What you acknowledged
+                          </p>
+                          <ul className="flex flex-col gap-2">
+                            {aiDiagnosisStructured.homeownerAdmissions.map((admission, i) => (
+                              <li key={i} className="flex items-start gap-2 text-report-text text-sm">
+                                <span className="text-[#2a6db5] shrink-0 mt-0.5">&ldquo;</span>
+                                <span className="italic leading-relaxed">{admission}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                  </div>
+                )}
+              </div>
+            </ReportSection>
+          )}
+
+          {/* Section 6 — After Reviewing the Findings */}
+          {postDiagnosisAdmission && (
+            <ReportSection sectionKey="after-reviewing" title="After Reviewing the Findings">
+              <p className="text-gray-500 text-sm">
+                After seeing the inspection photos and diagnosis, here&apos;s how you described the condition of your roof:
+              </p>
+              <div className="relative mt-2">
+                {/* Large decorative quote mark */}
+                <span
+                  className="absolute -top-2 -left-1 text-7xl leading-none text-[#2a6db5]/20 font-serif select-none"
+                  aria-hidden="true"
+                >
+                  &ldquo;
+                </span>
+                <div className="bg-[#eef3fb] border border-[#c8d8f0] rounded-2xl px-6 py-5 ml-4">
+                  <p className="text-report-text text-base italic leading-relaxed">
+                    {postDiagnosisAdmission}
+                  </p>
+                </div>
+              </div>
+            </ReportSection>
+          )}
+
+          {/* Inspection Findings (old diagnosis[] — preserved, unchanged) */}
+          {diagnosis.length > 0 && (
+            <ReportSection sectionKey="diagnosis" title="Inspection Findings">
+              <p className="text-gray-600 text-sm mb-4">
+                {diagnosis.length} finding{diagnosis.length !== 1 ? "s" : ""} identified
+              </p>
+              <div className="flex flex-col gap-4">
+                {diagnosis.map((f) => (
+                  <div
+                    key={f.id}
+                    className={`border rounded-xl p-4 ${OLD_SEVERITY_STYLES[f.severity] || "bg-gray-50 border-gray-200"}`}
+                  >
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${OLD_SEVERITY_BADGE[f.severity]}`}>
+                        {f.severity.toUpperCase()}
+                      </span>
+                      <h3 className="font-semibold text-base">{f.label}</h3>
+                      <span className="text-xs capitalize text-gray-500">({f.status})</span>
+                    </div>
+                    <p className="text-sm leading-relaxed">{f.explanation}</p>
+                    {(f.matchedRoofTags.length > 0 || f.matchedAtticTags.length > 0) && (
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+                        {f.matchedRoofTags.map((t) => (
+                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
+                        ))}
+                        {f.matchedAtticTags.map((t) => (
+                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </ReportSection>
+          )}
 
         </div>
       </SectionTracker>

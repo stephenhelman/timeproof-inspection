@@ -452,6 +452,8 @@ model Photo {
   galleryEligible  Boolean    @default(false)
   cityArea         String?    // "East El Paso" | "Las Cruces" | etc — rep sets in wizard
   createdAt        DateTime   @default(now())
+
+  photoEngagements PhotoEngagement[]
 }
 
 model ReportVisit {
@@ -463,6 +465,7 @@ model ReportVisit {
   userAgent    String?
   visitNumber  Int
   sections     SectionView[]
+  photoEngagements PhotoEngagement[]
 }
 
 model SectionView {
@@ -471,6 +474,18 @@ model SectionView {
   visit         ReportVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
   sectionKey    String
   secondsViewed Int         @default(0)
+}
+
+model PhotoEngagement {
+  id            String      @id @default(cuid())
+  reportVisitId String
+  photoId       String
+  dwellMs       Int
+  slideIndex    Int
+  createdAt     DateTime    @default(now())
+
+  reportVisit   ReportVisit @relation(fields: [reportVisitId], references: [id], onDelete: Cascade)
+  photo         Photo       @relation(fields: [photoId], references: [id], onDelete: Cascade)
 }
 
 model RegistrationCode {

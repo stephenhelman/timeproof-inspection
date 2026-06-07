@@ -51,7 +51,24 @@ export async function GET(
     botContextSummary = (meta?.summary as string) ?? null;
   }
 
-  return NextResponse.json({ ...lead, botContextSummary });
+  // Most-engaged photo: highest dwell from most recent inspection's report visits
+  let mostEngagedPhoto: { zone: string | null; damageTags: string[] } | null = null;
+  const recentInspection = lead.inspections[0];
+  if (recentInspection) {
+    const engagement = await prisma.photoEngagement.findFirst({
+      where: { reportVisit: { inspectionId: recentInspection.id } },
+      orderBy: { dwellMs: "desc" },
+      include: { photo: { select: { zone: true, damageTags: true } } },
+    });
+    if (engagement) {
+      mostEngagedPhoto = {
+        zone: engagement.photo.zone,
+        damageTags: engagement.photo.damageTags,
+      };
+    }
+  }
+
+  return NextResponse.json({ ...lead, botContextSummary, mostEngagedPhoto });
 }
 
 export async function PATCH(
