@@ -151,6 +151,15 @@ function detectRevivalLastMessageContext(
   return "expressed_interest";
 }
 
+// ─── JORDAN REVIVAL HANDLER (string mode — legacy) ───────────────────────────
+// Migration path: src/lib/bot-handlers/revival.ts (scaffold ready)
+// To migrate:
+//   1. Implement assembleRevivalPromptV2 in assemblers/revival-v2.ts
+//   2. Implement handleRevivalWebhook in bot-handlers/revival.ts
+//   3. Export handler and import here
+//   4. Replace this function body with: return handleRevivalWebhook(ctx)
+//   5. Add 'revival' case to inbound SMS switch
+// ─────────────────────────────────────────────────────────────────────────────
 async function handleRevivalWebhook(ctx: CentralWebhookContext): Promise<void> {
   const { lead, ghlContactId, trigger, inboundMsg } = ctx;
 
@@ -362,6 +371,15 @@ function detectRescheduleLastMessageContext(
   return "none";
 }
 
+// ─── JORDAN RESCHEDULE HANDLER (string mode — legacy) ────────────────────────
+// Migration path: src/lib/bot-handlers/reschedule.ts (scaffold ready)
+// To migrate:
+//   1. Implement assembleReschedulePromptV2 in assemblers/reschedule-v2.ts
+//   2. Implement handleRescheduleWebhook in bot-handlers/reschedule.ts
+//   3. Export handler and import here
+//   4. Replace this function body with: return handleRescheduleWebhook(ctx)
+//   5. Parse response.rescheduled_slot instead of regex-matching [RESCHEDULED: ...]
+// ─────────────────────────────────────────────────────────────────────────────
 async function handleRescheduleWebhook(
   ctx: CentralWebhookContext,
 ): Promise<void> {
@@ -660,6 +678,14 @@ function getOptionsSurfacedFromThread(messages: BotMessage[]): string[] {
   return options;
 }
 
+// ─── JORDAN FINANCE HANDLER (string mode — legacy) ───────────────────────────
+// Migration path: src/lib/bot-handlers/finance.ts (scaffold ready)
+// To migrate:
+//   1. Implement assembleFinancePromptV2 in assemblers/finance-v2.ts
+//   2. Implement handleFinanceWebhook in bot-handlers/finance.ts
+//   3. Export handler and import here
+//   4. Replace this function body with: return handleFinanceWebhook(ctx)
+// ─────────────────────────────────────────────────────────────────────────────
 async function handleFinanceWebhook(ctx: CentralWebhookContext): Promise<void> {
   const { lead, ghlContactId, trigger, inboundMsg } = ctx;
 

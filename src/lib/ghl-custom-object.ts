@@ -1,8 +1,9 @@
 // SR Lead custom object — mirrors our app lead state inside GHL.
-// The object schema must be created manually in GHL before this code is active.
+// Custom object creation is triggered asynchronously via the create_sr_lead tag + GHL workflow.
 // DB is the source of truth. GHL is kept in sync but failures are non-blocking.
 
 import { prisma } from "@/src/lib/prisma";
+import { addGhlTag } from "@/src/lib/ghl-sms";
 import type { SrLead } from "@prisma/client";
 
 const GHL_BASE = "https://services.leadconnectorhq.com";
@@ -157,29 +158,19 @@ async function updateSrLeadInGhl(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-// Create SR Lead in GHL and DB simultaneously. Returns ghlRecordId.
+// Create SR Lead in DB and trigger GHL custom object creation via tag + workflow.
+// Returns the DB srLead record id.
 export async function createSrLead(
   ghlContactId: string,
   leadId: string,
   fields: SrLeadFields
 ): Promise<string> {
-  // 1. Create in GHL
-  const ghlRecordId = await createSrLeadInGhl(ghlContactId, fields);
-
-  // 2. Update Lead with ghlRecordId
-  if (ghlRecordId) {
-    await prisma.lead.update({
-      where: { id: leadId },
-      data: { ghlRecordId },
-    }).catch(err => console.error("[sr-lead] lead.update ghlRecordId failed:", err));
-  }
-
-  // 3. Create SrLead in DB
-  await prisma.srLead.create({
+  // 1. Create SrLead in DB
+  const dbRecord = await prisma.srLead.create({
     data: {
       leadId,
       ghlContactId,
-      ghlRecordId: ghlRecordId || null,
+      ghlRecordId: null,
       srLeadId:        fields.sr_lead_id,
       srTier:          fields.sr_tier,
       srZone:          fields.sr_zone,
@@ -189,9 +180,13 @@ export async function createSrLead(
       srSource:        fields.sr_source,
       srOptedOut:      fields.sr_opted_out,
     },
-  }).catch(err => console.error("[sr-lead] srLead.create failed:", err));
+  }).catch(err => { console.error("[sr-lead] srLead.create failed:", err); return null; });
 
-  return ghlRecordId;
+  // 2. Trigger GHL custom object creation via workflow
+  await addGhlTag(ghlContactId, 'create_sr_lead')
+    .catch(err => console.error("[sr-lead] addGhlTag create_sr_lead failed:", err));
+
+  return dbRecord?.id ?? '';
 }
 
 // Update SR Lead in GHL and DB in parallel using stored ghlRecordId — no GHL lookup needed.
@@ -226,6 +221,9 @@ export async function updateSrLead(
 }
 
 // Read SR Lead from DB with GHL self-heal fallback.
+// Note: GHL custom object creation is async via create_sr_lead tag + workflow.
+// Self-heal fetches from GHL only after the workflow has had time to fire.
+// If GHL record is missing shortly after creation, this is expected — retry after delay.
 export async function getSrLeadFromDb(
   leadId: string,
   ghlContactId: string

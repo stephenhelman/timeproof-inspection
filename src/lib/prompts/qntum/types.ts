@@ -300,6 +300,19 @@ export interface BotContext {
   source_type: "door" | "card" | "organic" | "facebook" | null
   rep_name: string | null
   summary: string
+
+  // Jordan-specific context fields — optional so Alex is unaffected
+  lead_scenario?: "report_complete_not_sold" | "report_complete_no_show" | "no_report_no_show" | null
+  primary_objection?: string | null
+  objections_surfaced?: string[]
+  days_since_appointment?: number | null
+  referral_seed_planted?: boolean
+  has_pivoted_to_revival?: boolean
+  options_surfaced?: string[]
+  reschedule_reason?: string | null
+  finance_paths_explored?: string[]
+  inspection_findings?: string | null
+  dispo_notes?: string | null
 }
 
 export interface BotResponse {
@@ -307,8 +320,22 @@ export interface BotResponse {
   intent: "nurture" | "qualify" | "book" | "revive" | "finance" | "reschedule"
   stage_change: boolean
   message: string | null
-  signal: "QUALIFIED" | "BOOKED" | "STALL" | "NOT_INTERESTED" | "SOFT_CLOSE" | "ESCALATE" | null
+  signal:
+    | "QUALIFIED"
+    | "BOOKED"
+    | "STALL"
+    | "NOT_INTERESTED"
+    | "SOFT_CLOSE"
+    | "ESCALATE"
+    // Jordan signals
+    | "RE_QUALIFY"
+    | "DEAD"
+    | "FINANCE_RETRY"
+    | "FINANCE_DEAD"
+    | "RESCHEDULED"
+    | null
   booked_slot: string | null
+  rescheduled_slot?: string | null  // "YYYY-MM-DD HH:MM" — Jordan rebook confirmation
 }
 
 export const EMPTY_BOT_CONTEXT: BotContext = {
@@ -323,4 +350,16 @@ export const EMPTY_BOT_CONTEXT: BotContext = {
   source_type: null,
   rep_name: null,
   summary: "",
+  // Jordan-specific defaults
+  lead_scenario: null,
+  primary_objection: null,
+  objections_surfaced: [],
+  days_since_appointment: null,
+  referral_seed_planted: false,
+  has_pivoted_to_revival: false,
+  options_surfaced: [],
+  reschedule_reason: null,
+  finance_paths_explored: [],
+  inspection_findings: null,
+  dispo_notes: null,
 }
