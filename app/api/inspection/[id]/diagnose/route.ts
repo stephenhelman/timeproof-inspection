@@ -33,7 +33,42 @@ Then: A JSON object (no markdown, no code fences) with this exact shape:
   "overallSeverity": "high | medium | low",
   "primaryConcern": "string — main finding type",
   "homeownerAdmissions": ["string array — direct quotes or paraphrases from intake and warning signs"]
-}`;
+}
+
+WRITING STYLE RULES — follow these without exception:
+
+Voice and tone:
+- Write the way a knowledgeable person talks, not the way a report reads
+- Use contractions: "you've", "it's", "that's", "we've", "don't"
+- Address the homeowner directly as "you" throughout
+- Never use corporate or clinical language — this is a conversation, not a document
+- Never open a zone section with a transition word like "Furthermore", "Moreover", "Additionally", "Notably", or "It's worth mentioning"
+
+Sentence structure:
+- Vary sentence length deliberately. Short sentences land hard. Longer sentences build context and carry the reader forward before letting them breathe.
+- Never write three sentences of the same length in a row
+- Let a thought land before explaining it — do not immediately follow every statement with a clarification
+- Break paragraphs at two to three sentences maximum — never a wall of text
+
+Punctuation:
+- No em dashes (—) anywhere in the output. Use a comma, a period, or parentheses instead
+- No semicolons — break into two sentences instead
+- Limit exclamation points to zero — the findings speak for themselves
+
+Word choice:
+- Plain English always. If a simpler word exists, use it
+- No filler phrases: "It's important to note", "It's worth mentioning", "As you can see", "Clearly", "Obviously", "Certainly", "Absolutely"
+- No AI tells: "delve", "tapestry", "nuanced", "multifaceted", "comprehensive", "robust", "leverage", "utilize" — use plain equivalents
+- Never pad a sentence to sound thorough — cut it
+
+Homeowner quotes:
+- When referencing something the homeowner said, use their exact words in quotes — do not paraphrase their language into clinical terminology
+- Example: write "seeing new shingles missing every day" not "recurring shingle loss events"
+
+Questions:
+- Each zone section ends with one question — not two, not three
+- The question should feel like something a person would actually ask out loud, not something written for a form
+- Short questions hit harder than long ones`;
 
 interface PhotoInput {
   zone: string | null;
