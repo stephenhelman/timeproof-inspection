@@ -1,11 +1,24 @@
 import type { FinanceContext } from '../types';
 
+interface DiagnosisZone {
+  zone?: string;
+  findingType?: string;
+  severity?: string;
+}
+
+interface AiDiagnosis {
+  zones?: DiagnosisZone[];
+  overallSeverity?: string;
+  primaryConcern?: string;
+}
+
 export function getFinanceMemoryModule(context: FinanceContext): string {
   const {
     inspection_findings,
     days_since_appointment,
     lender_attempted,
     dispo_notes,
+    ai_diagnosis_structured = null,
     options_surfaced,
   } = context;
 
@@ -14,6 +27,21 @@ export function getFinanceMemoryModule(context: FinanceContext): string {
 
   if (inspection_findings) {
     memory += `\nINSPECTION FINDINGS (consequence context — use sparingly, they already know):\n${inspection_findings}\n`;
+  }
+
+  // Structured diagnosis — use severity and primary concern for implicit consequence framing
+  const diag = ai_diagnosis_structured as AiDiagnosis | null;
+  if (diag?.primaryConcern || diag?.overallSeverity) {
+    memory += `\nSEVERITY CONTEXT (implicit only — do not quote directly):\n`;
+    if (diag.primaryConcern) memory += `Primary concern: ${diag.primaryConcern}\n`;
+    if (diag.overallSeverity) memory += `Overall severity: ${diag.overallSeverity}\n`;
+    if (diag.zones && diag.zones.length > 0) {
+      const highSeverity = diag.zones.filter((z) => z.severity === 'high' || z.severity === 'critical');
+      if (highSeverity.length > 0) {
+        memory += `High/critical zones: ${highSeverity.map((z) => [z.zone, z.findingType].filter(Boolean).join(' — ')).join('; ')}\n`;
+      }
+    }
+    memory += `Use this to understand the weight of the situation — not to pressure.\n`;
   }
 
   if (days_since_appointment !== null) {

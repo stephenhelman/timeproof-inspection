@@ -185,6 +185,11 @@ export interface RevivalContext {
   inspection_findings: string | null;
   days_since_appointment: number | null;
 
+  // Inspection intelligence — Sprint 10
+  ai_diagnosis_structured?: Record<string, unknown> | null;
+  post_diagnosis_admission?: string | null;
+  warning_sign_responses?: Record<string, unknown> | null;
+
   outcome: 'demo_not_sold' | 'no_show' | 'porched' | null;
   decision_maker_present: boolean | null;
   primary_objection: string | null;
@@ -268,6 +273,9 @@ export interface FinanceContext {
   days_since_appointment: number | null;
   lender_attempted: string | null;
   dispo_notes: string | null;
+
+  // Inspection intelligence — Sprint 10
+  ai_diagnosis_structured?: Record<string, unknown> | null;
 
   options_surfaced: string[];
 }

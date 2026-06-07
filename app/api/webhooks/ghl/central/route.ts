@@ -51,7 +51,6 @@ import {
   getAvailableSlots,
   createSlotLock,
   validateSlotBeforeConfirm,
-  confirmBooking,
   notifyRep,
 } from "@/src/lib/bot-engine";
 import {
@@ -61,7 +60,8 @@ import {
   logWebhookHit,
 } from "@/src/lib/bot-webhook-utils";
 import { getSrLeadFromDb, updateSrLead } from "@/src/lib/ghl-custom-object";
-import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
+import { moveGhlOpportunityStage, createGhlOpportunity } from "@/src/lib/ghl-contacts";
+import { createAppointmentWithInspection } from "@/src/lib/appointment-service";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
 import { assembleRevivalPrompt } from "@/src/lib/prompts/qntum/assemblers/revival";
 import { assembleReschedulePrompt } from "@/src/lib/prompts/qntum/assemblers/reschedule";
@@ -167,6 +167,17 @@ async function handleRevivalWebhook(ctx: CentralWebhookContext): Promise<void> {
   const daysSince = lastInspection?.createdAt
     ? Math.floor((Date.now() - lastInspection.createdAt.getTime()) / 86400000)
     : null;
+  const aiDiagnosisStructured =
+    (lastInspection?.aiDiagnosisStructured as Record<string, unknown> | null) ??
+    null;
+  const intakePass2Data = lastInspection?.intakePass2 as
+    | { postDiagnosisAdmission?: string }
+    | null
+    | undefined;
+  const postDiagnosisAdmission = intakePass2Data?.postDiagnosisAdmission ?? null;
+  const warningSignResponses =
+    (lastInspection?.warningSignResponses as Record<string, unknown> | null) ??
+    null;
 
   const dispoPrimaryObjection =
     (rawLead.dispoPrimaryObjection as string | null) ?? null;
@@ -207,6 +218,9 @@ async function handleRevivalWebhook(ctx: CentralWebhookContext): Promise<void> {
     inspection_completed: inspectionFindings !== null,
     inspection_findings: inspectionFindings,
     days_since_appointment: daysSince,
+    ai_diagnosis_structured: aiDiagnosisStructured,
+    post_diagnosis_admission: postDiagnosisAdmission,
+    warning_sign_responses: warningSignResponses,
     outcome: dispoOutcome as RevivalContext["outcome"],
     decision_maker_present: lead.dispoDecisionMakerPresent ?? null,
     primary_objection: dispoPrimaryObjection,
@@ -283,6 +297,31 @@ async function handleRevivalWebhook(ctx: CentralWebhookContext): Promise<void> {
       { sr_status: "NEW", sr_bot_stage: "booking" },
     );
     await addGhlTag(ghlContactId, "sr_booking");
+    // Move revival opp to Re-Qualified stage
+    if (lead.ghlOpportunityId && process.env.GHL_STAGE_RE_QUALIFIED) {
+      await moveGhlOpportunityStage(
+        lead.ghlOpportunityId,
+        process.env.GHL_STAGE_RE_QUALIFIED,
+      ).catch((err) =>
+        console.error("[revival] revival opp stage move failed:", err),
+      );
+    }
+    // Create new Inspection pipeline opp at Appointment Set
+    if (
+      ghlContactId &&
+      process.env.GHL_PIPELINE_INSPECTION &&
+      process.env.GHL_STAGE_APPOINTMENT_SET
+    ) {
+      await createGhlOpportunity({
+        ghlContactId,
+        contactName: lead.customerName,
+        pipelineId: process.env.GHL_PIPELINE_INSPECTION,
+        pipelineStageId: process.env.GHL_STAGE_APPOINTMENT_SET,
+        sourceName: "revival-re-qualified",
+      }).catch((err) =>
+        console.error("[revival] new inspection opp creation failed:", err),
+      );
+    }
   } else if (rawResponse.includes("[DEAD]")) {
     await transitionLead(
       lead.id,
@@ -509,7 +548,22 @@ async function handleRescheduleWebhook(
       zoneStr,
     );
     if (validation.ok) {
-      await confirmBooking(lead.id, ghlContactId, date, "");
+      const assignedUserId =
+        lead.assignedUserId ?? process.env.GHL_DEFAULT_ASSIGNEE_ID ?? null;
+      if (assignedUserId) {
+        await createAppointmentWithInspection({
+          leadId: lead.id,
+          assignedUserId,
+          scheduledAt: date,
+          zone: zoneStr,
+          createdBy: "JORDAN",
+        });
+      }
+      await prisma.slotLock
+        .deleteMany({ where: { leadId: lead.id } })
+        .catch((err) =>
+          console.error("[reschedule] SlotLock cleanup failed:", err),
+        );
       await transitionLead(
         lead.id,
         ghlContactId,
@@ -622,6 +676,9 @@ async function handleFinanceWebhook(ctx: CentralWebhookContext): Promise<void> {
   const daysSince = lastInspection?.createdAt
     ? Math.floor((Date.now() - lastInspection.createdAt.getTime()) / 86400000)
     : null;
+  const financeAiDiagnosis =
+    (lastInspection?.aiDiagnosisStructured as Record<string, unknown> | null) ??
+    null;
   const lenderAttempted = rawLead.lenderAttempted ? "prior lender" : null;
   const dispoNotes = (rawLead.dispoNotes as string | null) ?? null;
 
@@ -645,6 +702,7 @@ async function handleFinanceWebhook(ctx: CentralWebhookContext): Promise<void> {
     days_since_appointment: daysSince,
     lender_attempted: lenderAttempted,
     dispo_notes: dispoNotes,
+    ai_diagnosis_structured: financeAiDiagnosis,
     options_surfaced: getOptionsSurfacedFromThread(msgs),
   });
 
@@ -698,16 +756,39 @@ async function handleFinanceWebhook(ctx: CentralWebhookContext): Promise<void> {
 
   if (rawResponse.includes("[FINANCE_RETRY]")) {
     await addGhlTag(ghlContactId, "sr_finance_ready");
+    await removeGhlTag(ghlContactId, "sr_credit_fail");
+    const optionFound = financeCtx.options_surfaced.slice(-1)[0] ?? "unknown";
+    // Find a manager to own the Finance Review task
+    const financeManager = await prisma.user.findFirst({
+      where: {
+        role: { in: ["SALES_MANAGER", "REGIONAL", "ADMIN"] },
+        isActive: true,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    if (financeManager) {
+      await prisma.task.create({
+        data: {
+          leadId: lead.id,
+          type: "FINANCE_REVIEW",
+          assignedUserId: financeManager.id,
+          context: `Finance path identified via Jordan bot — homeowner exploring ${optionFound}. Review conversation and support the close.`,
+          availableOutcomes: [
+            "path_identified",
+            "no_path",
+            "credit_repair_referred",
+          ],
+          createdBy: "BOT",
+        },
+      });
+    }
     if (lead.assignedUserId) {
-      const optionFound = financeCtx.options_surfaced.slice(-1)[0] ?? "unknown";
       await notifyRep(
         lead.assignedUserId,
         lead.id,
         `Finance path identified — homeowner exploring ${optionFound}. Follow up to support.`,
       );
     }
-    const { removeGhlTag: rgTag } = await import("@/src/lib/ghl-sms");
-    await rgTag(ghlContactId, "sr_credit_fail");
   } else if (rawResponse.includes("[FINANCE_DEAD]")) {
     await transitionLead(
       lead.id,
@@ -718,6 +799,43 @@ async function handleFinanceWebhook(ctx: CentralWebhookContext): Promise<void> {
       "silent",
       { sr_status: "DEAD", sr_bot_stage: "silent" },
     );
+    if (lead.ghlOpportunityId && process.env.GHL_STAGE_EXHAUSTED) {
+      await moveGhlOpportunityStage(
+        lead.ghlOpportunityId,
+        process.env.GHL_STAGE_EXHAUSTED,
+      ).catch((err) =>
+        console.error("[finance] exhausted opp stage move failed:", err),
+      );
+    }
+    const followupAssigneeId =
+      lead.assignedUserId ??
+      (
+        await prisma.user.findFirst({
+          where: {
+            role: { in: ["SALES_MANAGER", "REGIONAL", "ADMIN"] },
+            isActive: true,
+          },
+          orderBy: { createdAt: "asc" },
+        })
+      )?.id ??
+      null;
+    if (followupAssigneeId) {
+      await prisma.task.create({
+        data: {
+          leadId: lead.id,
+          type: "REP_FOLLOWUP",
+          assignedUserId: followupAssigneeId,
+          context: `Finance discovery ended — no viable path found. Homeowner marked dead after Jordan bot conversation. Manual follow-up may surface future opportunity.`,
+          availableOutcomes: [
+            "contacted",
+            "appointment_set",
+            "not_interested",
+            "needs_escalation",
+          ],
+          createdBy: "BOT",
+        },
+      });
+    }
   }
 }
 

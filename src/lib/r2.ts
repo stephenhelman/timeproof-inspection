@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // ── Validate env vars ─────────────────────────────────────
 
@@ -63,6 +64,25 @@ export async function uploadFileToR2({
 
   const url = `${PUBLIC_URL}/${key}`;
   return { url, key };
+}
+
+// ── Generate a presigned PUT URL for direct browser upload ───────────────────
+// The client PUTs directly to R2 — file bytes never pass through Vercel.
+// ContentType is intentionally excluded from the signature so the client
+// can supply file.type without a signature mismatch.
+
+export async function generatePresignedPutUrl({
+  key,
+  expiresIn = 300,
+}: {
+  key: string;
+  expiresIn?: number;
+}): Promise<string> {
+  return getSignedUrl(
+    r2,
+    new PutObjectCommand({ Bucket: BUCKET, Key: key }),
+    { expiresIn },
+  );
 }
 
 // ── Delete a file from R2 ─────────────────────────────────

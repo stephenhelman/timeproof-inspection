@@ -528,45 +528,131 @@ export default function Step0Photos({ inspectionId, initialData }: Props) {
     const setUploading = section === "roof" ? setRoofUploading : setAtticUploading;
     const setPhotos = section === "roof" ? setRoofPhotos : setAtticPhotos;
 
-    const items: UploadingItem[] = Array.from(files).map((f) => ({
-      localId: `${Date.now()}-${f.name}`,
+    const fileArray = Array.from(files);
+    const items: UploadingItem[] = fileArray.map((f, i) => ({
+      localId: `${Date.now()}-${i}-${f.name}`,
       name: f.name,
       progress: 0,
     }));
 
     setUploading((prev) => [...prev, ...items]);
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const item = items[i];
-
+    const setItemProgress = (localId: string, progress: number) => {
       setUploading((prev) =>
-        prev.map((u) => (u.localId === item.localId ? { ...u, progress: 20 } : u))
+        prev.map((u) => (u.localId === localId ? { ...u, progress } : u))
       );
+    };
+    const setItemError = (localId: string, error: string) => {
+      setUploading((prev) =>
+        prev.map((u) => (u.localId === localId ? { ...u, progress: 0, error } : u))
+      );
+    };
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("inspectionId", inspectionId);
-      formData.append("photoSection", section);
+    // Step 1: Presign all in parallel
+    items.forEach((item) => setItemProgress(item.localId, 10));
 
-      try {
-        const res = await fetch("/api/photo/upload", { method: "POST", body: formData });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({})) as { error?: string };
-          setUploading((prev) =>
-            prev.map((u) => (u.localId === item.localId ? { ...u, progress: 0, error: err.error ?? "Upload failed" } : u))
-          );
-          continue;
+    type PresignResult = {
+      item: UploadingItem;
+      file: File;
+      presignedUrl: string;
+      r2Key: string;
+    };
+
+    const presignResults = await Promise.all(
+      fileArray.map(async (file, i): Promise<PresignResult | null> => {
+        const item = items[i];
+        try {
+          const params = new URLSearchParams({
+            inspectionId,
+            section,
+            filename: file.name,
+          });
+          const res = await fetch(`/api/photo/presign?${params.toString()}`);
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({})) as { error?: string };
+            setItemError(item.localId, err.error ?? "Presign failed");
+            return null;
+          }
+          const { presignedUrl, r2Key } = await res.json() as {
+            presignedUrl: string;
+            r2Key: string;
+          };
+          setItemProgress(item.localId, 30);
+          return { item, file, presignedUrl, r2Key };
+        } catch {
+          setItemError(item.localId, "Presign failed");
+          return null;
         }
-        const photo = await res.json() as PhotoRecord;
-        setPhotos((prev) => [...prev, photo]);
-        setUploading((prev) => prev.filter((u) => u.localId !== item.localId));
-      } catch {
-        setUploading((prev) =>
-          prev.map((u) => (u.localId === item.localId ? { ...u, progress: 0, error: "Upload failed" } : u))
-        );
-      }
-    }
+      })
+    );
+
+    const toUpload = presignResults.filter((r): r is PresignResult => r !== null);
+
+    // Step 2: PUT directly to R2 in parallel — bytes never pass through Vercel
+    type PutResult = PresignResult & { putOk: boolean };
+
+    const putResults = await Promise.all(
+      toUpload.map(async (result): Promise<PutResult> => {
+        try {
+          const putRes = await fetch(result.presignedUrl, {
+            method: "PUT",
+            body: result.file,
+            headers: { "Content-Type": result.file.type || "image/jpeg" },
+          });
+          if (!putRes.ok) {
+            console.error(`[photo-upload] R2 PUT failed for key: ${result.r2Key} (${putRes.status})`);
+            setItemError(result.item.localId, "Upload to storage failed");
+            return { ...result, putOk: false };
+          }
+          setItemProgress(result.item.localId, 90);
+          return { ...result, putOk: true };
+        } catch (err) {
+          console.error(`[photo-upload] R2 PUT exception for key: ${result.r2Key}`, err);
+          setItemError(result.item.localId, "Upload to storage failed");
+          return { ...result, putOk: false };
+        }
+      })
+    );
+
+    const toConfirm = putResults.filter((r) => r.putOk);
+
+    // Step 3: Confirm all in parallel — creates DB records
+    await Promise.all(
+      toConfirm.map(async (result) => {
+        try {
+          const res = await fetch("/api/photo/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              inspectionId,
+              r2Key: result.r2Key,
+              section,
+              zone: null,
+              damageTags: [],
+              description: "",
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({})) as { error?: string };
+            console.error(
+              `[photo-upload] confirm failed for r2Key: ${result.r2Key} — orphaned object may need cleanup`,
+              err.error
+            );
+            setItemError(result.item.localId, err.error ?? "Confirm failed");
+            return;
+          }
+          const photo = await res.json() as PhotoRecord;
+          setPhotos((prev) => [...prev, photo]);
+          setUploading((prev) => prev.filter((u) => u.localId !== result.item.localId));
+        } catch (err) {
+          console.error(
+            `[photo-upload] confirm exception for r2Key: ${result.r2Key} — orphaned object may need cleanup`,
+            err
+          );
+          setItemError(result.item.localId, "Confirm failed");
+        }
+      })
+    );
   }, [inspectionId]);
 
   const updatePhoto = useCallback((id: string, section: Section, updates: Partial<PhotoRecord>) => {
