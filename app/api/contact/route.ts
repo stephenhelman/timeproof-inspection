@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
+import { notifyManager } from "@/src/lib/ghl-sms";
 
 export async function POST(req: Request) {
   let body: Record<string, string>;
@@ -43,9 +44,10 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
-  // TODO: fire GHL notification to setter manager
-  // When ready: call ghl-service to notify the setter manager of a new contact_form lead.
-  // Do NOT trigger the bot pipeline — this lead must be followed up manually.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.scopereports.com";
+  await notifyManager(
+    `New contact form submission — ${name.trim()}${phone ? ` · ${phone.trim()}` : ""}${city ? ` · ${city}` : ""}\n${appUrl}/leads/${lead.id}`,
+  ).catch((e) => console.warn("[contact] notifyManager failed:", e));
 
   return NextResponse.json({ ok: true, leadId: lead.id }, { status: 201 });
 }

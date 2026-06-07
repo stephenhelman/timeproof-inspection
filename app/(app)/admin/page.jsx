@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePermissions } from "@/src/lib/use-permissions";
 import { useRouter } from "next/navigation";
-import { Users, Webhook, Settings, Users2, Plus, RefreshCw, CheckCircle2, XCircle, ChevronDown } from "lucide-react";
+import { Users, Webhook, Settings, Users2, Plus, RefreshCw, BarChart2, PhoneCall } from "lucide-react";
 
 const ROLES = ["REP", "SETTER", "SETTER_MANAGER", "SALES_MANAGER", "REGIONAL", "ADMIN"];
 
@@ -33,7 +33,9 @@ function UsersTab({ perms }) {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [showCreate, setShowCreate] = useState(false);
+  const [createMode, setCreateMode] = useState("regular"); // "regular" | "staff"
   const [createForm, setCreateForm] = useState({ name: "", email: "", role: "REP", password: "" });
+  const [staffForm, setStaffForm] = useState({ name: "", phone: "", role: "REP", area: "", ghlUserId: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -78,6 +80,25 @@ function UsersTab({ perms }) {
     setSaving(false);
   }
 
+  async function createStaffUser() {
+    setSaving(true);
+    setError(null);
+    const res = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...staffForm, staffOnly: true }),
+    });
+    if (res.ok) {
+      setShowCreate(false);
+      setStaffForm({ name: "", phone: "", role: "REP", area: "", ghlUserId: "" });
+      await load();
+    } else {
+      const d = await res.json();
+      setError(d.error);
+    }
+    setSaving(false);
+  }
+
   async function resetPassword(id, email) {
     const ok = confirm(`Send a password reset email to ${email}?`);
     if (!ok) return;
@@ -97,18 +118,26 @@ function UsersTab({ perms }) {
       <div className="flex items-center justify-between">
         <p className="text-text-secondary text-sm">{users.length} users</p>
         {perms.canManageUsers && (
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="flex items-center gap-1.5 bg-brand-blue hover:bg-accent-blue-hover text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Plus size={14} /> New User
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setCreateMode("regular"); setShowCreate(v => !v || createMode !== "regular"); }}
+              className="flex items-center gap-1.5 bg-brand-blue hover:bg-accent-blue-hover text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Plus size={14} /> New User
+            </button>
+            <button
+              onClick={() => { setCreateMode("staff"); setShowCreate(v => !v || createMode !== "staff"); }}
+              className="flex items-center gap-1.5 bg-bg-elevated hover:bg-bg-surface border border-border text-text-secondary text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Plus size={14} /> New Staff User
+            </button>
+          </div>
         )}
       </div>
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
-      {showCreate && (
+      {showCreate && createMode === "regular" && (
         <div className="bg-bg-elevated border border-border rounded-xl p-4 flex flex-col gap-3">
           <p className="text-text-primary font-medium text-sm">Create User</p>
           <div className="grid grid-cols-2 gap-3">
@@ -123,6 +152,30 @@ function UsersTab({ perms }) {
             <button onClick={() => setShowCreate(false)} className="text-text-secondary text-sm px-3 py-1.5 rounded-lg hover:bg-bg-surface transition-colors">Cancel</button>
             <button onClick={createUser} disabled={saving || !createForm.email} className="bg-brand-blue hover:bg-accent-blue-hover text-white text-sm px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50">
               {saving ? "Creating…" : "Create"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showCreate && createMode === "staff" && (
+        <div className="bg-bg-elevated border border-border rounded-xl p-4 flex flex-col gap-3">
+          <div>
+            <p className="text-text-primary font-medium text-sm">Create Staff User</p>
+            <p className="text-text-secondary text-xs mt-0.5">Staff accounts have no login. Used for assignment and attribution only.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input className="input-field" placeholder="Name *" value={staffForm.name} onChange={e => setStaffForm(f => ({ ...f, name: e.target.value }))} />
+            <input className="input-field" placeholder="Phone" value={staffForm.phone} onChange={e => setStaffForm(f => ({ ...f, phone: e.target.value }))} />
+            <select className="input-field" value={staffForm.role} onChange={e => setStaffForm(f => ({ ...f, role: e.target.value }))}>
+              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <input className="input-field" placeholder="Zone / Area" value={staffForm.area} onChange={e => setStaffForm(f => ({ ...f, area: e.target.value }))} />
+            <input className="input-field col-span-2" placeholder="GHL User ID (optional)" value={staffForm.ghlUserId} onChange={e => setStaffForm(f => ({ ...f, ghlUserId: e.target.value }))} />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setShowCreate(false)} className="text-text-secondary text-sm px-3 py-1.5 rounded-lg hover:bg-bg-surface transition-colors">Cancel</button>
+            <button onClick={createStaffUser} disabled={saving || !staffForm.name.trim()} className="bg-brand-blue hover:bg-accent-blue-hover text-white text-sm px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+              {saving ? "Creating…" : "Create Staff User"}
             </button>
           </div>
         </div>
@@ -168,8 +221,13 @@ function UsersTab({ perms }) {
                   </>
                 ) : (
                   <>
-                    <td className="p-3 text-text-primary font-medium">{u.name || "—"}</td>
-                    <td className="p-3 text-text-secondary">{u.email}</td>
+                    <td className="p-3 text-text-primary font-medium">
+                      <div className="flex items-center gap-2">
+                        {u.name || "—"}
+                        {u.staffOnly && <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-300">Staff</span>}
+                      </div>
+                    </td>
+                    <td className="p-3 text-text-secondary">{u.staffOnly ? <span className="text-text-hint italic text-xs">no login</span> : u.email}</td>
                     <td className="p-3"><Badge text={u.role} /></td>
                     <td className="p-3">
                       <span className={`text-xs font-medium ${u.isActive ? "text-emerald-400" : "text-zinc-500"}`}>
@@ -183,7 +241,7 @@ function UsersTab({ perms }) {
                             onClick={() => { setEditingId(u.id); setEditForm({ name: u.name, role: u.role, isActive: u.isActive }); }}
                             className="text-text-secondary text-xs hover:text-text-primary"
                           >Edit</button>
-                          <button onClick={() => resetPassword(u.id, u.email)} className="text-text-secondary text-xs hover:text-text-primary">Reset PW</button>
+                          {!u.staffOnly && <button onClick={() => resetPassword(u.id, u.email)} className="text-text-secondary text-xs hover:text-text-primary">Reset PW</button>}
                         </div>
                       </td>
                     )}
@@ -403,11 +461,162 @@ function SystemTab() {
   );
 }
 
+// ── Tab: Pipeline Health ───────────────────────────────────────────────────
+function PipelineTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    const res = await fetch("/api/admin/pipeline-health");
+    if (res.ok) setData(await res.json());
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  if (loading) return <p className="text-text-secondary text-sm p-4">Loading…</p>;
+  if (!data) return <p className="text-accent-red text-sm p-4">Failed to load pipeline data.</p>;
+
+  const statCard = (label, value, sub) => (
+    <div key={label} className="bg-bg-surface border border-border rounded-xl p-4">
+      <p className="text-text-secondary text-xs">{label}</p>
+      <p className="text-text-primary text-2xl font-bold mt-1">{value}</p>
+      {sub && <p className="text-text-hint text-xs mt-0.5">{sub}</p>}
+    </div>
+  );
+
+  const TABLE_STAGE_LABEL = {
+    draft: "Draft",
+    sold: "Sold",
+    demo_not_sold: "Demo Not Sold",
+    no_show: "No Show",
+    porched: "Porched",
+    reschedule: "Reschedule",
+    cancelled: "Cancelled",
+  };
+
+  const TASK_LABEL = {
+    SETTER_FOLLOWUP: "Setter Follow-up",
+    REP_FOLLOWUP: "Rep Follow-up",
+    FINANCE_REVIEW: "Finance Review",
+    ZIP_REVIEW: "ZIP Review",
+    MANUAL_BOOKING: "Manual Booking",
+    ESCALATION: "Escalation",
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Bot sequences */}
+      <div>
+        <p className="text-text-primary font-semibold mb-3">Active Bot Sequences</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {statCard("Alex (pre-appointment)", data.botSequences.alex, "qualifying · nurture · booking")}
+          {statCard("Jordan (revival)", data.botSequences.jordan, "revival · reschedule · finance")}
+        </div>
+      </div>
+
+      {/* Inspection stages */}
+      <div>
+        <p className="text-text-primary font-semibold mb-3">Inspection Pipeline</p>
+        <div className="bg-bg-surface border border-border rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left p-3 text-text-secondary font-medium">Stage</th>
+                <th className="text-right p-3 text-text-secondary font-medium">Count</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {data.inspectionStages.length === 0 ? (
+                <tr><td colSpan={2} className="p-4 text-center text-text-secondary text-xs">No inspections yet.</td></tr>
+              ) : data.inspectionStages.map(({ stage, count }) => (
+                <tr key={stage} className="hover:bg-bg-elevated transition-colors">
+                  <td className="p-3 text-text-primary">{TABLE_STAGE_LABEL[stage] ?? stage}</td>
+                  <td className="p-3 text-right text-text-secondary font-mono">{count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Revival stages + pending tasks side by side */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <p className="text-text-primary font-semibold mb-3">Revival Pipeline</p>
+          <div className="bg-bg-surface border border-border rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left p-3 text-text-secondary font-medium">Stage</th>
+                  <th className="text-right p-3 text-text-secondary font-medium">Count</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {data.revivalStages.length === 0 ? (
+                  <tr><td colSpan={2} className="p-4 text-center text-text-secondary text-xs">None.</td></tr>
+                ) : data.revivalStages.map(({ stage, count }) => (
+                  <tr key={stage} className="hover:bg-bg-elevated transition-colors">
+                    <td className="p-3 text-text-primary capitalize">{String(stage).replace(/_/g, " ")}</td>
+                    <td className="p-3 text-right text-text-secondary font-mono">{count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-text-primary font-semibold">Pending Tasks by Type</p>
+          </div>
+          <div className="bg-bg-surface border border-border rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left p-3 text-text-secondary font-medium">Type</th>
+                  <th className="text-right p-3 text-text-secondary font-medium">Count</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {data.tasksPending.length === 0 ? (
+                  <tr><td colSpan={2} className="p-4 text-center text-text-secondary text-xs">No pending tasks.</td></tr>
+                ) : data.tasksPending.map(({ type, count }) => (
+                  <tr key={type} className="hover:bg-bg-elevated transition-colors">
+                    <td className="p-3 text-text-primary">{TASK_LABEL[type] ?? type}</td>
+                    <td className="p-3 text-right text-text-secondary font-mono">{count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Revival queue link */}
+      <div className="bg-bg-surface border border-border rounded-xl p-4 flex items-center justify-between">
+        <div>
+          <p className="text-text-primary font-medium text-sm">Revival Queue</p>
+          <p className="text-text-secondary text-xs mt-0.5">Leads currently in Jordan&apos;s active sequences</p>
+        </div>
+        <a
+          href="/revival"
+          className="flex items-center gap-1.5 bg-brand-blue hover:bg-accent-blue-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <PhoneCall size={14} /> View Queue
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────
 const TABS = [
   { key: "users",    label: "Users",        icon: Users },
   { key: "teams",    label: "Teams",        icon: Users2 },
   { key: "webhooks", label: "Webhook Logs", icon: Webhook },
+  { key: "pipeline", label: "Pipeline",     icon: BarChart2 },
   { key: "system",   label: "System",       icon: Settings },
 ];
 
@@ -436,6 +645,7 @@ export default function AdminPage() {
         {TABS.filter(t => {
           if (t.key === "users" || t.key === "teams") return perms.canAccessAdmin;
           if (t.key === "webhooks") return perms.canViewWebhookLogs;
+          if (t.key === "pipeline") return perms.canAccessManagerViews;
           return perms.isAdmin;
         }).map(({ key, label, icon: Icon }) => (
           <button
@@ -458,6 +668,7 @@ export default function AdminPage() {
         {tab === "users"    && <UsersTab perms={perms} />}
         {tab === "teams"    && <TeamsTab />}
         {tab === "webhooks" && <WebhookLogsTab />}
+        {tab === "pipeline" && <PipelineTab />}
         {tab === "system"   && <SystemTab />}
       </div>
     </div>

@@ -2,8 +2,17 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { isWorkEmail } from "@/src/lib/auth-constants";
 import { sendVerificationCode } from "@/src/lib/send-code";
+import { checkRateLimit, getRequestIp } from "@/src/lib/rate-limit";
 
 export async function POST(req: Request) {
+  const { ok, retryAfter } = checkRateLimit(getRequestIp(req), "auth:register-send", 10);
+  if (!ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(retryAfter) } },
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   const { email } = body;
 

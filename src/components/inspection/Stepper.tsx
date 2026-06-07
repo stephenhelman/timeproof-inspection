@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import DispoModal from "./DispoModal";
 import TasksPanel from "@/src/components/tasks/TasksPanel";
+import ReportVisitPanel from "./ReportVisitPanel";
 import Step0Photos from "./steps/Step0Photos";
 import Step1IntakeForm from "./steps/Step5IntakeForm";
 import Step2WarningSigns from "./steps/Step6WarningSigns";
@@ -49,9 +50,12 @@ interface StepperProps {
   initialData?: Record<string, any>;
   lead?: { id: string; customerName: string; streetAddress?: string | null; city?: string | null } | null;
   appointment?: { id: string; status: string } | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  reportVisits?: any[];
 }
 
-export default function Stepper({ inspectionId, initialData, lead, appointment }: StepperProps) {
+export default function Stepper({ inspectionId, initialData, lead, appointment, reportVisits: reportVisitsProp }: StepperProps) {
+  const reportVisits = reportVisitsProp ?? (initialData?.reportVisits as unknown[]) ?? [];
   const router = useRouter();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,6 +141,9 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
 
   // Tasks drawer state
   const [tasksOpen, setTasksOpen] = useState(false);
+
+  // Analytics drawer state
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
 
   // Escalate state
   const [escalateOpen, setEscalateOpen] = useState(false);
@@ -360,6 +367,27 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
         </div>
       )}
 
+      {/* ── Analytics drawer ── */}
+      {analyticsOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-bg-surface border border-border rounded-2xl w-full max-w-sm max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+              <h3 className="text-text-primary font-semibold text-sm">Report Visit Analytics</h3>
+              <button
+                type="button"
+                onClick={() => setAnalyticsOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <ReportVisitPanel visits={reportVisits as Parameters<typeof ReportVisitPanel>[0]["visits"]} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Escalate modal ── */}
       {escalateOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -513,7 +541,7 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
             <p className="text-red-400 text-xs px-1 leading-snug">{dispoError}</p>
           )}
 
-          {/* Tasks button — above Escalate */}
+          {/* Tasks button */}
           <button
             type="button"
             onClick={() => setTasksOpen(true)}
@@ -525,7 +553,19 @@ export default function Stepper({ inspectionId, initialData, lead, appointment }
             {sidebarOpen ? "Tasks" : "T"}
           </button>
 
-          {/* Escalate button — below DISPO, always visible */}
+          {/* Analytics button — report visit pre-appointment intel */}
+          <button
+            type="button"
+            onClick={() => setAnalyticsOpen(true)}
+            title={!sidebarOpen ? "Visit Analytics" : undefined}
+            className={`flex items-center justify-center gap-2 rounded-xl min-h-10 text-sm font-medium transition-colors bg-bg-elevated hover:bg-bg-elevated/80 border border-border text-text-secondary hover:text-text-primary ${
+              sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+            }`}
+          >
+            {sidebarOpen ? "Analytics" : "📊"}
+          </button>
+
+          {/* Escalate button — below Analytics, always visible */}
           <button
             type="button"
             onClick={() => { setEscalateOpen(true); setEscalateError(null); }}

@@ -358,6 +358,12 @@ export async function POST(
     }
 
     // ── RESCHEDULE ────────────────────────────────────────────────────────────
+    // KNOWN ISSUE (post-launch cleanup): RESCHEDULE Manual has a compensation gap.
+    // The new Appointment record is created client-side (DispoModal) before this route
+    // is called. If this route returns 500 after the booking succeeds, the Appointment
+    // persists in the DB but the lead status and all GHL writes below are skipped.
+    // There is no automatic rollback. The rep will need to re-submit dispo manually.
+    // Fix: move appointment creation server-side and wrap the whole flow in a transaction.
     else if (outcome === "reschedule") {
       // path: "manual" | "office"
       const reschedulePath = (fork.reschedulePath as string | null) ?? "office";

@@ -8,7 +8,7 @@ import {
   Users,
   CalendarDays,
   ClipboardCheck,
-  // PhoneCall,  // PRESERVED — not active in Qntum build (revival)
+  PhoneCall,
   CreditCard,
   LogOut,
   ShieldCheck,
@@ -32,17 +32,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     select: { profileImageUrl: true, role: true, isActive: true },
   });
 
-  // PRESERVED — not active in Qntum build (revival queue)
-  // const revivalCount = await prisma.lead.count({
-  //   where: {
-  //     status: "REVIVAL_PENDING",
-  //     ...(dbUser.role === "REP" ? { assignedUserId: session.user.id } : {}),
-  //   },
-  // });
-
   const cardUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/card/${session.user.id}`;
 
   const isAdmin = dbUser.role === "ADMIN" || dbUser.role === "REGIONAL";
+  const isManager = ["SETTER_MANAGER", "SALES_MANAGER", "REGIONAL", "ADMIN"].includes(dbUser.role);
 
   const pendingTaskCount = await prisma.task.count({
     where: {
@@ -56,6 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/leads", label: "Leads", icon: Users, badge: null },
     { href: "/calendar", label: "Calendar", icon: CalendarDays, badge: null },
     { href: "/tasks", label: "Tasks", icon: ClipboardCheck, badge: pendingTaskCount > 0 ? pendingTaskCount : null },
+    ...(isManager ? [{ href: "/revival", label: "Revival", icon: PhoneCall, badge: null }] : []),
     ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck, badge: null }] : []),
   ];
 
@@ -163,7 +157,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               )}
             </a>
           ))}
-          {/* PRESERVED — not active in Qntum build (revival mobile nav link) */}
           <a
             href={cardUrl}
             target="_blank"

@@ -91,6 +91,11 @@ export function canAccessAdmin(role: UserRole): boolean {
   return hasRank(role, "REGIONAL");
 }
 
+// Manager-only views (pipeline health, revival queue) — SETTER_MANAGER and above
+export function canAccessManagerViews(role: UserRole): boolean {
+  return hasRank(role, "SETTER_MANAGER");
+}
+
 export function canManageUsers(role: UserRole): boolean {
   return role === "ADMIN";
 }
