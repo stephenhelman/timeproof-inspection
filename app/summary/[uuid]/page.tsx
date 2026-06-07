@@ -70,6 +70,13 @@ export default async function SummaryPage({
 
   const pass2Complete = inspection.intakePass2Complete;
 
+  const aiDiagnosisDescription = inspection.aiDiagnosisDescription ?? null;
+  const intakePass2 = inspection.intakePass2 as Record<string, unknown> | null;
+  const postDiagnosisAdmission =
+    typeof intakePass2?.postDiagnosisAdmission === "string"
+      ? intakePass2.postDiagnosisAdmission
+      : null;
+
   return (
     <div className="min-h-screen bg-report-bg">
       <SectionTracker uuid={uuid}>
@@ -98,42 +105,6 @@ export default async function SummaryPage({
               <p className="text-gray-600">{address}</p>
             </div>
           </ReportSection>
-
-          {/* Diagnosis */}
-          {diagnosis.length > 0 && (
-            <ReportSection sectionKey="diagnosis" title="Inspection Findings">
-              <p className="text-gray-600 text-sm mb-4">
-                {diagnosis.length} finding{diagnosis.length !== 1 ? "s" : ""} identified
-              </p>
-              <div className="flex flex-col gap-4">
-                {diagnosis.map((f) => (
-                  <div
-                    key={f.id}
-                    className={`border rounded-xl p-4 ${SEVERITY_STYLES[f.severity] || "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${SEVERITY_BADGE[f.severity]}`}>
-                        {f.severity.toUpperCase()}
-                      </span>
-                      <h3 className="font-semibold text-base">{f.label}</h3>
-                      <span className="text-xs capitalize text-gray-500">({f.status})</span>
-                    </div>
-                    <p className="text-sm leading-relaxed">{f.explanation}</p>
-                    {(f.matchedRoofTags.length > 0 || f.matchedAtticTags.length > 0) && (
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
-                        {f.matchedRoofTags.map((t) => (
-                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
-                        ))}
-                        {f.matchedAtticTags.map((t) => (
-                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </ReportSection>
-          )}
 
           {/* Photos */}
           {(roofPhotos.length > 0 || atticPhotos.length > 0) && (
@@ -170,6 +141,67 @@ export default async function SummaryPage({
                   </div>
                 </div>
               )}
+            </ReportSection>
+          )}
+
+          {/* Roof Diagnosis */}
+          {(aiDiagnosisDescription || postDiagnosisAdmission) && (
+            <ReportSection sectionKey="roof-diagnosis" title="Roof Diagnosis">
+              <div className="flex flex-col gap-5">
+                {aiDiagnosisDescription && (
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">What We Found</p>
+                    <p className="text-report-text text-sm leading-relaxed">{aiDiagnosisDescription}</p>
+                  </div>
+                )}
+                {postDiagnosisAdmission && (
+                  <div>
+                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">In Your Own Words</p>
+                    <p className="text-gray-600 text-sm mb-3">
+                      After reviewing the inspection findings, here&apos;s how you described the condition of your roof:
+                    </p>
+                    <blockquote className="border-l-3 border-report-heading pl-4 text-report-text text-sm italic leading-relaxed bg-report-surface rounded-r-xl py-3 pr-3">
+                      {postDiagnosisAdmission}
+                    </blockquote>
+                  </div>
+                )}
+              </div>
+            </ReportSection>
+          )}
+
+          {/* Diagnosis */}
+          {diagnosis.length > 0 && (
+            <ReportSection sectionKey="diagnosis" title="Inspection Findings">
+              <p className="text-gray-600 text-sm mb-4">
+                {diagnosis.length} finding{diagnosis.length !== 1 ? "s" : ""} identified
+              </p>
+              <div className="flex flex-col gap-4">
+                {diagnosis.map((f) => (
+                  <div
+                    key={f.id}
+                    className={`border rounded-xl p-4 ${SEVERITY_STYLES[f.severity] || "bg-gray-50 border-gray-200"}`}
+                  >
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${SEVERITY_BADGE[f.severity]}`}>
+                        {f.severity.toUpperCase()}
+                      </span>
+                      <h3 className="font-semibold text-base">{f.label}</h3>
+                      <span className="text-xs capitalize text-gray-500">({f.status})</span>
+                    </div>
+                    <p className="text-sm leading-relaxed">{f.explanation}</p>
+                    {(f.matchedRoofTags.length > 0 || f.matchedAtticTags.length > 0) && (
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+                        {f.matchedRoofTags.map((t) => (
+                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
+                        ))}
+                        {f.matchedAtticTags.map((t) => (
+                          <span key={t} className="bg-white/60 border border-current/20 px-2 py-0.5 rounded-md">{t}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </ReportSection>
           )}
 

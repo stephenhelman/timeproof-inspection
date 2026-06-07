@@ -76,6 +76,15 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   checklistLabel: { fontSize: 10, color: "#374151" },
+  admissionBox: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 4,
+    backgroundColor: "#f9fafb",
+    padding: 8,
+    marginTop: 4,
+  },
+  admissionText: { fontSize: 10, color: "#374151", fontStyle: "italic", lineHeight: 1.5 },
   pageNumber: { position: "absolute", bottom: 20, right: 40, fontSize: 9, color: "#9ca3af" },
 });
 
@@ -104,6 +113,13 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
     month: "long",
     day: "numeric",
   });
+
+  const aiDiagnosisDescription: string | null = inspection.aiDiagnosisDescription ?? null;
+  const intakePass2 = inspection.intakePass2 as Record<string, unknown> | null;
+  const postDiagnosisAdmission: string | null =
+    typeof intakePass2?.postDiagnosisAdmission === "string"
+      ? intakePass2.postDiagnosisAdmission
+      : null;
 
   const doc = (
     <Document>
@@ -138,6 +154,58 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
             </View>
           </View>
         </View>
+
+        {/* Photo log — roof */}
+        {roofPhotos.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Roof Photos ({roofPhotos.length})</Text>
+            {roofPhotos.map((p: { photoNumber: number; description?: string | null; r2Url: string }) => (
+              <View key={p.photoNumber} style={styles.photoEntry}>
+                <Text style={styles.photoNum}>Photo {p.photoNumber}</Text>
+                {p.description && <Text style={styles.photoDesc}>{p.description}</Text>}
+                <Text style={styles.photoUrl}>{p.r2Url}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Photo log — attic */}
+        {atticPhotos.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Attic Photos ({atticPhotos.length})</Text>
+            {atticPhotos.map((p: { photoNumber: number; description?: string | null; r2Url: string }) => (
+              <View key={p.photoNumber} style={styles.photoEntry}>
+                <Text style={styles.photoNum}>Photo {p.photoNumber}</Text>
+                {p.description && <Text style={styles.photoDesc}>{p.description}</Text>}
+                <Text style={styles.photoUrl}>{p.r2Url}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Roof Diagnosis */}
+        {(aiDiagnosisDescription || postDiagnosisAdmission) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Roof Diagnosis</Text>
+            {aiDiagnosisDescription && (
+              <View style={{ marginBottom: postDiagnosisAdmission ? 10 : 0 }}>
+                <Text style={[styles.label, { marginBottom: 4 }]}>What We Found</Text>
+                <Text style={{ fontSize: 10, color: "#374151", lineHeight: 1.5 }}>{aiDiagnosisDescription}</Text>
+              </View>
+            )}
+            {postDiagnosisAdmission && (
+              <View>
+                <Text style={[styles.label, { marginBottom: 4 }]}>In Your Own Words</Text>
+                <Text style={[styles.label, { marginBottom: 6, color: "#6b7280", fontSize: 9 }]}>
+                  {"After reviewing the inspection findings, here's how the homeowner described the condition of their roof:"}
+                </Text>
+                <View style={styles.admissionBox}>
+                  <Text style={styles.admissionText}>{postDiagnosisAdmission}</Text>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Diagnosis findings */}
         {diagnosis.length > 0 && (
@@ -182,34 +250,6 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
               <View key={id} style={styles.warningSignItem}>
                 <Text style={{ fontSize: 10, color: "#16a34a" }}>✓</Text>
                 <Text style={{ fontSize: 10, color: "#374151" }}>{id.replace(/-/g, " ")}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Photo log — roof */}
-        {roofPhotos.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Roof Photos ({roofPhotos.length})</Text>
-            {roofPhotos.map((p: { photoNumber: number; description?: string | null; r2Url: string }) => (
-              <View key={p.photoNumber} style={styles.photoEntry}>
-                <Text style={styles.photoNum}>Photo {p.photoNumber}</Text>
-                {p.description && <Text style={styles.photoDesc}>{p.description}</Text>}
-                <Text style={styles.photoUrl}>{p.r2Url}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Photo log — attic */}
-        {atticPhotos.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Attic Photos ({atticPhotos.length})</Text>
-            {atticPhotos.map((p: { photoNumber: number; description?: string | null; r2Url: string }) => (
-              <View key={p.photoNumber} style={styles.photoEntry}>
-                <Text style={styles.photoNum}>Photo {p.photoNumber}</Text>
-                {p.description && <Text style={styles.photoDesc}>{p.description}</Text>}
-                <Text style={styles.photoUrl}>{p.r2Url}</Text>
               </View>
             ))}
           </View>

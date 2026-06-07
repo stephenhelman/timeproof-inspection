@@ -83,7 +83,8 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [stepData, setStepData] =
     useState<Record<number, Record<string, any>>>(buildInitialStepData);
-  const [currentStep, setCurrentStep] = useState(0);
+  const isComplete = initialData?.status === "complete";
+  const [currentStep, setCurrentStep] = useState(isComplete ? 6 : 0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -153,6 +154,9 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
   const [escalateDone, setEscalateDone] = useState(false);
 
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => {
+    if (initialData?.status === "complete") {
+      return new Set([0, 1, 2, 3, 4, 5, 6]);
+    }
     const initial = buildInitialStepData();
     return new Set(
       Object.keys(initial)
@@ -209,7 +213,7 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "complete" }),
       });
-      router.push("/dashboard");
+      setCompletedSteps(new Set([0, 1, 2, 3, 4, 5, 6]));
     } finally {
       setSaving(false);
     }
