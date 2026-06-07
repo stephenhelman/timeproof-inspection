@@ -18,11 +18,15 @@ export async function GET(req: Request) {
   }
 
   try {
+    // Location bias toward El Paso metro — update to dynamic zone-based coords
+    // when Scope Reports expands beyond El Paso (map User.zone → coordinates)
     const params = new URLSearchParams({
       input,
       key: apiKey,
       types: "address",
       components: "country:us",
+      location: "31.7619,-106.4850",
+      radius: "50000",
     });
     const res = await fetch(
       `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params}`,
