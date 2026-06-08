@@ -14,10 +14,15 @@ export interface BookAssemblerContext {
   message_history_count: number
   bot_context: BotContext
   area_appointments: AreaAppointment[]
+  // Set by the handler when the address was just confirmed but no time-of-day
+  // preference is known yet: ask one focused preference question instead of
+  // offering slots or escalating. Distinguishes "haven't asked yet" from
+  // "fetched and genuinely empty" (which the empty-slots branch escalates on).
+  collect_time_preference?: boolean
 }
 
 export function assembleBookPrompt(context: BookAssemblerContext): string {
-  const { first_name, zone, available_slots, qualify_summary, message_history_count, bot_context, area_appointments } = context
+  const { first_name, zone, available_slots, qualify_summary, message_history_count, bot_context, area_appointments, collect_time_preference } = context
 
   const openerBlock = message_history_count === 0
     ? `OPENER — this is the first message to the homeowner in the booking stage:\n` +
@@ -45,9 +50,11 @@ export function assembleBookPrompt(context: BookAssemblerContext): string {
     available_slots.length > 0
       ? `AVAILABLE SLOTS (offer from this list ONLY — never invent times):\n` +
         available_slots.map((s, i) => `${i + 1}. ${s.label} [${s.date} ${s.time}]`).join('\n')
-      : bot_context.address
-        ? `AVAILABLE SLOTS: none in the requested window right now. Do NOT promise to "check and get back to them" — you have no way to follow up later. Offer the nearest alternative you can, or if you genuinely have nothing to offer, hand off: set "signal" to "ESCALATE" and tell the homeowner a team member will reach out shortly to lock in a time.`
-        : `AVAILABLE SLOTS: not loaded yet because the inspection address isn't confirmed. INTERNAL INSTRUCTION — never say this to the homeowner: collect/confirm the address this turn; concrete times are provided automatically the moment it's confirmed. Do NOT escalate and do NOT promise a follow-up here.`
+      : collect_time_preference
+        ? `AVAILABLE SLOTS: intentionally not loaded yet — collect the time-of-day preference first. INTERNAL INSTRUCTION (do not quote): the address is confirmed. In this message, confirm the address back in a few words and ask ONE focused time-of-day question — exactly: "Morning or afternoon — what works better for you?" Do NOT offer specific times, do NOT ask about the day, do NOT escalate, do NOT promise a follow-up. Concrete times are offered automatically on their next reply.`
+        : bot_context.address
+          ? `AVAILABLE SLOTS: none in the requested window right now. Do NOT promise to "check and get back to them" — you have no way to follow up later. Offer the nearest alternative you can, or if you genuinely have nothing to offer, hand off: set "signal" to "ESCALATE" and tell the homeowner a team member will reach out shortly to lock in a time.`
+          : `AVAILABLE SLOTS: not loaded yet because the inspection address isn't confirmed. INTERNAL INSTRUCTION — never say this to the homeowner: collect/confirm the address this turn; concrete times are provided automatically the moment it's confirmed. Do NOT escalate and do NOT promise a follow-up here.`
 
   const proximityBlock =
     area_appointments.length > 0 && !bot_context.proximity_angle_used
@@ -135,9 +142,11 @@ ADDRESS COLLECTION:
 
 SLOT OFFERING:
 - Offer slots from the AVAILABLE SLOTS list only. Never invent times.
-- The moment the address is confirmed AND AVAILABLE SLOTS is populated, confirm the address back and offer concrete times from the list in the SAME message (see the count limit below). Never split address confirmation and slot offering into separate messages, and never say a team member will follow up with times.
+- The moment the address is confirmed AND AVAILABLE SLOTS is populated, confirm the address back and offer concrete times from the list in the SAME message (up to 3). Never split address confirmation and slot offering into separate messages, and never say a team member will follow up with times.
 - Match slot timing to bot_context.time_of_day_preference if set.
-- Offer no more than 2 slots at once.
+- Offer up to 3 slots at once.
+- EVERY time in AVAILABLE SLOTS is genuinely bookable. If the homeowner asks for a time that appears in AVAILABLE SLOTS — even one you didn't proactively offer — confirm it and book it. NEVER tell the homeowner a time isn't available when it is in the list.
+- If the homeowner asks for a time that is NOT in AVAILABLE SLOTS (e.g. "5:30" when the list has 5:00 and 6:00), don't refuse flatly — name the nearest listed times and ask them to pick, e.g. "I've got 5 or 6, not 5:30 — which works better?"
 - When homeowner confirms a slot, set booked_slot to "YYYY-MM-DD HH:MM" using 24-hour time.
 
 NEVER DEFER — THIS IS NON-NEGOTIABLE:

@@ -38,9 +38,27 @@ const CONVERSATION_LIMIT = 20;
 
 const BOOKED_SLOT_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
-// Homeowner is rejecting the offered slot(s) / asking for a different time.
-// Mirrors detectRescheduleLastMessageContext's slot_rejected pattern.
-const SLOT_REJECTION_RE = /can('t| not)|won't work|not (available|good)|different (time|day)|none of (those|these)|doesn'?t work|does not work|something (else|later|earlier)/i;
+// Homeowner is rejecting the offered slot(s) / negotiating for a different time.
+// Intent-based (not a bare clock-time match) so a confirmation like "see you at
+// 3" never fires a re-fetch, while renegotiations like "can we do something
+// around 6" / "what about 5:30" / "too soon" do.
+const SLOT_REJECTION_RE = new RegExp([
+  "can('t| not)",
+  "c(an|ould) (we|you|i) (do|push|move|make|get|come)",
+  "won'?t work",
+  "not (available|good|gonna work|going to work)",
+  "different (time|day)",
+  "none of (those|these|them)",
+  "does(n'?t| not) work",
+  "too (soon|early|late)",
+  "around \\d",
+  "(what|how) about",
+  "something (else|later|earlier|around|different|sooner)",
+  "anything (else|later|earlier|around|sooner)",
+  "a (bit|little) (later|earlier|sooner)",
+  "push (it |that )?(back|later|to)",
+  "move (it |that )?(to|back|later|earlier)",
+].join("|"), "i");
 
 async function handleStallExhaustedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
   await updateSrLead(lead.id, { sr_bot_stage: 'revival', sr_status: 'DEMO_NOT_SOLD' });
@@ -298,59 +316,87 @@ export async function handleBookWebhook(ctx: {
     return;
   }
 
-  // ── Same-turn slot offer ──────────────────────────────────────────────────
-  // If the model just confirmed a complete address but had no slots in context
-  // (the address arrived THIS turn, so the up-front fetch was skipped), fetch
-  // now and re-run once so Alex confirms the address AND offers concrete times
-  // in a single message — instead of deferring or handing off. Fires at most
-  // once per webhook (no loop); if even the fresh fetch is empty, escalate
-  // cleanly rather than re-running.
+  // ── Post-address: ask preference, then offer ──────────────────────────────
+  // The address arrived THIS turn, so the up-front fetch was skipped. Re-run once
+  // (no loop) to give the homeowner a real next step in the same message:
+  //   • No time-of-day preference yet → confirm address + ask ONE preference
+  //     question. Their reply hits the preferenceChanged re-fetch next turn.
+  //   • Preference already known → fetch and offer concrete times now; if the
+  //     fetch is empty/fails, escalate cleanly rather than re-running.
   const addressJustConfirmed =
     !!response.bot_context.address && response.bot_context.address !== freshBotCtx.address;
   if (addressJustConfirmed && offeredSlots.length === 0 && response.signal !== 'BOOKED') {
-    const secondPassSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
+    const fn = lead.customerName.trim().split(/\s+/)[0];
 
-    // Only attempt the re-run when we actually have slots to offer.
-    let offerResponse: BotResponse | null = null;
-    if (secondPassSlots.length > 0) {
-      const [y, m, d] = secondPassSlots[0].date.split('-').map(Number);
-      await createSlotLock({
-        date: new Date(y, m - 1, d),
-        time: secondPassSlots[0].time,
-        zone,
-        leadId: lead.id,
-        label: secondPassSlots[0].label || secondPassSlots[0].time,
-      });
-      const offerCtx: BookAssemblerContext = {
+    if (timePreference === 'any') {
+      // No time-of-day preference known yet — don't push 'any' slots. Confirm the
+      // address and ask ONE focused preference question. Their reply hits the
+      // preferenceChanged re-fetch path next turn and offers matching times.
+      const askCtx: BookAssemblerContext = {
         ...freshCtx,
         bot_context: response.bot_context,
-        available_slots: secondPassSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
+        available_slots: [],
+        collect_time_preference: true,
       };
-      offerResponse = await runBot(
-        assembleBookPrompt(offerCtx),
+      const askResponse = await runBot(
+        assembleBookPrompt(askCtx),
         botMessages,
         { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: response.bot_context },
       );
-    }
-
-    if (offerResponse !== null) {
-      // The second-pass output replaces pass 1 entirely — every downstream
-      // write/send below operates on `response`, so the slot-offer message (not
-      // pass 1's address-only/handoff message) is what gets stored and sent.
-      response = offerResponse;
-    } else {
-      // The second pass could not produce slots for ANY reason — empty fetch,
-      // null/failed re-run. Escalate cleanly so the rep is notified and the
-      // homeowner gets a real next step, rather than being left with no times.
-      // No further runBot — this cannot loop.
-      const fn = lead.customerName.trim().split(/\s+/)[0];
-      response = {
+      response = askResponse ?? {
+        // Haiku failure — synthesize the question so the lead always has a next
+        // step (never a dead-end).
         ...response,
-        stage_change: true,
-        signal: 'ESCALATE',
+        stage_change: false,
+        signal: null,
         booked_slot: null,
-        message: `Thanks ${fn} — I've got your address. I'm having a team member reach out to lock in the best inspection time for you.`,
+        message: `Got it, ${fn} — thanks. Morning or afternoon, what works better for you?`,
       };
+    } else {
+      // Preference already known (e.g. captured during qualify) — fetch and offer
+      // immediately in the same turn.
+      const secondPassSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
+
+      // Only attempt the re-run when we actually have slots to offer.
+      let offerResponse: BotResponse | null = null;
+      if (secondPassSlots.length > 0) {
+        const [y, m, d] = secondPassSlots[0].date.split('-').map(Number);
+        await createSlotLock({
+          date: new Date(y, m - 1, d),
+          time: secondPassSlots[0].time,
+          zone,
+          leadId: lead.id,
+          label: secondPassSlots[0].label || secondPassSlots[0].time,
+        });
+        const offerCtx: BookAssemblerContext = {
+          ...freshCtx,
+          bot_context: response.bot_context,
+          available_slots: secondPassSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
+        };
+        offerResponse = await runBot(
+          assembleBookPrompt(offerCtx),
+          botMessages,
+          { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: response.bot_context },
+        );
+      }
+
+      if (offerResponse !== null) {
+        // The second-pass output replaces pass 1 entirely — every downstream
+        // write/send below operates on `response`, so the slot-offer message (not
+        // pass 1's address-only/handoff message) is what gets stored and sent.
+        response = offerResponse;
+      } else {
+        // Could not produce slots for ANY reason — empty fetch, null/failed
+        // re-run. Escalate cleanly so the rep is notified and the homeowner gets
+        // a real next step. No further runBot — this cannot loop.
+        response = {
+          ...response,
+          stage_change: true,
+          signal: 'ESCALATE',
+          booked_slot: null,
+          message: `Thanks ${fn} — I've got your address. I'm having a team member reach out to lock in the best inspection time for you.`,
+        };
+      }
     }
   }
 
