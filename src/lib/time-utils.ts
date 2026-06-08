@@ -61,6 +61,11 @@ export function getNowMT(): {
   }
 }
 
+// Get today's date string in MT (YYYY-MM-DD)
+export function getTodayMT(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: MT_TIMEZONE }).format(new Date())
+}
+
 // Get tomorrow's date string in MT (YYYY-MM-DD)
 export function getTomorrowMT(): string {
   const now       = new Date()

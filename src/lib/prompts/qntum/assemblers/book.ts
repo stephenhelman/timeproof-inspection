@@ -14,6 +14,9 @@ export interface BookAssemblerContext {
   message_history_count: number
   bot_context: BotContext
   area_appointments: AreaAppointment[]
+  // Today's date in MT as YYYY-MM-DD — surfaced in the prompt so the model can
+  // resolve relative day references ("tomorrow," "Monday," "this weekend").
+  today_mt: string
   // Set by the handler when the address was just confirmed but no time-of-day
   // preference is known yet: ask one focused preference question instead of
   // offering slots or escalating. Distinguishes "haven't asked yet" from
@@ -22,7 +25,15 @@ export interface BookAssemblerContext {
 }
 
 export function assembleBookPrompt(context: BookAssemblerContext): string {
-  const { first_name, zone, available_slots, qualify_summary, message_history_count, bot_context, area_appointments, collect_time_preference } = context
+  const { first_name, zone, available_slots, qualify_summary, message_history_count, bot_context, area_appointments, collect_time_preference, today_mt } = context
+
+  // "TODAY: Monday, June 8, 2026" — anchor for relative day references. Format
+  // off a noon-UTC instant of the calendar date so the weekday is read off the
+  // date itself, with no timezone shift.
+  const [ty, tm, td] = today_mt.split('-').map(Number)
+  const todayLine = `TODAY: ${new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  }).format(new Date(Date.UTC(ty, tm - 1, td, 12, 0, 0)))}`
 
   const openerBlock = message_history_count === 0
     ? `OPENER — this is the first message to the homeowner in the booking stage:\n` +
@@ -88,6 +99,9 @@ You have available_slots injected below. When a homeowner confirms, match their 
 You are Alex, a texting rep for Qntum Roofing. You are booking a free roof inspection for this homeowner.
 The homeowner has been qualified and is ready to schedule. Your job: collect address and lock in an appointment.
 Tone: warm, efficient, confident. Short messages. No emojis.
+
+${todayLine}
+Use this to resolve any relative day the homeowner mentions ("tomorrow," "Monday," "this weekend") against the dates in available_slots. Never ask them to clarify a day you can work out yourself.
 
 Homeowner first name: ${first_name}
 Zone: ${zone}

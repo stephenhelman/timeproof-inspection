@@ -1,5 +1,4 @@
 import { prisma } from "@/src/lib/prisma";
-import { CalendarsClient } from "ghl-sdk";
 import type { AppointmentSource } from "@prisma/client";
 import { sendGhlSms } from "@/src/lib/ghl-sms";
 import {
@@ -26,14 +25,6 @@ export function slotToUtc(slotDate: string, slotTime: string): Date {
   const m = parseInt(pts.find((p) => p.type === "minute")?.value ?? "0", 10);
   const off = h * 60 + m - (hour * 60 + minute);
   return new Date(guess.getTime() - off * 60 * 1000);
-}
-
-// ── GHL calendar client ───────────────────────────────────────────────────
-
-function getCalendarsClient(): CalendarsClient {
-  const key = process.env.GHL_API_KEY;
-  if (!key) throw new Error("GHL_API_KEY is not set");
-  return new CalendarsClient(key);
 }
 
 // ── Core booking utility ──────────────────────────────────────────────────
@@ -87,39 +78,15 @@ export async function createAppointmentWithInspection(
     "";
 
   // ── GHL calendar event ──────────────────────────────────────────────────
-  let ghlCalendarEventId: string | null = null;
-  let ghlSyncPending = false;
-
-  const calendarId = process.env.GHL_CALENDAR_ID;
-  const locationId = process.env.GHL_LOCATION_ID;
+  // The calendar event is created by a downstream GHL automation, not here.
+  // We previously called GHL's calendar API directly; when it failed (which it
+  // did for every booking, since the automation owns it), ghlSyncPending was set
+  // true and silently suppressed the opportunity field writes, the APPOINTMENT_SET
+  // stage move, the rep assignment, and the homeowner confirmation SMS below.
+  // Removing the call and keeping ghlSyncPending false restores all of that.
+  const ghlCalendarEventId: string | null = null;
+  const ghlSyncPending = false;
   const ghlContactId = lead.ghlContactId ?? null;
-
-  if (calendarId && locationId && ghlContactId) {
-    try {
-      const calendars = getCalendarsClient();
-      const endTime = new Date(scheduledAt.getTime() + 2 * 60 * 60 * 1000);
-      const result = await calendars.createAppointment({
-        calendarId,
-        locationId,
-        contactId: ghlContactId,
-        startTime: scheduledAt.toISOString(),
-        endTime: endTime.toISOString(),
-        title: `Roof Inspection — ${lead.customerName}`,
-        assignedUserId: assignedUser?.ghlUserId ?? undefined,
-        address: inspectionAddress || undefined,
-      });
-      ghlCalendarEventId = result.id ?? null;
-    } catch (err) {
-      console.error("[appointment-service] GHL calendar event failed:", err);
-      ghlSyncPending = true;
-    }
-  } else {
-    console.warn(
-      "[appointment-service] GHL calendar env vars missing — marking ghlSyncPending",
-      { calendarId: !!calendarId, locationId: !!locationId, ghlContactId: !!ghlContactId },
-    );
-    ghlSyncPending = true;
-  }
 
   // ── Create DB records ───────────────────────────────────────────────────
   const inspection = await prisma.inspection.create({
@@ -180,27 +147,6 @@ export async function createAppointmentWithInspection(
         ? assignGhlOpportunityRep(oppId, ghlUserId)
         : Promise.resolve(),
     ]);
-  }
-
-  // ── GHL fallback log ────────────────────────────────────────────────────
-  if (ghlSyncPending) {
-    await prisma.webhookLog.create({
-      data: {
-        source: "appointment_ghl_sync_pending",
-        payload: {
-          appointmentId: appointment.id,
-          inspectionId: inspection.id,
-          leadId,
-          zone,
-          createdBy,
-        },
-        status: "error",
-        errorMessage: "GHL calendar event creation failed — sync pending",
-        leadId,
-      },
-    }).catch((err) =>
-      console.error("[appointment-service] webhookLog create failed:", err),
-    );
   }
 
   // ── Homeowner confirmation SMS ──────────────────────────────────────────

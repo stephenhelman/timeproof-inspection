@@ -29,7 +29,7 @@ import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
 import type { BotContext, BotResponse } from "@/src/lib/prompts/qntum/types";
 import type { BookAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/book";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
-import { detectTimePreference, type TimeOfDay } from "@/src/lib/time-utils";
+import { detectTimePreference, getTodayMT, type TimeOfDay } from "@/src/lib/time-utils";
 import type { Lead, SrLead } from "@prisma/client";
 
 type BotMessage = { role: string; content: string; timestamp: string };
@@ -241,6 +241,7 @@ export async function handleBookWebhook(ctx: {
     message_history_count: currentMessages.length,
     bot_context,
     area_appointments,
+    today_mt: getTodayMT(),
   };
 
   // ── Qualified handoff opener ──────────────────────────────────────────────────
