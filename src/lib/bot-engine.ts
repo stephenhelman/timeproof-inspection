@@ -14,6 +14,7 @@ import {
 } from "@/src/lib/service-zones";
 import {
   TIME_WINDOWS,
+  toUnixMs,
   type TimeOfDay,
 } from "@/src/lib/time-utils";
 import type { LeadStatus } from "@prisma/client";
@@ -432,10 +433,16 @@ export async function purgeExpiredSlotLocks(): Promise<void> {
   await prisma.slotLock.deleteMany({ where: { expiresAt: { lt: new Date() } } });
 }
 
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
+// Add `days` to a YYYY-MM-DD calendar-date string and return YYYY-MM-DD.
+// Pure calendar math anchored at UTC noon — never round-trips through a
+// local/UTC midnight that a timezone conversion could shift to the prior day.
+function addDaysToDateStr(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days, 12, 0, 0));
+  const yyyy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 // Parse a GHL slot ISO string (e.g. "2026-06-01T17:00:00-05:00") and return
@@ -574,22 +581,29 @@ export async function getAvailableSlots(
   const startHour = specificStartHour ?? window.startHour;
   const endHour   = window.endHour;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const nowMs = Date.now();
+
+  // "Today" as a calendar date in the booking timezone — NOT the server's
+  // local/UTC midnight. GHL keys its free-slots response in the timezone we
+  // request, so every date key we build must be derived in that same timezone,
+  // otherwise the lookup misses and we silently fall back to AVAILABLE_TIMES.
+  const todayMT = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
 
   // Always start from tomorrow — never offer same-day slots
   const minDaysAhead = isDistance ? Math.max(DISTANCE_ZONE_MIN_DAYS_AHEAD, 1) : 1;
-  const windowStart  = addDays(today, minDaysAhead);
-  const windowEnd    = addDays(today, BOOKING_WINDOW_DAYS);
+
+  // GHL fetch window, as UTC instants aligned to MT calendar-day boundaries.
+  const windowStartMs = toUnixMs(addDaysToDateStr(todayMT, minDaysAhead), 0);
+  const windowEndMs   = toUnixMs(addDaysToDateStr(todayMT, BOOKING_WINDOW_DAYS + 1), 0);
 
   console.log("[bot-engine] getAvailableSlots:", {
-    leadZone, isDistance, timePreference, startHour, endHour,
-    windowStart: windowStart.toISOString(), windowEnd: windowEnd.toISOString(),
-    startMs: windowStart.getTime(), endMs: windowEnd.getTime(),
+    leadZone, isDistance, timePreference, startHour, endHour, todayMT,
+    windowStart: new Date(windowStartMs).toISOString(), windowEnd: new Date(windowEndMs).toISOString(),
+    startMs: windowStartMs, endMs: windowEndMs,
   });
 
   const [ghlSlots, existingLocks] = await Promise.all([
-    fetchGhlFreeSlots(windowStart.getTime(), windowEnd.getTime()),
+    fetchGhlFreeSlots(windowStartMs, windowEndMs),
     prisma.slotLock.findMany({
       where: { expiresAt: { gt: new Date() } },
     }),
@@ -601,21 +615,20 @@ export async function getAvailableSlots(
   const results: Array<{ date: string; time: string; label: string }> = [];
 
   for (let d = minDaysAhead; d <= BOOKING_WINDOW_DAYS && results.length < 3; d++) {
-    const dayDate = addDays(today, d);
-
-    const dateStr = dayDate.toISOString().slice(0, 10); // UTC date — used for DB inspection/lock queries
     // MT calendar date — used for GHL slot key lookup, lock date comparison, and returned slot data.
     // GHL returns slot keys in the timezone we requested (America/Denver), so we must match that.
-    const ghlDateKey = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(dayDate);
+    const ghlDateKey = addDaysToDateStr(todayMT, d);
+    const [yy, mm, dd] = ghlDateKey.split('-').map(Number);
 
-    // Filter out Sunday — calendar marked unavailable
-    const dayOfWeek = new Date(ghlDateKey + 'T12:00:00').getDay();
+    // Filter out Sunday — calendar marked unavailable (use UTC noon so the
+    // weekday is read off the calendar date, not a timezone-shifted instant).
+    const dayOfWeek = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0)).getUTCDay();
     if (dayOfWeek === 0) continue;
 
-    const dayStart = new Date(dayDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayDate);
-    dayEnd.setHours(23, 59, 59, 999);
+    // UTC-midnight bounds of the calendar date — matches how SlotLock.date is
+    // stored (local-midnight of the date) and how appointment days are queried.
+    const dayStart = new Date(Date.UTC(yy, mm - 1, dd, 0, 0, 0, 0));
+    const dayEnd = new Date(Date.UTC(yy, mm - 1, dd, 23, 59, 59, 999));
 
     // Load confirmed appointments for this day to check zone conflicts + count
     const dayAppointments = await prisma.appointment.findMany({
@@ -658,6 +671,10 @@ export async function getAvailableSlots(
       // Filter to requested time window
       const slotHour = parseInt(time.split(":")[0], 10);
       if (slotHour < startHour || slotHour >= endHour) continue;
+
+      // Never offer a slot in the past. minDaysAhead already excludes today, but
+      // this is defense-in-depth against any date/timezone regression.
+      if (toUnixMs(ghlDateKey, slotHour) <= nowMs) continue;
 
       // Check 1: GHL calendar free
       if (Object.keys(ghlSlots).length > 0 && !ghlAvail.has(time)) continue;

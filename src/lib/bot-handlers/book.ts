@@ -29,6 +29,7 @@ import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
 import type { BotContext } from "@/src/lib/prompts/qntum/types";
 import type { BookAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/book";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
+import { detectTimePreference, type TimeOfDay } from "@/src/lib/time-utils";
 import type { Lead, SrLead } from "@prisma/client";
 
 type BotMessage = { role: string; content: string; timestamp: string };
@@ -36,6 +37,10 @@ type BotMessage = { role: string; content: string; timestamp: string };
 const CONVERSATION_LIMIT = 20;
 
 const BOOKED_SLOT_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+
+// Homeowner is rejecting the offered slot(s) / asking for a different time.
+// Mirrors detectRescheduleLastMessageContext's slot_rejected pattern.
+const SLOT_REJECTION_RE = /can('t| not)|won't work|not (available|good)|different (time|day)|none of (those|these)|doesn'?t work|does not work|something (else|later|earlier)/i;
 
 async function handleStallExhaustedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
   await updateSrLead(lead.id, { sr_bot_stage: 'revival', sr_status: 'DEMO_NOT_SOLD' });
@@ -142,14 +147,37 @@ export async function handleBookWebhook(ctx: {
     }
   }
 
-  // Time preference from bot_context
-  const timePreference = bot_context.time_of_day_preference ?? 'any';
+  // Effective time-of-day preference. Prefer what the homeowner stated in THIS
+  // message (deterministic parse) over stored context, so a stated/restated
+  // preference influences slot selection on the same turn rather than next turn.
+  // Fold the free-text appointment_time_preference into the enum too, so the two
+  // fields can never diverge from the value getAvailableSlots actually reads.
+  const detectedPref = trigger === 'inbound_sms' ? detectTimePreference(inboundMsg) : null;
+  const storedPref: TimeOfDay | null =
+    bot_context.time_of_day_preference
+    ?? (bot_context.appointment_time_preference
+          ? detectTimePreference(bot_context.appointment_time_preference)?.preference ?? null
+          : null);
+  const timePreference: TimeOfDay = detectedPref?.preference ?? storedPref ?? 'any';
+  const specificStartHour = detectedPref?.startHour;
+
+  // A slot rejection or a preference change must invalidate the previously
+  // offered slot and re-query — never reuse the stale lock. Otherwise the
+  // re-offer turn would run against an empty slot list and Alex would defer.
+  const slotRejected = trigger === 'inbound_sms' && SLOT_REJECTION_RE.test(inboundMsg);
+  const preferenceChanged = !!detectedPref && detectedPref.preference !== storedPref;
 
   // Slot fetching
   const existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
+  const needsFreshSlots =
+    !existingLock ||
+    trigger === 'qualified_handoff' ||
+    trigger === 'stall_followup' ||
+    slotRejected ||
+    preferenceChanged;
   let rawSlots: Array<{ date: string; time: string; label: string }> = [];
-  if (addressCollected && (!existingLock || trigger === 'qualified_handoff' || trigger === 'stall_followup')) {
-    rawSlots = await getAvailableSlots(zone, distanceZone, timePreference as 'morning' | 'afternoon' | 'evening' | 'any');
+  if (addressCollected && needsFreshSlots) {
+    rawSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
     if (rawSlots.length > 0) {
       const [y, m, d] = rawSlots[0].date.split('-').map(Number);
       await createSlotLock({
@@ -259,7 +287,9 @@ export async function handleBookWebhook(ctx: {
   }
 
   await writeBotContextToDb(ghlContactId, 'book', response.bot_context);
-  console.info('[book] writeBotContextToDb complete — motivation:', response.bot_context.motivation);
+  console.info('[book] writeBotContextToDb complete — motivation:', response.bot_context.motivation,
+    'time_of_day_preference:', response.bot_context.time_of_day_preference,
+    'appointment_time_preference:', response.bot_context.appointment_time_preference);
   if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
     writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
   }
@@ -310,6 +340,23 @@ export async function handleBookWebhook(ctx: {
       await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
     } else if (response.signal === 'ESCALATE') {
       await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
+      await addGhlTag(ghlContactId, 'sr_escalation').catch(() => null);
+      // Send the homeowner Alex's closing message (the main send block above is
+      // skipped because ESCALATE is a stage_change) so they aren't left hanging
+      // after a rejection while the rep is notified out of band.
+      if (response.message) {
+        await sendGhlSms(ghlContactId, response.message);
+        await appendMessage(threadId, 'assistant', response.message);
+      }
+      // Real human handoff — this is the non-revival exit when Alex genuinely
+      // can't serve a slot. Without it, ESCALATE would just silence the bot.
+      if (lead.assignedUserId) {
+        await notifyRep(
+          lead.assignedUserId,
+          lead.id,
+          `${lead.customerName} needs a hand booking — Alex couldn't lock a time. Reach out to schedule.`,
+        ).catch(err => console.error('[book] notifyRep ESCALATE failed:', err));
+      }
     }
   }
 }
