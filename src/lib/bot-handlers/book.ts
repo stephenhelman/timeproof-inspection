@@ -26,7 +26,7 @@ import {
 } from "@/src/lib/ghl-contacts";
 import { createAppointmentWithInspection, deriveZoneForLead } from "@/src/lib/appointment-service";
 import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
-import type { BotContext } from "@/src/lib/prompts/qntum/types";
+import type { BotContext, BotResponse } from "@/src/lib/prompts/qntum/types";
 import type { BookAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/book";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
 import { detectTimePreference, type TimeOfDay } from "@/src/lib/time-utils";
@@ -292,10 +292,66 @@ export async function handleBookWebhook(ctx: {
   const systemPrompt = assembleBookPrompt(freshCtx);
   const botMessages = reloadedMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp }));
 
-  const response = await runBot(systemPrompt, botMessages, { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: freshBotCtx });
+  let response = await runBot(systemPrompt, botMessages, { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: freshBotCtx });
   if (response === null) {
     await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
     return;
+  }
+
+  // ── Same-turn slot offer ──────────────────────────────────────────────────
+  // If the model just confirmed a complete address but had no slots in context
+  // (the address arrived THIS turn, so the up-front fetch was skipped), fetch
+  // now and re-run once so Alex confirms the address AND offers concrete times
+  // in a single message — instead of deferring or handing off. Fires at most
+  // once per webhook (no loop); if even the fresh fetch is empty, escalate
+  // cleanly rather than re-running.
+  const addressJustConfirmed =
+    !!response.bot_context.address && response.bot_context.address !== freshBotCtx.address;
+  if (addressJustConfirmed && offeredSlots.length === 0 && response.signal !== 'BOOKED') {
+    const secondPassSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
+
+    // Only attempt the re-run when we actually have slots to offer.
+    let offerResponse: BotResponse | null = null;
+    if (secondPassSlots.length > 0) {
+      const [y, m, d] = secondPassSlots[0].date.split('-').map(Number);
+      await createSlotLock({
+        date: new Date(y, m - 1, d),
+        time: secondPassSlots[0].time,
+        zone,
+        leadId: lead.id,
+        label: secondPassSlots[0].label || secondPassSlots[0].time,
+      });
+      const offerCtx: BookAssemblerContext = {
+        ...freshCtx,
+        bot_context: response.bot_context,
+        available_slots: secondPassSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
+      };
+      offerResponse = await runBot(
+        assembleBookPrompt(offerCtx),
+        botMessages,
+        { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: response.bot_context },
+      );
+    }
+
+    if (offerResponse !== null) {
+      // The second-pass output replaces pass 1 entirely — every downstream
+      // write/send below operates on `response`, so the slot-offer message (not
+      // pass 1's address-only/handoff message) is what gets stored and sent.
+      response = offerResponse;
+    } else {
+      // The second pass could not produce slots for ANY reason — empty fetch,
+      // null/failed re-run. Escalate cleanly so the rep is notified and the
+      // homeowner gets a real next step, rather than being left with no times.
+      // No further runBot — this cannot loop.
+      const fn = lead.customerName.trim().split(/\s+/)[0];
+      response = {
+        ...response,
+        stage_change: true,
+        signal: 'ESCALATE',
+        booked_slot: null,
+        message: `Thanks ${fn} — I've got your address. I'm having a team member reach out to lock in the best inspection time for you.`,
+      };
+    }
   }
 
   await writeBotContextToDb(ghlContactId, 'book', response.bot_context);

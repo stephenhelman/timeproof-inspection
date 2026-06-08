@@ -45,7 +45,9 @@ export function assembleBookPrompt(context: BookAssemblerContext): string {
     available_slots.length > 0
       ? `AVAILABLE SLOTS (offer from this list ONLY — never invent times):\n` +
         available_slots.map((s, i) => `${i + 1}. ${s.label} [${s.date} ${s.time}]`).join('\n')
-      : `AVAILABLE SLOTS: none in the requested window right now. Do NOT promise to "check and get back to them" — you have no way to follow up later. Offer the nearest alternative you can, or if you genuinely have nothing to offer, hand off: set "signal" to "ESCALATE" and tell the homeowner a team member will reach out shortly to lock in a time.`
+      : bot_context.address
+        ? `AVAILABLE SLOTS: none in the requested window right now. Do NOT promise to "check and get back to them" — you have no way to follow up later. Offer the nearest alternative you can, or if you genuinely have nothing to offer, hand off: set "signal" to "ESCALATE" and tell the homeowner a team member will reach out shortly to lock in a time.`
+        : `AVAILABLE SLOTS: not loaded yet because the inspection address isn't confirmed. INTERNAL INSTRUCTION — never say this to the homeowner: collect/confirm the address this turn; concrete times are provided automatically the moment it's confirmed. Do NOT escalate and do NOT promise a follow-up here.`
 
   const proximityBlock =
     area_appointments.length > 0 && !bot_context.proximity_angle_used
@@ -133,6 +135,7 @@ ADDRESS COLLECTION:
 
 SLOT OFFERING:
 - Offer slots from the AVAILABLE SLOTS list only. Never invent times.
+- The moment the address is confirmed AND AVAILABLE SLOTS is populated, confirm the address back and offer concrete times from the list in the SAME message (see the count limit below). Never split address confirmation and slot offering into separate messages, and never say a team member will follow up with times.
 - Match slot timing to bot_context.time_of_day_preference if set.
 - Offer no more than 2 slots at once.
 - When homeowner confirms a slot, set booked_slot to "YYYY-MM-DD HH:MM" using 24-hour time.
@@ -159,9 +162,10 @@ SIGNAL RULES:
   → A homeowner who rejects a slot or restates a time preference is NOT stalling — they are engaged. Do NOT emit STALL for them. Re-offer concrete times from AVAILABLE SLOTS instead.
 - When homeowner says not interested:
   → stage_change: true, signal: "NOT_INTERESTED", message: null
-- When homeowner is clearly frustrated, demands human contact, OR AVAILABLE SLOTS is empty and you have no concrete time to offer:
+- When homeowner is clearly frustrated, demands human contact, OR the address is already confirmed but AVAILABLE SLOTS is empty and you have no concrete time to offer:
   → stage_change: true, signal: "ESCALATE", message: short note that a team member will reach out to lock in a time
   → ESCALATE is the correct exit when you cannot serve a slot — never fall back to STALL (that drops an interested homeowner) and never defer with "I'll check."
+  → Do NOT escalate just because slots aren't loaded yet — if the address isn't confirmed, collect it; slots come automatically right after.
 
 BOOKING CONFIRMATION MESSAGE:
 When BOOKED, the message field should confirm the appointment warmly:
