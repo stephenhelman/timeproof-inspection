@@ -445,6 +445,26 @@ function addDaysToDateStr(dateStr: string, days: number): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// UTC ms of 00:00 (midnight) in `timezone` on the given YYYY-MM-DD.
+// Midnight-safe: time-utils' toUnixMs(dateStr, 0) day-wraps because at hour 0
+// the MT wall-clock falls on the previous calendar day. We instead derive the
+// offset off a UTC-noon anchor (safely mid-day in MT) and add it to UTC
+// midnight of the same date. Local to getAvailableSlots — toUnixMs is left
+// untouched until its other callers are audited.
+function mtMidnightUtcMs(dateStr: string, timezone: string): number {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const noonUtc = Date.UTC(y, m - 1, d, 12, 0, 0);
+  const mtHourAtNoon = parseInt(
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hour12: false })
+      .formatToParts(new Date(noonUtc))
+      .find(p => p.type === 'hour')?.value ?? '12',
+    10,
+  );
+  // MT offset behind UTC (hours) = 12 − (MT hour shown at UTC noon). MDT → 6, MST → 7.
+  const offsetHours = 12 - mtHourAtNoon;
+  return Date.UTC(y, m - 1, d, 0, 0, 0) + offsetHours * 3600 * 1000;
+}
+
 // Parse a GHL slot ISO string (e.g. "2026-06-01T17:00:00-05:00") and return
 // the equivalent Mountain Time hour and HH:MM string. Falls back to raw slice
 // if the string is not a valid ISO datetime (e.g. plain "09:00:00").
@@ -589,12 +609,14 @@ export async function getAvailableSlots(
   // otherwise the lookup misses and we silently fall back to AVAILABLE_TIMES.
   const todayMT = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
 
-  // Always start from tomorrow — never offer same-day slots
-  const minDaysAhead = isDistance ? Math.max(DISTANCE_ZONE_MIN_DAYS_AHEAD, 1) : 1;
+  // Local zones allow same-day (day 0) — the past-slot guard below drops any
+  // already-passed times. Distance zones keep their configured lead-time so the
+  // inspector can plan the drive/route to far areas.
+  const minDaysAhead = isDistance ? Math.max(DISTANCE_ZONE_MIN_DAYS_AHEAD, 1) : 0;
 
   // GHL fetch window, as UTC instants aligned to MT calendar-day boundaries.
-  const windowStartMs = toUnixMs(addDaysToDateStr(todayMT, minDaysAhead), 0);
-  const windowEndMs   = toUnixMs(addDaysToDateStr(todayMT, BOOKING_WINDOW_DAYS + 1), 0);
+  const windowStartMs = mtMidnightUtcMs(addDaysToDateStr(todayMT, minDaysAhead), timezone);
+  const windowEndMs   = mtMidnightUtcMs(addDaysToDateStr(todayMT, BOOKING_WINDOW_DAYS + 1), timezone);
 
   console.log("[bot-engine] getAvailableSlots:", {
     leadZone, isDistance, timePreference, startHour, endHour, todayMT,
@@ -672,8 +694,10 @@ export async function getAvailableSlots(
       const slotHour = parseInt(time.split(":")[0], 10);
       if (slotHour < startHour || slotHour >= endHour) continue;
 
-      // Never offer a slot in the past. minDaysAhead already excludes today, but
-      // this is defense-in-depth against any date/timezone regression.
+      // Never offer a slot in the past. Load-bearing now that local zones allow
+      // same-day (day 0): this drops today's already-passed times, leaving only
+      // the remaining slots later today. (Uses a business hour, never 0, so the
+      // toUnixMs midnight wrap doesn't apply here.)
       if (toUnixMs(ghlDateKey, slotHour) <= nowMs) continue;
 
       // Check 1: GHL calendar free
