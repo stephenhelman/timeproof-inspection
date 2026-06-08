@@ -190,6 +190,18 @@ export async function handleBookWebhook(ctx: {
     }
   }
 
+  // On a turn where we didn't re-fetch (e.g. the homeowner is confirming the
+  // slot we already offered), surface the locked slot back into the model's
+  // context so it can copy a valid booked_slot from available_slots instead of
+  // reconstructing one from conversation history. Reverse the local-midnight
+  // Date built in createSlotLock to recover the YYYY-MM-DD it was created from.
+  let offeredSlots = rawSlots;
+  if (offeredSlots.length === 0 && existingLock) {
+    const ld = existingLock.date;
+    const lockedDate = `${ld.getFullYear()}-${String(ld.getMonth() + 1).padStart(2, '0')}-${String(ld.getDate()).padStart(2, '0')}`;
+    offeredSlots = [{ date: lockedDate, time: existingLock.time, label: existingLock.label ?? existingLock.time }];
+  }
+
   const { id: threadId } = await getOrCreateThread(ghlContactId, 'book');
   const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
   const currentMessages = (thread?.messages as BotMessage[]) ?? [];
@@ -201,7 +213,7 @@ export async function handleBookWebhook(ctx: {
     homeowner_name: lead.customerName,
     first_name: lead.customerName.trim().split(/\s+/)[0],
     zone: leadZone ?? '',
-    available_slots: rawSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
+    available_slots: offeredSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
     qualify_summary: {
       problem_confirmed: activeIssues.length > 0,
       specific_issue: activeIssues[0]?.toLowerCase() ?? null,
