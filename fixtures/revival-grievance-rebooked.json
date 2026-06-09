@@ -1,0 +1,43 @@
+{
+  "name": "revival-grievance-rebooked",
+  "phase": "revival",
+  "ghlContactId": "test-contact-revival-grievance",
+  "conversationState": {
+    "currentPhase": "revival",
+    "sourceType": "inspection",
+    "repName": "Marcus",
+    "daysSinceAppointment": 9,
+    "consequenceLikelySurfaced": false,
+    "primaryObjection": "felt pressured by the rep"
+  },
+  "conversationHistory": [],
+  "turns": [
+    {
+      "inboundMessage": "honestly your guy was pushy and I didn't appreciate the hard sell at my door",
+      "availableSlots": [
+        { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" },
+        { "date": "2026-06-13", "time": "14:00", "label": "Saturday, June 13 at 2:00 PM" }
+      ],
+      "mockResponse": "{ \"reply\": \"That's fair — and I'm not going to do that. You shouldn't feel cornered in your own doorway, and I get why that put you off. Setting the rep aside for a sec — the reason you'd had us out in the first place, is that still going on?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": \"acknowledged grievance first, no rep defense, pivoting to whether the underlying problem is still live\" }, \"state\": { \"nepqPhase\": \"connection\", \"objectionsSurfaced\": [{ \"family\": \"grievance\", \"surfaceForm\": \"rep was pushy at the door\", \"wasReal\": true, \"resolved\": false, \"turnRef\": 1 }] } }",
+      "expect": {
+        "tierSelected": "sonnet",
+        "signalType": null,
+        "parseFailed": false,
+        "assembledPromptIncludes": ["YOU ARE JORDAN", "MISSION: REVIVAL"]
+      }
+    },
+    {
+      "inboundMessage": "yeah the ceiling stain is still spreading, it's worse than when he came by. fine, friday at 10 works",
+      "availableSlots": [
+        { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" },
+        { "date": "2026-06-13", "time": "14:00", "label": "Saturday, June 13 at 2:00 PM" }
+      ],
+      "mockResponse": "{ \"reply\": \"Got it — and a spreading stain isn't something that fixes itself, so I'm glad you're getting eyes on it. You're set for Friday, June 12 at 10:00 AM. No doorstep pitch — just a look at what's going on up there.\", \"signal\": { \"type\": \"REBOOKED\", \"confidence\": \"solid\", \"reason\": \"grievance acknowledged and separated from the live problem; spreading stain re-surfaced and homeowner agreed to a concrete slot\" }, \"state\": { \"nepqPhase\": \"commitment\", \"consequenceSurfaced\": true, \"selectedSlot\": \"2026-06-12 10:00\", \"objectionsSurfaced\": [{ \"family\": \"grievance\", \"surfaceForm\": \"rep was pushy at the door\", \"wasReal\": true, \"resolved\": true, \"turnRef\": 1 }], \"summary\": { \"situation\": \"prior demo soured by pushy rep\", \"problem\": \"spreading ceiling stain\", \"consequence\": \"worse than at the demo — active water intrusion\", \"openObjection\": null, \"nextStep\": \"Fri 6/12 10am inspection\" } } }",
+      "expect": {
+        "tierSelected": "sonnet",
+        "signalType": "REBOOKED",
+        "parseFailed": false
+      }
+    }
+  ]
+}

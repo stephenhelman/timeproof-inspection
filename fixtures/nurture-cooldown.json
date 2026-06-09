@@ -1,0 +1,23 @@
+{
+  "name": "nurture-cooldown",
+  "phase": "nurture",
+  "ghlContactId": "test-contact-004",
+  "now": "2026-06-08T12:00:00Z",
+  "conversationState": {
+    "currentPhase": "nurture",
+    "heatState": "warming",
+    "heatPeakReached": true,
+    "heatLastInbound": "2026-06-04T12:00:00Z",
+    "sourceType": "guide",
+    "sourceChannel": "rep_card"
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "No rush at all — whenever you want a set of eyes on it, I'm around." }
+  ],
+  "inboundMessage": "hey sorry, life got busy. still thinking about it",
+  "mockResponse": "{ \"reply\": \"All good — life happens. The roof's not going anywhere. Want me to check what's open whenever you're ready?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": null }, \"state\": { \"nepqPhase\": \"connection\" } }",
+  "expect": {
+    "tierSelected": "haiku",
+    "signalType": null
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "reschedule-porched-soft-rebooked",
+  "phase": "reschedule",
+  "ghlContactId": "test-contact-resched-porched-soft",
+  "conversationState": {
+    "currentPhase": "reschedule",
+    "sourceType": "inspection",
+    "rescheduleSubCase": "porched_soft",
+    "repName": "Marcus",
+    "consequenceLikelySurfaced": true,
+    "daysSinceAppointment": 1
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey — sounds like Marcus swung by at a time that didn't work. Easy fix — when's better, a weekday evening or a weekend?" }
+  ],
+  "inboundMessage": "yeah we just weren't home, saturday afternoon would actually be perfect",
+  "availableSlots": [
+    { "date": "2026-06-13", "time": "14:00", "label": "Saturday, June 13 at 2:00 PM" },
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+  ],
+  "mockResponse": "{ \"reply\": \"Perfect — genuinely an easy fix then. You're set for Saturday, June 13 at 2:00 PM. We'll text you the morning of with a heads up.\", \"signal\": { \"type\": \"REBOOKED\", \"confidence\": \"solid\", \"reason\": \"took the stated logistics reason at face value, it held up (genuinely weren't home), and the homeowner picked a concrete slot\" }, \"state\": { \"nepqPhase\": \"commitment\", \"selectedSlot\": \"2026-06-13 14:00\", \"timePrefs\": { \"days\": [\"Saturday\"], \"windows\": [\"afternoon\"] } } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": "REBOOKED",
+    "parseFailed": false,
+    "assembledPromptIncludes": ["\"rescheduleSubCase\": \"porched_soft\"", "PORCHED_SOFT:"]
+  }
+}

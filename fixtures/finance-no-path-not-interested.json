@@ -1,0 +1,31 @@
+{
+  "name": "finance-no-path-not-interested",
+  "phase": "finance",
+  "ghlContactId": "test-contact-finance-nopath",
+  "conversationState": {
+    "currentPhase": "finance",
+    "sourceType": "inspection",
+    "affordabilityIsReal": true,
+    "repName": "Marcus",
+    "daysSinceAppointment": 5,
+    "objectionsSurfaced": [
+      { "family": "price", "surfaceForm": "no equity, no cosigner, no cash", "wasReal": true, "resolved": false, "turnRef": 1 }
+    ]
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "No equity to tap and a cosigner's off the table — totally hear you. Some credit unions do loans that aren't purely credit-based; would it be worth a quick look there?" },
+    { "role": "lead", "content": "I already tried the credit union, they said no too" },
+    { "role": "bot", "content": "And even a smaller phased start — just the worst section first — isn't realistic right now?" }
+  ],
+  "inboundMessage": "no man, there's just no way to make it work right now. I appreciate you trying though",
+  "availableSlots": [
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+  ],
+  "mockResponse": "{ \"reply\": \"I respect that, and no pressure at all — you gave it an honest look from every angle. If your situation shifts down the line, I'm a text away. Take care of yourself.\", \"signal\": { \"type\": \"NOT_INTERESTED\", \"confidence\": null, \"reason\": \"no viable payment path\" }, \"state\": { \"objectionsSurfaced\": [{ \"family\": \"price\", \"surfaceForm\": \"no equity, no cosigner, CU declined, can't phase\", \"wasReal\": true, \"resolved\": false, \"turnRef\": 1 }], \"summary\": { \"situation\": \"wanted to buy, finance declined\", \"problem\": \"roof replacement needed\", \"consequence\": null, \"openObjection\": \"no payment path exists\", \"nextStep\": \"closed — revisit if situation changes\" } } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": "NOT_INTERESTED",
+    "parseFailed": false,
+    "assembledPromptIncludes": ["OVERRIDE.finance.affordability_real", "\"affordabilityIsReal\": true"]
+  }
+}

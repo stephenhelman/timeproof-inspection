@@ -1,0 +1,23 @@
+{
+  "name": "nurture-unrepairable (safe fallback, no consequential signal)",
+  "phase": "nurture",
+  "ghlContactId": "test-contact-unrepairable",
+  "conversationState": {
+    "currentPhase": "nurture",
+    "heatState": "cold",
+    "sourceType": "guide",
+    "sourceChannel": "rep_card"
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey, saw you grabbed the roof guide — what got you looking?" }
+  ],
+  "inboundMessage": "my roof is fine, not interested, stop",
+  "mockResponse": "I think the homeowner is done here. {\"reply\": \"No problem at all,\" \"signal\": {\"type\": \"NOT_INTERESTED\"",
+  "mockRepairResponse": "Sorry — here is the JSON: {\"reply\": broken, \"signal\": NOT_INTERESTED}",
+  "expect": {
+    "tierSelected": "haiku",
+    "parseFailed": true,
+    "parseAttempts": 3,
+    "signalType": null
+  }
+}

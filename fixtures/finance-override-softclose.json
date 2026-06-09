@@ -1,0 +1,26 @@
+{
+  "name": "finance-override-softclose",
+  "phase": "finance",
+  "ghlContactId": "test-contact-finance-soft",
+  "conversationState": {
+    "currentPhase": "finance",
+    "sourceType": "inspection",
+    "affordabilityIsReal": true,
+    "repName": "Marcus",
+    "daysSinceAppointment": 3
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey — I figured the financing might be where things stalled, and honestly that's way more common than people think. Can I ask what kind of monthly number would've actually felt doable?" }
+  ],
+  "inboundMessage": "maybe like 250 a month. my credit's shot right now but my brother said he might cosign",
+  "availableSlots": [
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+  ],
+  "mockResponse": "{ \"reply\": \"A cosigner can completely change what's on the table — that's a real path, not a long shot. If your brother's open to it, that alone might get you to that 250 range. Want to feel it out with him and I'll keep your spot warm on my end?\", \"signal\": { \"type\": \"SOFT_CLOSE\", \"confidence\": null, \"reason\": \"lead pursuing a cosigner path (brother); affordability treated as structure not value; following up once he checks\" }, \"state\": { \"nepqPhase\": \"commitment\", \"motivation\": [\"get the roof done within budget\"], \"objectionsSurfaced\": [{ \"family\": \"price\", \"surfaceForm\": \"credit shot, can't get approved\", \"wasReal\": true, \"resolved\": false, \"turnRef\": 1 }], \"summary\": { \"situation\": \"wanted to buy, finance declined\", \"problem\": \"roof replacement needed\", \"consequence\": null, \"openObjection\": \"payment structure unresolved\", \"nextStep\": \"brother to consider cosigning\" } } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": "SOFT_CLOSE",
+    "parseFailed": false,
+    "assembledPromptIncludes": ["OVERRIDE.finance.affordability_real", "\"affordabilityIsReal\": true", "MISSION: FINANCE"]
+  }
+}

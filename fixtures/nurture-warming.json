@@ -1,0 +1,35 @@
+{
+  "name": "nurture-warming",
+  "phase": "nurture",
+  "ghlContactId": "test-contact-002",
+  "conversationState": {
+    "currentPhase": "nurture",
+    "heatState": "cold",
+    "sourceType": "guide",
+    "sourceChannel": "rep_door",
+    "repName": "Marcus",
+    "funnelConcerns": { "damageSigns": ["missing shingles"], "roofAge": "15 years" }
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey, Marcus left you the roof guide the other day — what got you looking?" }
+  ],
+  "turns": [
+    {
+      "inboundMessage": "honestly I've got a couple spots where shingles blew off. is that something I'd be able to see from the ground or do you have to get up there?",
+      "mockResponse": "{ \"reply\": \"From the ground you'll usually catch the obvious gaps, but the stuff that actually leaks hides up under the edges. How long have those bare spots been showing?\", \"signal\": { \"type\": \"WARMING\", \"confidence\": \"soft\", \"reason\": \"moved from browsing to asking diagnostic questions about their own roof\" }, \"state\": { \"nepqPhase\": \"situation\", \"motivation\": [\"missing shingles, worried about leaks\"] } }",
+      "expect": {
+        "tierSelected": "haiku",
+        "signalType": "WARMING"
+      }
+    },
+    {
+      "inboundMessage": "probably since that windstorm a few weeks back. starting to worry about the next big rain",
+      "mockResponse": "{ \"reply\": \"That's the right instinct — wind damage tends to get worse fast once water finds the gap. Worth having someone actually look before the next storm. Want me to see what's open this week?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": null }, \"state\": { \"nepqPhase\": \"problem\", \"consequenceSurfaced\": true, \"urgency\": \"medium\" } }",
+      "expect": {
+        "tierSelected": "sonnet",
+        "signalType": null,
+        "mockOnly": true
+      }
+    }
+  ]
+}
