@@ -1,65 +1,60 @@
-// SCAFFOLD — Jordan Finance bot handler (JSON mode)
-// Current production handler: handleFinanceWebhook in central/route.ts (string mode)
-// Migration: when ready —
-//   1. Implement assembleFinancePromptV2 in assemblers/finance-v2.ts
-//   2. Implement handleFinanceWebhook below
-//   3. Import it in central/route.ts replacing the inline function
-//   4. Replace inline handleFinanceWebhook body with: return handleFinanceWebhook(ctx)
+// ── FINANCE HANDLER — LIVE ON THE NEW ENGINE (Sprint 5 cutover) ──────────────
+//
+// Jordan's finance-discovery mission on the shared composed-prompt JSON engine,
+// via jordan-core's runJordanTurn. REPLACES the old string-mode inline
+// handleFinanceWebhook in central/route.ts and the dedicated ghl/finance route
+// (both deleted in Sprint 5). The credit/finance decline sets affordabilityIsReal
+// here (system-authored), which ACTIVATES OVERRIDE.finance.affordability_real — the
+// mission never treats affordability as a value problem and never emits
+// NOT_INTERESTED before the alternative-path menu is explored.
 
-import type { Lead, SrLead } from '@prisma/client'
-import type { BotContext, BotResponse } from '../prompts/qntum/types'
-import { EMPTY_BOT_CONTEXT } from '../prompts/qntum/types'
-import {
-  runBot,
-  readBotContextFromDb,
-  writeBotContextToDb,
-  getOrCreateThread,
-  appendMessage,
-  notifyRep,
-} from '../bot-engine'
-import { assembleFinancePromptV2 } from '../prompts/qntum/assemblers/finance-v2'
+import { writeSystemFields, type SystemAuthoredFields } from "@/src/lib/conversation";
+import { runJordanTurn, type JordanIoDeps } from "@/src/lib/bot-handlers/jordan-core";
+import { loadRecoveryContext } from "@/src/lib/bot-handlers/jordan-recovery";
+import type { Phase } from "@/src/lib/bot-v2/types";
+import type { Lead, SrLead } from "@prisma/client";
 
-// Unused type references — present to surface migration shape, removed at implementation time
-type _BotResponse = BotResponse
-type _BotContext = BotContext
-const _emptyCtx = EMPTY_BOT_CONTEXT
+const PHASE: Phase = "finance";
 
-interface FinanceWebhookCtx {
-  lead: Lead
-  srLead: SrLead
-  ghlContactId: string
-  trigger: string
-  inboundMsg: string
-}
+export async function handleFinanceWebhook(
+  ctx: {
+    lead: Lead;
+    srLead: SrLead;
+    ghlContactId: string;
+    trigger: string;
+    inboundMsg: string;
+  },
+  deps: JordanIoDeps = {},
+): Promise<void> {
+  const { lead, srLead, ghlContactId, trigger, inboundMsg } = ctx;
+  void srLead;
 
-export async function handleFinanceWebhook(ctx: FinanceWebhookCtx): Promise<void> {
-  // TODO — implement JSON mode finance handler
-  // Pattern to follow: src/lib/bot-handlers/qualify.ts and handleFinanceWebhook in central/route.ts
-  //
-  // Steps:
-  // 1. readBotContextFromDb(ghlContactId) — load accumulated context
-  // 2. Load inspect data from DB: aiDiagnosisStructured, findingsNotes
-  // 3. assembleFinancePromptV2(ctx) — build JSON mode system prompt
-  // 4. runBot(systemPrompt, messages, { isJsonMode: true, maxTokens: 600, ghlContactId })
-  // 5. Parse BotResponse
-  // 6. writeBotContextToDb(ghlContactId, 'finance', response.bot_context)
-  //    Note: response.bot_context.finance_paths_explored should accumulate explored options
-  // 7. Route on response.signal:
-  //    FINANCE_RETRY → addGhlTag sr_finance_ready + removeGhlTag sr_credit_fail
-  //                    + prisma.task.create(FINANCE_REVIEW, assigned to finance manager)
-  //                    + notifyRep with path summary
-  //    FINANCE_DEAD  → transitionLead DEAD/silent + moveGhlOpportunityStage(GHL_STAGE_EXHAUSTED)
-  //                    + prisma.task.create(REP_FOLLOWUP)
-  //    ESCALATE      → notifyManager + updateSrLead silent
-  // 8. If !stage_change && response.message → sendGhlSms(ghlContactId, response.message)
-  void ctx
-  void readBotContextFromDb
-  void writeBotContextToDb
-  void getOrCreateThread
-  void appendMessage
-  void notifyRep
-  void assembleFinancePromptV2
-  void runBot
-  void _emptyCtx
-  throw new Error('handleFinanceWebhook not yet implemented — scaffold only')
+  // ── System-authored recovery context → Conversation (read-only for Jordan) ──
+  // affordabilityIsReal = true is the finance trigger (credit_fail_triggered /
+  // finance_retry): the lead WANTED to buy but couldn't get approved. This
+  // activates the dignity-first finance override.
+  const recovery = await loadRecoveryContext(lead);
+  const sysFields: Partial<SystemAuthoredFields> = {
+    leadId: lead.id,
+    repName: recovery.repName,
+    consequenceLikelySurfaced: recovery.consequenceLikelySurfaced,
+    daysSinceAppointment: recovery.daysSinceAppointment,
+    affordabilityIsReal: true,
+  };
+  const convo = await writeSystemFields(ghlContactId, sysFields, { currentPhase: PHASE, leadId: lead.id });
+
+  // ── Run the shared Jordan recovery turn ─────────────────────────────────────
+  await runJordanTurn(
+    { lead, ghlContactId, trigger, inboundMsg, convo },
+    {
+      phase: PHASE,
+      fromStage: "sr_credit_fail",
+      openerInstruction:
+        `[system: finance activation — the lead wanted to buy but couldn't get approved ` +
+        `(affordabilityIsReal). Send your dignity-first opener: affordability is REAL, not a value ` +
+        `problem. Do NOT surface value. Pivot to payment STRUCTURE and begin surfacing alternative ` +
+        `payment paths. No prior conversation.]`,
+    },
+    deps,
+  );
 }
