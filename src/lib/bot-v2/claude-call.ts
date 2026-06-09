@@ -16,14 +16,52 @@
 // │ point at which they should converge onto one shared implementation.           │
 // └───────────────────────────────────────────────────────────────────────────────┘
 
+import type { ClaudeUsage } from "./types";
+
 export interface ClaudeCallParams {
   systemPrompt: string;
   messages: { role: string; content: string }[];
   model: string;
   maxTokens?: number;
+
+  // SPRINT 6 — prompt caching (Step 3). The STABLE prefix (kernel + methodology +
+  // persona + mission) the live caller sends as a SEPARATE system text block with
+  // a `cache_control: {type:"ephemeral"}` breakpoint, so it is cached (5-minute
+  // TTL) and the fresh runtime tail is not. MUST be a byte-prefix of systemPrompt;
+  // the caller reconstructs the original prompt exactly by concatenating the two
+  // blocks, so behavior is unchanged — only a cache breakpoint is inserted.
+  // Omitted → single uncached system block (mock mode, or callers that opt out).
+  cachePrefix?: string;
+  // SPRINT 6 — usage sink. The live caller reports the API's usage block here so
+  // the engine can log prompt-cache + cost telemetry (Step 4). Mock callers ignore it.
+  onUsage?: (usage: ClaudeUsage) => void;
 }
 
 export type ClaudeCaller = (params: ClaudeCallParams) => Promise<string>;
+
+// System content blocks for the Anthropic API. A `cache_control` breakpoint on a
+// block caches everything up to and including it (render order: tools → system →
+// messages). We use the default ~5-minute ephemeral cache (NOT the 1-hour option —
+// SMS turns are bursty; the win is the prefix staying warm across concurrent leads
+// in the same phase, which 5-minute captures — ARCHITECTURE / Sprint 6 Step 3).
+type SystemBlock = { type: "text"; text: string; cache_control?: { type: "ephemeral" } };
+
+// Build the `system` field. With a cachePrefix that is a true byte-prefix of the
+// full prompt, emit TWO blocks — [cached stable prefix][fresh runtime tail] — whose
+// concatenation is byte-identical to the original single string (the JSON format
+// directive stays in the fresh tail, exactly where it was appended before). Without
+// a usable prefix, emit one plain block (no caching).
+function buildSystemField(systemPrompt: string, cachePrefix: string | undefined): string | SystemBlock[] {
+  const full = systemPrompt + JSON_FORMAT_INSTRUCTION;
+  if (cachePrefix && systemPrompt.startsWith(cachePrefix) && cachePrefix.length > 0) {
+    const tail = full.slice(cachePrefix.length); // "\n\n" + runtime + JSON_FORMAT_INSTRUCTION
+    return [
+      { type: "text", text: cachePrefix, cache_control: { type: "ephemeral" } },
+      { type: "text", text: tail },
+    ];
+  }
+  return full;
+}
 
 // Mirrors the format directive used by src/lib/bot-engine.ts so live output
 // parses the same way production does.
@@ -34,12 +72,15 @@ const JSON_FORMAT_INSTRUCTION =
   `JSON.parse() will be called directly on your response. Any wrapping will cause a failure.`;
 
 /** LIVE caller — actually hits the Anthropic API. Used a few times per sprint. */
-export const liveClaudeCaller: ClaudeCaller = async ({ systemPrompt, messages, model, maxTokens }) => {
+export const liveClaudeCaller: ClaudeCaller = async ({ systemPrompt, messages, model, maxTokens, cachePrefix, onUsage }) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("[bot-v2] ANTHROPIC_API_KEY not set — cannot run --live mode");
   }
 
+  // Prompt caching is GA with anthropic-version 2023-06-01 — `cache_control` in
+  // the body needs no beta header. The breakpoint lands on the stable-prefix block
+  // built by buildSystemField.
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -50,7 +91,7 @@ export const liveClaudeCaller: ClaudeCaller = async ({ systemPrompt, messages, m
     body: JSON.stringify({
       model,
       max_tokens: maxTokens ?? 600,
-      system: systemPrompt + JSON_FORMAT_INSTRUCTION,
+      system: buildSystemField(systemPrompt, cachePrefix),
       messages,
     }),
   });
@@ -60,7 +101,8 @@ export const liveClaudeCaller: ClaudeCaller = async ({ systemPrompt, messages, m
     throw new Error(`[bot-v2] Claude API error ${res.status}: ${body}`);
   }
 
-  const data = (await res.json()) as { content: { text: string }[] };
+  const data = (await res.json()) as { content: { text: string }[]; usage?: ClaudeUsage };
+  if (data.usage && onUsage) onUsage(data.usage);
   return data.content[0]?.text ?? "";
 };
 

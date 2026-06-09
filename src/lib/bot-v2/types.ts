@@ -169,6 +169,18 @@ export interface TurnInput {
   availableSlots?: { date: string; time: string; label: string }[];
 }
 
+// SPRINT 6: Anthropic usage fields, captured per model call for prompt-cache +
+// cost telemetry (Step 3/4). cache_creation_input_tokens = tokens WRITTEN to the
+// cache this call (~1.25x input price); cache_read_input_tokens = tokens SERVED
+// from cache (~0.1x); input_tokens = the uncached remainder (full price). The
+// full prompt size = input_tokens + cache_creation + cache_read.
+export interface ClaudeUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
 export interface TurnResult {
   assembledPrompt: string; // the full composed system prompt (for inspection)
   modelTier: ModelTier; // which tier was selected
@@ -181,4 +193,13 @@ export interface TurnResult {
   signal: Signal;
   stateDelta: Record<string, unknown>; // model-authored fields to persist (NOT system fields)
   error?: string;
+
+  // SPRINT 6: Anthropic usage from the LAST model call of the turn (attempt-1, or
+  // attempt-2 if the ladder repaired). Undefined in mock mode. Drives the prompt-
+  // cache + cost telemetry (docs/bot-v2-telemetry.md).
+  usage?: ClaudeUsage;
+  // SPRINT 6: byte length of the cached stable prefix for this turn (kernel +
+  // methodology + persona + mission). Lets telemetry correlate prefix size with
+  // measured cache_creation/read tokens per phase without re-assembling.
+  stablePrefixChars?: number;
 }

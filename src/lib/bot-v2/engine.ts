@@ -11,11 +11,12 @@
 import { DEFAULT_MAX_TOKENS, MODEL_BY_TIER } from "./config";
 import { liveClaudeCaller, type ClaudeCaller } from "./claude-call";
 import { selectTier } from "./tier";
-import { assembleBotPrompt } from "./assembler";
+import { assembleBotPromptParts } from "./assembler";
 import { parseContract, buildRepairUserMessage, logEnumDrift } from "./contract-parse";
 import { MODEL_AUTHORED_FIELDS } from "./field-authorship";
 import type {
   BotContract,
+  ClaudeUsage,
   ConversationStateInput,
   Phase,
   Signal,
@@ -118,8 +119,20 @@ export async function runComposedBotTurn(
 
   // ── REAL composed-prompt assembly (ARCHITECTURE §4 — Sprint 2) ──
   // Async since Sprint 4: all tier content flows through the loadPromptTier seam.
-  const assembledPrompt = await assembleBotPrompt(input, state);
+  // SPRINT 6: assemble as a prefix/runtime split so the model call can place a
+  // prompt-cache breakpoint at the end of the stable prefix (Step 3). `stablePrefix`
+  // is byte-identical across every turn within a phase; `assembledPrompt` (= full)
+  // is what the harness prints and what fixtures assert against — unchanged.
+  const { stablePrefix, full: assembledPrompt } = await assembleBotPromptParts(input, state);
   const baseMessages = toApiMessages(input);
+
+  // SPRINT 6: capture usage from the LAST model call of the turn (attempt-1, or the
+  // attempt-2 repair if it ran) for prompt-cache + cost telemetry (Step 4). Both
+  // calls send the SAME cached prefix, so attempt-2 reads the cache attempt-1 wrote.
+  let lastUsage: ClaudeUsage | undefined;
+  const onUsage = (u: ClaudeUsage) => {
+    lastUsage = u;
+  };
 
   // ── The full 3-attempt repair ladder (ARCHITECTURE §5 — Sprint 3) ──────────
   //
@@ -140,6 +153,8 @@ export async function runComposedBotTurn(
   try {
     rawModelOutput = await callClaude({
       systemPrompt: assembledPrompt,
+      cachePrefix: stablePrefix,
+      onUsage,
       messages: baseMessages,
       model,
       maxTokens: DEFAULT_MAX_TOKENS,
@@ -163,6 +178,8 @@ export async function runComposedBotTurn(
       try {
         repairRaw = await callClaude({
           systemPrompt: assembledPrompt,
+          cachePrefix: stablePrefix, // same prefix → attempt-2 reads the cache attempt-1 wrote
+          onUsage,
           messages: [
             ...baseMessages,
             { role: "assistant", content: rawModelOutput },
@@ -214,6 +231,22 @@ export async function runComposedBotTurn(
     : { type: null, confidence: null, reason: null };
   const stateDelta = parsedContract ? pickModelAuthored(parsedContract.state) : {};
 
+  // SPRINT 6: prompt-cache + cost telemetry (Step 4). One structured line per turn
+  // with the real usage numbers — prefix size, uncached/cache-write/cache-read input
+  // tokens, output tokens — so cache effectiveness and per-phase cost are measurable
+  // once live volume arrives. Emitted only when the live caller reported usage.
+  if (lastUsage) {
+    console.info(
+      `[bot-v2][telemetry] phase=${input.phase} tier=${decision.tier} model=${model} ` +
+        `attempts=${parseAttempts} prefixChars=${stablePrefix.length} ` +
+        `input_tokens=${lastUsage.input_tokens ?? 0} ` +
+        `cache_creation_input_tokens=${lastUsage.cache_creation_input_tokens ?? 0} ` +
+        `cache_read_input_tokens=${lastUsage.cache_read_input_tokens ?? 0} ` +
+        `output_tokens=${lastUsage.output_tokens ?? 0} ` +
+        `signal=${signal.type ?? "null"}`,
+    );
+  }
+
   return {
     assembledPrompt,
     modelTier: decision.tier,
@@ -226,6 +259,8 @@ export async function runComposedBotTurn(
     signal,
     stateDelta,
     error,
+    usage: lastUsage,
+    stablePrefixChars: stablePrefix.length,
   };
 }
 

@@ -220,14 +220,30 @@ function buildRuntimeBlock(input: TurnInput, state: ConversationStateInput): str
 
 // ─── The assembler ──────────────────────────────────────────────────────────
 
+// SPRINT 6: the prompt split into its STABLE prefix (cacheable) and FRESH runtime
+// tail. `full` is the byte-for-byte concatenation `stablePrefix + "\n\n" + runtime`
+// — identical to the single string assembleBotPrompt has always returned, so the
+// harness print + fixtures' assembledPromptIncludes checks are unchanged.
+export interface AssembledPromptParts {
+  /** kernel + methodology + persona + mission — IDENTICAL across every turn within
+   *  a phase (no runtime/variable content). This is the prompt-cache breakpoint
+   *  boundary (Step 3): everything here is cached, the runtime tail is fresh. */
+  stablePrefix: string;
+  /** lead_context + conversation_state + history + available_slots — per turn. */
+  runtime: string;
+  /** stablePrefix + "\n\n" + runtime — the complete system prompt. */
+  full: string;
+}
+
 /**
- * Compose the full system prompt for a turn, in the fixed ARCHITECTURE §4 order.
- * The output is reproducible and printable top-to-bottom (the harness prints it).
+ * Compose the system prompt for a turn, returning the stable-prefix / runtime
+ * split (ARCHITECTURE §4). The caller places the prompt-cache breakpoint at the
+ * end of `stablePrefix` (Step 3). Use `full` wherever the whole prompt is needed.
  */
-export async function assembleBotPrompt(
+export async function assembleBotPromptParts(
   input: TurnInput,
   state: ConversationStateInput,
-): Promise<string> {
+): Promise<AssembledPromptParts> {
   const phase = input.phase as Phase;
   const authoredPrefix = await buildAuthoredPrefix();
 
@@ -238,7 +254,19 @@ export async function assembleBotPrompt(
     ? await Promise.all([loadPromptTier(PERSONA_TIER[mapping.persona]), loadPromptTier(mapping.missionTier)])
     : [];
 
+  const stablePrefix = [authoredPrefix, ...overlay].join("\n\n");
   const runtime = buildRuntimeBlock(input, state);
 
-  return [authoredPrefix, ...overlay, runtime].join("\n\n");
+  return { stablePrefix, runtime, full: [stablePrefix, runtime].join("\n\n") };
+}
+
+/**
+ * Compose the full system prompt for a turn, in the fixed ARCHITECTURE §4 order.
+ * The output is reproducible and printable top-to-bottom (the harness prints it).
+ */
+export async function assembleBotPrompt(
+  input: TurnInput,
+  state: ConversationStateInput,
+): Promise<string> {
+  return (await assembleBotPromptParts(input, state)).full;
 }

@@ -15,7 +15,8 @@
     "conversation:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/conversation-seam-test.ts",
     "nurture:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/nurture-live-route-test.ts",
     "alex:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/alex-arc-live-route-test.ts",
-    "jordan:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/jordan-live-route-test.ts"
+    "jordan:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/jordan-live-route-test.ts",
+    "cache:verify": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/cache-verify.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
