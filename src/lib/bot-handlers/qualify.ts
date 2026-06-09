@@ -61,8 +61,17 @@ export async function handleQualifyWebhook(ctx: {
 
   // ── Opener triggers ───────────────────────────────────────────────────────────
   if (trigger === 'new_inspection_lead' || trigger === 'scheduling_approved') {
+    // Read the prior bot's (nurture) accumulated context BEFORE the qualify thread
+    // exists — otherwise the freshly-stamped qualify thread wins the next read and
+    // returns EMPTY_BOT_CONTEXT, wiping nurture's motivation/summary. Mirrors the
+    // qualify→book hop, where the handoff read precedes book-thread creation.
+    const priorContext = await readBotContextFromDb(ghlContactId);
+
     const { id: threadId, messages } = await getOrCreateThread(ghlContactId, 'qualify');
     if (messages.length === 0) {
+      // Seed the new qualify thread with the full prior context so the first
+      // inbound turn reads accumulated state instead of empty.
+      await writeBotContextToDb(ghlContactId, 'qualify', priorContext);
       const fn = lead.customerName.trim().split(/\s+/)[0];
       const opener = QUALIFY_OPENER.replace('{firstName}', fn);
       await sendGhlSms(ghlContactId, opener);
@@ -92,9 +101,15 @@ export async function handleQualifyWebhook(ctx: {
     }
   }
 
+  // Same handoff-seed pattern as the named-trigger opener above: capture the
+  // prior bot's context before the qualify thread is created, so a first-contact
+  // inbound (no prior opener trigger) still inherits nurture's accumulated state.
+  const inboundPriorContext = await readBotContextFromDb(ghlContactId);
+
   const { id: threadId, messages, isNew } = await getOrCreateThread(ghlContactId, 'qualify');
 
   if (isNew || messages.length === 0) {
+    await writeBotContextToDb(ghlContactId, 'qualify', inboundPriorContext);
     const fn = lead.customerName.trim().split(/\s+/)[0];
     const opener = QUALIFY_OPENER.replace('{firstName}', fn);
     await sendGhlSms(ghlContactId, opener);

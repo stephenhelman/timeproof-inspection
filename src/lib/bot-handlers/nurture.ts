@@ -1,5 +1,5 @@
 import { prisma } from "@/src/lib/prisma";
-import { sendGhlSms, addGhlTag, removeGhlTag } from "@/src/lib/ghl-sms";
+import { sendGhlSms, addGhlTag } from "@/src/lib/ghl-sms";
 import {
   getOrCreateThread,
   appendMessage,
@@ -8,6 +8,7 @@ import {
   getAreaAppointments,
   readBotContextFromDb,
   writeBotContextToDb,
+  routeQualifiedLead,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
@@ -17,7 +18,7 @@ import {
 import { assembleNurturePrompt } from "@/src/lib/prompts/qntum/assemblers/nurture";
 import type { BotContext } from "@/src/lib/prompts/qntum/types";
 import type { NurtureAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/nurture";
-import { getZoneForZip, getZipTier } from "@/src/lib/service-zones";
+import { getZoneForZip } from "@/src/lib/service-zones";
 import type { Lead, SrLead } from "@prisma/client";
 
 type BotMessage = { role: string; content: string; timestamp: string };
@@ -240,20 +241,10 @@ async function handleSignal(
 ): Promise<void> {
   void leadZone;
   if (signal === 'QUALIFIED') {
-    const tier = srLead.srTier ?? lead.sourceTier ?? 'out_of_area';
-    await addGhlTag(ghlContactId, 'zip_check_pending');
-    if (tier === 'primary') {
-      await removeGhlTag(ghlContactId, 'zip_check_pending');
-      await addGhlTag(ghlContactId, 'zip_approved');
-      await addGhlTag(ghlContactId, 'sr_qualifying');
-    } else {
-      await removeGhlTag(ghlContactId, 'zip_check_pending');
-      await addGhlTag(ghlContactId, 'zip_review_pending');
-      await sendGhlSms(
-        ghlContactId,
-        "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
-      );
-    }
+    // Stage-move handoff (shared with nurture-drip) — moves the Roof Guide opp to
+    // the Qualified or ZIP-Review stage and lets GHL native automation drive the
+    // rest. Replaces the old API-tag approach, which didn't reliably fire GHL.
+    await routeQualifiedLead(lead, ghlContactId);
   } else if (signal === 'NOT_INTERESTED') {
     await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', 'silent', {
       sr_status: 'DEAD', sr_bot_stage: 'silent',

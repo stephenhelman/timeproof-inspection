@@ -1,7 +1,7 @@
 import { prisma } from "@/src/lib/prisma";
 import { sendGhlSms, addGhlTag, removeGhlTag, notifyManager } from "@/src/lib/ghl-sms";
 import { updateSrLead, type SrLeadFields } from "@/src/lib/ghl-custom-object";
-import { writeGhlContactCustomField } from "@/src/lib/ghl-contacts";
+import { writeGhlContactCustomField, moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
 import {
   SERVICE_ZONES,
   AVAILABLE_TIMES,
@@ -11,13 +11,14 @@ import {
   DISTANCE_ZONE_MIN_DAYS_AHEAD,
   getZoneForZip,
   getCompatibleZones,
+  getZipTier,
 } from "@/src/lib/service-zones";
 import {
   TIME_WINDOWS,
   toUnixMs,
   type TimeOfDay,
 } from "@/src/lib/time-utils";
-import type { LeadStatus } from "@prisma/client";
+import type { Lead, LeadStatus } from "@prisma/client";
 import type { BotResponse, BotContext, AreaAppointment } from "@/src/lib/prompts/qntum/types";
 import { EMPTY_BOT_CONTEXT } from "@/src/lib/prompts/qntum/types";
 
@@ -36,7 +37,11 @@ export async function readBotContextFromDb(
 ): Promise<BotContext> {
   const thread = await prisma.botThread.findFirst({
     where: { ghlContactId },
-    orderBy: { lastMessageAt: 'desc' }
+    // nulls: 'last' — a freshly-created thread has a null lastMessageAt, which
+    // Postgres sorts FIRST under DESC by default (NULLS FIRST). That would return
+    // the unstamped thread's empty bot_context and wipe accumulated state. Push
+    // nulls last so the read always lands on the most-recently-stamped context.
+    orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } }
   })
 
   const metadata = thread?.metadata as Record<string, unknown> | null
@@ -400,6 +405,63 @@ export async function transitionLead(
       : Promise.resolve(),
   ]);
   // Intentionally not awaited — fire and forget
+}
+
+// ── Qualified-lead routing ─────────────────────────────────────
+
+// Shared by the nurture handler and the nurture-drip route so the QUALIFIED
+// handoff can never diverge between the two paths again (it has been a bug once
+// already). Instead of relying on API-added tags — which don't reliably fire GHL
+// automations — this moves the Roof Guide opportunity to the correct pipeline
+// stage and lets GHL's native stage-change automation drive everything
+// downstream (mark won, create the Inspection opp, move to Qualifying, fire the
+// qualify bot).
+export async function routeQualifiedLead(
+  lead: Lead,
+  ghlContactId: string,
+): Promise<void> {
+  if (!lead.sourceZip) {
+    console.warn(`[routeQualifiedLead] lead ${lead.id} QUALIFIED with no sourceZip — routing to ZIP review`);
+  }
+  const tier = lead.sourceZip ? getZipTier(lead.sourceZip) : 'out_of_area';
+
+  // The whole handoff now depends on the stage move, so a null ghlOpportunityId
+  // is a hard failure, not a silent skip: there is nothing to move. Log loudly so
+  // it's findable, and fall back to the legacy sr_qualifying tag (primary only)
+  // as a last-ditch catch GHL automation can react to. Internal notifications are
+  // GHL's job, not the server's.
+  if (!lead.ghlOpportunityId) {
+    console.error(
+      `[routeQualifiedLead] lead ${lead.id} QUALIFIED but has no ghlOpportunityId — ` +
+      `cannot move pipeline stage; manual handoff required`,
+    );
+
+    if (tier === 'primary') {
+      // Degraded backstop — let any surviving tag automation try to advance them.
+      await addGhlTag(ghlContactId, 'sr_qualifying').catch(() => null);
+    } else {
+      // Review path — keep the homeowner warm; do NOT advance past review.
+      await sendGhlSms(
+        ghlContactId,
+        "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
+      ).catch(() => null);
+    }
+    return;
+  }
+
+  if (tier === 'primary') {
+    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_GUIDE_QUALIFIED!)
+      .catch(err => console.error('[routeQualifiedLead] move→GHL_STAGE_GUIDE_QUALIFIED failed:', err));
+  } else {
+    // Manager reviews in GHL; on approval they add zip_approved manually, which a
+    // separate GHL automation turns into a move to Qualified.
+    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_GUIDE_ZIP_REVIEW!)
+      .catch(err => console.error('[routeQualifiedLead] move→GHL_STAGE_GUIDE_ZIP_REVIEW failed:', err));
+    await sendGhlSms(
+      ghlContactId,
+      "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
+    ).catch(() => null);
+  }
 }
 
 // ── Opt-out and cancellation ───────────────────────────────────

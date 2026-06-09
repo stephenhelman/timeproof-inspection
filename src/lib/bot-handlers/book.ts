@@ -455,22 +455,17 @@ export async function handleBookWebhook(ctx: {
       await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
     } else if (response.signal === 'ESCALATE') {
       await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
+      // sr_escalation is the signal to GHL — its automation drives the human
+      // handoff (notify the rep, reassign, etc). The server only sets the tag and
+      // sends the homeowner the closing message; internal notifications are GHL's
+      // job, not the server's.
       await addGhlTag(ghlContactId, 'sr_escalation').catch(() => null);
       // Send the homeowner Alex's closing message (the main send block above is
       // skipped because ESCALATE is a stage_change) so they aren't left hanging
-      // after a rejection while the rep is notified out of band.
+      // after a rejection.
       if (response.message) {
         await sendGhlSms(ghlContactId, response.message);
         await appendMessage(threadId, 'assistant', response.message);
-      }
-      // Real human handoff — this is the non-revival exit when Alex genuinely
-      // can't serve a slot. Without it, ESCALATE would just silence the bot.
-      if (lead.assignedUserId) {
-        await notifyRep(
-          lead.assignedUserId,
-          lead.id,
-          `${lead.customerName} needs a hand booking — Alex couldn't lock a time. Reach out to schedule.`,
-        ).catch(err => console.error('[book] notifyRep ESCALATE failed:', err));
       }
     }
   }

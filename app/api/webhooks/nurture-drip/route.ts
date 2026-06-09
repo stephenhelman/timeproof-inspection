@@ -4,16 +4,17 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
-import { sendGhlSms, addGhlTag, removeGhlTag } from "@/src/lib/ghl-sms";
+import { sendGhlSms, addGhlTag } from "@/src/lib/ghl-sms";
 import {
   getOrCreateThread,
   appendMessage,
   runBot,
   transitionLead,
   getAreaAppointments,
+  routeQualifiedLead,
 } from "@/src/lib/bot-engine";
 import { validateWebhookSecret } from "@/src/lib/bot-webhook-utils";
-import { getZipTier, getZoneForZip } from "@/src/lib/service-zones";
+import { getZoneForZip } from "@/src/lib/service-zones";
 import {
   getGhlOpportunityCustomField,
   writeGhlOpportunityCustomField,
@@ -132,18 +133,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (response.signal === 'QUALIFIED') {
-      const zip = lead.sourceZip ?? '';
-      const tier = zip ? getZipTier(zip) : null;
-      await addGhlTag(ghlContactId, 'zip_check_pending');
-      if (tier === 'primary') {
-        await removeGhlTag(ghlContactId, 'zip_check_pending');
-        await addGhlTag(ghlContactId, 'zip_approved');
-        await addGhlTag(ghlContactId, 'sr_qualifying');
-      } else {
-        await removeGhlTag(ghlContactId, 'zip_check_pending');
-        await addGhlTag(ghlContactId, 'zip_review_pending');
-        await sendGhlSms(ghlContactId, "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.");
-      }
+      // Stage-move handoff (shared with the main nurture handler).
+      await routeQualifiedLead(lead, ghlContactId);
     } else if (response.signal === 'NOT_INTERESTED') {
       await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', 'silent', {
         sr_status: 'DEAD', sr_bot_stage: 'silent',
