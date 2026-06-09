@@ -1,9 +1,33 @@
+// ── BOOK HANDLER — LIVE ON THE NEW ENGINE (Sprint 4 cutover) ─────────────────
+//
+// The third live route cutover (sprint_4 Step 5). The old book reply-generation
+// (assembleBookPrompt + runBot + the multi-pass address/preference re-run +
+// BotThread.metadata.bot_context) is GONE — git is the revert path. Reply
+// generation now runs through the shared composed-prompt engine
+// (`runComposedBotTurn`, ARCHITECTURE §4/§5) on the book mission (Haiku —
+// logistics for an already-qualified lead), and cross-phase state lives in the
+// `Conversation` record, written through the airtight authorship seam.
+//
+// REUSED VERBATIM (do NOT rewrite — sprint_4 Step 3 / Do-NOT-touch): the
+// timezone-sensitive slot + booking machinery — getAvailableSlots, createSlotLock,
+// validateSlotBeforeConfirm, confirmBooking, the MT→UTC conversion in
+// handleBooked, transitionLead to INSPECTION_SCHEDULED, notifyRep — plus the two
+// named-trigger handlers (stall_exhausted, appointment_confirmed). The new engine
+// only DECIDES what to say and emits BOOKED + the chosen slot; the existing,
+// battle-tested code does the timezone math and the actual GHL booking.
+//
+// SLOT SEAM (sprint_4 Step 3, sprint_5 Step 0): slots are wired by PRE-FETCH-AND-
+// INJECT, not native tool-use. The CODE calls getAvailableSlots on book turns
+// (when an address is known), injects the result into the runtime context as
+// available_slots (TurnInput.availableSlots → assembler), and the model offers
+// ONLY those. On BOOKED the model echoes the chosen slot into state.selectedSlot
+// (the canonical home — ARCHITECTURE §5; signal.reason is prose-only).
+
 import { prisma } from "@/src/lib/prisma";
 import { sendGhlSms, addGhlTag, removeGhlTag } from "@/src/lib/ghl-sms";
 import {
   getOrCreateThread,
   appendMessage,
-  runBot,
   transitionLead,
   isCancellation,
   purgeExpiredSlotLocks,
@@ -13,63 +37,64 @@ import {
   confirmBooking,
   notifyRep,
   formatAppointmentDatetime,
-  getAreaAppointments,
-  readBotContextFromDb,
-  writeBotContextToDb,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
-import {
-  writeGhlContactCustomField,
-  writeGhlOpportunityCustomField,
-  moveGhlOpportunityStage,
-  updateGhlContact,
-} from "@/src/lib/ghl-contacts";
+import { moveGhlOpportunityStage, updateGhlContact } from "@/src/lib/ghl-contacts";
 import { createAppointmentWithInspection, deriveZoneForLead } from "@/src/lib/appointment-service";
-import { assembleBookPrompt } from "@/src/lib/prompts/qntum/assemblers/book";
-import type { BotContext, BotResponse } from "@/src/lib/prompts/qntum/types";
-import type { BookAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/book";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
-import { detectTimePreference, getTodayMT, type TimeOfDay } from "@/src/lib/time-utils";
+import { detectTimePreference } from "@/src/lib/time-utils";
+import {
+  writeSystemFields,
+  applyModelStateDelta,
+  conversationToStateInput,
+  type SystemAuthoredFields,
+} from "@/src/lib/conversation";
+import { runComposedBotTurn } from "@/src/lib/bot-v2/engine";
+import type { ContractSummary, Phase, TurnInput } from "@/src/lib/bot-v2/types";
 import type { Lead, SrLead } from "@prisma/client";
 
 type BotMessage = { role: string; content: string; timestamp: string };
 
-const CONVERSATION_LIMIT = 20;
+const PHASE: Phase = "book";
 
-const BOOKED_SLOT_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+// A concrete, confirmable slot string: "YYYY-MM-DD HH:MM" (MT wall-clock).
+const BOOKED_SLOT_RE = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/;
 
-// Homeowner is rejecting the offered slot(s) / negotiating for a different time.
-// Intent-based (not a bare clock-time match) so a confirmation like "see you at
-// 3" never fires a re-fetch, while renegotiations like "can we do something
-// around 6" / "what about 5:30" / "too soon" do.
-const SLOT_REJECTION_RE = new RegExp([
-  "can('t| not)",
-  "c(an|ould) (we|you|i) (do|push|move|make|get|come)",
-  "won'?t work",
-  "not (available|good|gonna work|going to work)",
-  "different (time|day)",
-  "none of (those|these|them)",
-  "does(n'?t| not) work",
-  "too (soon|early|late)",
-  "around \\d",
-  "(what|how) about",
-  "something (else|later|earlier|around|different|sooner)",
-  "anything (else|later|earlier|around|sooner)",
-  "a (bit|little) (later|earlier|sooner)",
-  "push (it |that )?(back|later|to)",
-  "move (it |that )?(to|back|later|earlier)",
-].join("|"), "i");
+// Outward GHL side-effects + the booking-confirm seam, all injectable for
+// testability (mirrors the nurture/qualify handlers). Production callers omit
+// `deps`; the live-route harness injects no-ops + a stub confirm so it can drive
+// the full engine loop against the real DB WITHOUT sending SMS or performing the
+// real GHL/DB booking confirm.
+export interface BookIoDeps {
+  sendSms?: (ghlContactId: string, message: string) => Promise<void>;
+  addTag?: (ghlContactId: string, tag: string) => Promise<void>;
+  removeTag?: (ghlContactId: string, tag: string) => Promise<void>;
+  // The BOOKED confirm path. Defaults to the real handleBooked (existing
+  // timezone/slot/booking machinery). The harness stubs this to assert the
+  // BOOKED handoff fired without performing the real confirm.
+  confirmBooked?: (args: {
+    slot: string;
+    address: string | null;
+    summary: string | null;
+    lead: Lead;
+    ghlContactId: string;
+    zone: string;
+    distanceZone: boolean;
+  }) => Promise<void>;
+}
+
+// ── Named-trigger booking machinery — UNCHANGED (reused, not rewritten) ──────
 
 async function handleStallExhaustedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
-  await updateSrLead(lead.id, { sr_bot_stage: 'revival', sr_status: 'DEMO_NOT_SOLD' });
+  await updateSrLead(lead.id, { sr_bot_stage: "revival", sr_status: "DEMO_NOT_SOLD" });
   if (lead.ghlOpportunityId) {
-    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_FOLLOW_UP_ACTIVE!).catch(err =>
-      console.error('[book/stall_exhausted] moveStage failed:', err),
+    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_FOLLOW_UP_ACTIVE!).catch((err) =>
+      console.error("[book/stall_exhausted] moveStage failed:", err),
     );
   }
   await Promise.allSettled([
-    addGhlTag(ghlContactId, 'sr_follow_up'),
-    removeGhlTag(ghlContactId, 'booking_stall'),
+    addGhlTag(ghlContactId, "sr_follow_up"),
+    removeGhlTag(ghlContactId, "booking_stall"),
   ]);
 }
 
@@ -78,12 +103,11 @@ async function handleAppointmentConfirmedWebhook(lead: Lead, srLead: SrLead, ghl
 
   const assignedUserId = lead.assignedUserId ?? process.env.GHL_DEFAULT_ASSIGNEE_ID ?? null;
   if (!assignedUserId) {
-    console.error('[book/appt_confirmed] no assignedUserId — cannot create Appointment');
+    console.error("[book/appt_confirmed] no assignedUserId — cannot create Appointment");
     return;
   }
 
   // srAppointmentAt is written by transitionLead just before this webhook fires.
-  // Fall back to now() only if it's somehow missing.
   const scheduledAt = srLead.srAppointmentAt ?? new Date();
   const zone = deriveZoneForLead(lead.sourceZip ?? null);
 
@@ -93,387 +117,275 @@ async function handleAppointmentConfirmedWebhook(lead: Lead, srLead: SrLead, ghl
       assignedUserId,
       scheduledAt,
       zone,
-      createdBy: 'ALEX',
+      createdBy: "ALEX",
     });
     console.log(`[book/appt_confirmed] appointment ${appointmentId} + inspection ${inspectionId} created for lead ${lead.id}`);
   } catch (err) {
-    console.error('[book/appt_confirmed] createAppointmentWithInspection failed:', err);
+    console.error("[book/appt_confirmed] createAppointmentWithInspection failed:", err);
   }
 }
 
-export async function handleBookWebhook(ctx: {
-  lead: Lead;
-  srLead: SrLead;
-  ghlContactId: string;
-  trigger: string;
-  inboundMsg: string;
-}): Promise<void> {
-  const { lead, ghlContactId, trigger, inboundMsg } = ctx;
-  const rawLead = lead as unknown as Record<string, unknown>;
+export async function handleBookWebhook(
+  ctx: {
+    lead: Lead;
+    srLead: SrLead;
+    ghlContactId: string;
+    trigger: string;
+    inboundMsg: string;
+  },
+  deps: BookIoDeps = {},
+): Promise<void> {
+  const { lead, srLead, ghlContactId, trigger, inboundMsg } = ctx;
+  const sendSms = deps.sendSms ?? sendGhlSms;
+  const addTag = deps.addTag ?? addGhlTag;
+  const removeTag = deps.removeTag ?? removeGhlTag;
+  const confirmBooked =
+    deps.confirmBooked ??
+    (async (a) => handleBooked(a.slot, a.address, a.summary, a.lead, a.ghlContactId, a.zone, a.distanceZone));
 
-  // ── Named trigger dispatch ────────────────────────────────────────────────────
-  if (trigger === 'stall_exhausted') {
+  // ── Named-trigger dispatch (booking machinery — unchanged) ──────────────────
+  if (trigger === "stall_exhausted") {
     await handleStallExhaustedWebhook(lead, ghlContactId);
     return;
   }
-  if (trigger === 'appointment_confirmed') {
-    await handleAppointmentConfirmedWebhook(lead, ctx.srLead, ghlContactId);
+  if (trigger === "appointment_confirmed") {
+    await handleAppointmentConfirmedWebhook(lead, srLead, ghlContactId);
     return;
   }
 
-  // ── Cancellation check ────────────────────────────────────────────────────────
-  if (trigger === 'inbound_sms' && isCancellation(inboundMsg)) {
+  // ── Cancellation (existing behavior, unchanged) ─────────────────────────────
+  if (trigger === "inbound_sms" && isCancellation(inboundMsg)) {
     const activeInspection = await prisma.inspection.findFirst({
-      where: { leadId: lead.id, status: 'scheduled' },
+      where: { leadId: lead.id, status: "scheduled" },
     });
     if (activeInspection) {
       await prisma.inspection.update({
         where: { id: activeInspection.id },
-        data: { status: 'cancelled', repNotes: 'Cancelled via SMS' },
+        data: { status: "cancelled", repNotes: "Cancelled via SMS" },
       });
-      await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_cancelled', 'DEMO_NOT_SOLD', 'silent', {
-        sr_status: 'DEMO_NOT_SOLD', sr_bot_stage: 'silent',
+      await transitionLead(lead.id, ghlContactId, "sr_booking", "sr_cancelled", "DEMO_NOT_SOLD", "silent", {
+        sr_status: "DEMO_NOT_SOLD", sr_bot_stage: "silent",
       });
       const fn = lead.customerName.trim().split(/\s+/)[0];
-      await sendGhlSms(ghlContactId, `No problem, ${fn}. We've cancelled your inspection. If things change, reach out anytime.`);
+      await sendSms(ghlContactId, `No problem, ${fn}. We've cancelled your inspection. If things change, reach out anytime.`);
       return;
     }
   }
 
-  // ── Book bot conversation ─────────────────────────────────────────────────────
-  await purgeExpiredSlotLocks();
-
+  // ── Zone (reused machinery; matches the old handler's derivation) ───────────
   const leadZone = lead.sourceZip ? (getZoneForZip(lead.sourceZip) ?? null) : null;
   const distanceZone = leadZone ? isDistanceZone(leadZone) : false;
-  const zone = leadZone ?? 'el_paso_central';
+  const zone = leadZone ?? "el_paso_central";
 
-  // Read context from DB — immediately consistent, no race condition
-  const bot_context = await readBotContextFromDb(ghlContactId);
-  console.info('[book] readBotContextFromDb result — motivation:', bot_context.motivation, 'summary:', bot_context.summary?.slice(0, 80));
+  // ── System-authored fields → Conversation; returns CURRENT (pre-turn) state ─
+  const convo = await writeSystemFields(
+    ghlContactId,
+    { leadId: lead.id },
+    { currentPhase: PHASE, leadId: lead.id },
+  );
 
-  const area_appointments = await getAreaAppointments(zone).catch(() => []);
-
-  // Address: prefer bot_context.address (Claude-accumulated) over lead record
-  const existingAddress = bot_context.address ?? (rawLead.address as string | null) ?? null;
-  const addressCollected = !!(existingAddress && existingAddress.trim().length > 0);
-
-  // Sync address to lead record if bot_context has one but lead doesn't
-  if (bot_context.address && !lead.address) {
-    await prisma.lead.update({ where: { id: lead.id }, data: { address: bot_context.address } }).catch(() => null);
-    if (lead.ghlContactId) {
-      await updateGhlContact(lead.ghlContactId, { address1: bot_context.address }).catch(() => null);
-    }
-  }
-
-  // Effective time-of-day preference. Prefer what the homeowner stated in THIS
-  // message (deterministic parse) over stored context, so a stated/restated
-  // preference influences slot selection on the same turn rather than next turn.
-  // Fold the free-text appointment_time_preference into the enum too, so the two
-  // fields can never diverge from the value getAvailableSlots actually reads.
-  const detectedPref = trigger === 'inbound_sms' ? detectTimePreference(inboundMsg) : null;
-  const storedPref: TimeOfDay | null =
-    bot_context.time_of_day_preference
-    ?? (bot_context.appointment_time_preference
-          ? detectTimePreference(bot_context.appointment_time_preference)?.preference ?? null
-          : null);
-  const timePreference: TimeOfDay = detectedPref?.preference ?? storedPref ?? 'any';
-  const specificStartHour = detectedPref?.startHour;
-
-  // A slot rejection or a preference change must invalidate the previously
-  // offered slot and re-query — never reuse the stale lock. Otherwise the
-  // re-offer turn would run against an empty slot list and Alex would defer.
-  const slotRejected = trigger === 'inbound_sms' && SLOT_REJECTION_RE.test(inboundMsg);
-  const preferenceChanged = !!detectedPref && detectedPref.preference !== storedPref;
-
-  // Slot fetching
-  const existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
-  const needsFreshSlots =
-    !existingLock ||
-    trigger === 'qualified_handoff' ||
-    trigger === 'stall_followup' ||
-    slotRejected ||
-    preferenceChanged;
-  let rawSlots: Array<{ date: string; time: string; label: string }> = [];
-  if (addressCollected && needsFreshSlots) {
-    rawSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
-    if (rawSlots.length > 0) {
-      const [y, m, d] = rawSlots[0].date.split('-').map(Number);
+  // ── Slot pre-fetch-and-inject (sprint_4 Step 3) ─────────────────────────────
+  // Address is the model-authored Conversation.address (mirrored to the Lead on
+  // collection). Once we have an address we pre-fetch real slots and inject them;
+  // before that, availableSlots stays undefined and the Book mission keeps
+  // collecting the address. Pre-fetching on every address-known book turn is
+  // intentional (slots are cheap; one round-trip keeps Haiku snappy).
+  const address = convo.address ?? lead.address ?? null;
+  let availableSlots: { date: string; time: string; label: string }[] | undefined;
+  let existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
+  if (address) {
+    await purgeExpiredSlotLocks();
+    const detected = trigger === "inbound_sms" ? detectTimePreference(inboundMsg) : null;
+    const timePreference = detected?.preference ?? "any";
+    const slots = await getAvailableSlots(zone, distanceZone, timePreference, detected?.startHour);
+    if (slots.length > 0) {
+      const [y, m, d] = slots[0].date.split("-").map(Number);
       await createSlotLock({
         date: new Date(y, m - 1, d),
-        time: rawSlots[0].time,
+        time: slots[0].time,
         zone,
         leadId: lead.id,
-        label: rawSlots[0].label || rawSlots[0].time,
+        label: slots[0].label || slots[0].time,
       });
+      existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
     }
+    availableSlots = slots;
   }
 
-  // On a turn where we didn't re-fetch (e.g. the homeowner is confirming the
-  // slot we already offered), surface the locked slot back into the model's
-  // context so it can copy a valid booked_slot from available_slots instead of
-  // reconstructing one from conversation history. Reverse the local-midnight
-  // Date built in createSlotLock to recover the YYYY-MM-DD it was created from.
-  let offeredSlots = rawSlots;
-  if (offeredSlots.length === 0 && existingLock) {
-    const ld = existingLock.date;
-    const lockedDate = `${ld.getFullYear()}-${String(ld.getMonth() + 1).padStart(2, '0')}-${String(ld.getDate()).padStart(2, '0')}`;
-    offeredSlots = [{ date: lockedDate, time: existingLock.time, label: existingLock.label ?? existingLock.time }];
+  // ── Classify the turn ───────────────────────────────────────────────────────
+  const isRealInbound = trigger === "inbound_sms" && !!inboundMsg;
+  let turnMessage: string;
+  if (trigger === "qualified_handoff") {
+    turnMessage =
+      `[system: the homeowner was just QUALIFIED and handed to you for booking. Send your ` +
+      `booking opener — greet warmly, do NOT re-sell or re-surface consequence, and begin ` +
+      `collecting the service address.]`;
+  } else if (trigger === "stall_followup") {
+    turnMessage =
+      `[system: booking stalled — the homeowner went quiet without landing a time. Send ONE ` +
+      `brief, no-pressure follow-up that makes it easy to pick a time.]`;
+  } else {
+    turnMessage = inboundMsg;
   }
 
-  const { id: threadId } = await getOrCreateThread(ghlContactId, 'book');
-  const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-  const currentMessages = (thread?.messages as BotMessage[]) ?? [];
+  // ── Build the turn input ────────────────────────────────────────────────────
+  const { id: threadId, messages: priorMessages } = await getOrCreateThread(ghlContactId, "book");
+  const history = (priorMessages as BotMessage[]).map((m) => ({
+    role: (m.role === "assistant" ? "bot" : "lead") as "bot" | "lead",
+    content: m.content,
+    timestamp: m.timestamp,
+  }));
 
-  const knownIssues = Array.isArray(lead.knownIssues) ? (lead.knownIssues as string[]) : [];
-  const activeIssues = knownIssues.filter(i => i !== "I haven't noticed anything");
-
-  const assemblerCtx: BookAssemblerContext = {
-    homeowner_name: lead.customerName,
-    first_name: lead.customerName.trim().split(/\s+/)[0],
-    zone: leadZone ?? '',
-    available_slots: offeredSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
-    qualify_summary: {
-      problem_confirmed: activeIssues.length > 0,
-      specific_issue: activeIssues[0]?.toLowerCase() ?? null,
-      roof_age: lead.roofAge ?? null,
-      decision_maker_confirmed: lead.decisionMakerHome === 'Yes',
-    },
-    message_history_count: currentMessages.length,
-    bot_context,
-    area_appointments,
-    today_mt: getTodayMT(),
+  const input: TurnInput = {
+    ghlContactId,
+    inboundMessage: turnMessage,
+    conversationState: conversationToStateInput(convo),
+    conversationHistory: history,
+    phase: PHASE,
+    availableSlots,
   };
 
-  // ── Qualified handoff opener ──────────────────────────────────────────────────
-  if (trigger === 'qualified_handoff') {
-    const openerCtx: BookAssemblerContext = { ...assemblerCtx, message_history_count: 0 };
-    const systemPrompt = assembleBookPrompt(openerCtx);
-    const openerResponse = await runBot(systemPrompt, [
-      { role: 'user', content: 'qualified_handoff', timestamp: new Date().toISOString() },
-    ], { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
-    if (openerResponse !== null) {
-      await writeBotContextToDb(ghlContactId, 'book', openerResponse.bot_context);
-      console.info('[book] writeBotContextToDb complete — motivation:', openerResponse.bot_context.motivation);
-      // Mirror to GHL — fire and forget
-      if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
-        writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(openerResponse.bot_context)).catch(() => null);
+  // ── Run the engine (tier → Haiku; WOBBLING escalation DORMANT — see §3/Step 4) ─
+  const result = await runComposedBotTurn(input);
+  const sig = result.signal.type;
+
+  // ── Persist model-authored state via the airtight seam ──────────────────────
+  await applyModelStateDelta(ghlContactId, result.stateDelta, { currentPhase: PHASE });
+
+  // Mirror a newly-collected address to the Lead record + GHL contact (existing
+  // behavior). The model-authored address lives on the Conversation row; the Lead
+  // is the canonical business record (ARCHITECTURE §7 — Conversation.address
+  // mirrors TO Lead on book).
+  const newAddress = (result.stateDelta as { address?: string | null }).address ?? null;
+  if (newAddress && newAddress !== lead.address) {
+    await prisma.lead.update({ where: { id: lead.id }, data: { address: newAddress } }).catch(() => null);
+    await updateGhlContact(ghlContactId, { address1: newAddress }).catch(() => null);
+  }
+
+  // ── Persist system-authored fields (meta + heat clock) ──────────────────────
+  const sysFields: Partial<SystemAuthoredFields> = {
+    lastSignal: sig ?? null,
+    lastModelTier: result.modelTier,
+  };
+  if (isRealInbound) sysFields.heatLastInbound = new Date();
+  await writeSystemFields(ghlContactId, sysFields, { currentPhase: PHASE });
+
+  // ── Transcript: append the real inbound (system turns have no real inbound) ──
+  if (isRealInbound) await appendMessage(threadId, "user", inboundMsg);
+
+  // ── Reply vs handoff ────────────────────────────────────────────────────────
+  // Book sends Alex's reply for every signal EXCEPT a firm NOT_INTERESTED (respect
+  // the no). BOOKED's reply is the homeowner-facing confirmation; STALL/WOBBLING/
+  // SOFT_CLOSE/ESCALATE all want Alex's closing message to land.
+  const sendReply = sig !== "NOT_INTERESTED";
+  if (sendReply && result.reply) {
+    await sendSms(ghlContactId, result.reply);
+    await appendMessage(threadId, "assistant", result.reply);
+  }
+
+  // ── Act on the signal ───────────────────────────────────────────────────────
+  switch (sig) {
+    case "BOOKED": {
+      // The new engine produced BOOKED + the chosen slot (in state.selectedSlot —
+      // see resolveBookedSlot). Hand off to the EXISTING confirm path (timezone
+      // math, validateSlotBeforeConfirm, confirmBooking, transitionLead →
+      // INSPECTION_SCHEDULED, notifyRep). Nothing here is rebuilt.
+      const selectedSlot = (result.stateDelta as { selectedSlot?: string | null }).selectedSlot ?? null;
+      const slot = resolveBookedSlot(selectedSlot, availableSlots, existingLock);
+      if (!slot) {
+        console.error(`[book] BOOKED but no resolvable slot (selectedSlot=${JSON.stringify(selectedSlot)}) — cannot confirm`);
+        break;
       }
-      if (!openerResponse.stage_change && openerResponse.message) {
-        await sendGhlSms(ghlContactId, openerResponse.message);
-        await appendMessage(threadId, 'assistant', openerResponse.message);
+      await confirmBooked({
+        slot,
+        address,
+        summary: summaryToText(result.stateDelta, convo.summary),
+        lead,
+        ghlContactId,
+        zone,
+        distanceZone,
+      });
+      break;
+    }
+    case "STALL":
+      // Normal "didn't land a time" exit → booking_stall (routes to revival later).
+      // SPRINT 5: revival picks this up via the GHL booking_stall automation.
+      await addTag(ghlContactId, "booking_stall").catch((e) => console.error(e));
+      break;
+    case "WOBBLING":
+      // A real named objection reopened a supposedly-closed gate at the booking
+      // moment. RECORD ONLY this sprint — it's already persisted as lastSignal
+      // above. Do NOT escalate the tier and do NOT touch GHL (ARCHITECTURE §3/§6).
+      //
+      // WOBBLING escalation dormant — activate in a later sprint if telemetry
+      // shows Haiku losing recoverable bookings (a high WOBBLING rate would also
+      // indicate qualify is rubber-stamping leads).
+      console.info(`[book] WOBBLING recorded (dormant — no tier escalation) contact=${ghlContactId} reason=${JSON.stringify(result.signal.reason)}`);
+      break;
+    case "NOT_INTERESTED":
+      await transitionLead(lead.id, ghlContactId, "sr_booking", "sr_dead", "DEAD", "silent", {
+        sr_status: "DEAD", sr_bot_stage: "silent",
+      }, "NOT_INTERESTED");
+      if (lead.ghlOpportunityId) {
+        await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_DEAD!).catch((e) => console.error(e));
       }
-    }
-    return;
+      break;
+    case "SOFT_CLOSE":
+      await addTag(ghlContactId, "sr_soft_close").catch((e) => console.error(e));
+      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch(() => null);
+      break;
+    case "ESCALATE":
+      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch(() => null);
+      await addTag(ghlContactId, "sr_escalation").catch(() => null);
+      break;
+    default:
+      break;
   }
 
-  if (inboundMsg && trigger !== 'stall_followup') {
-    await appendMessage(threadId, 'user', inboundMsg);
-  }
-
-  // ── Stall followup ────────────────────────────────────────────────────────────
-  if (trigger === 'stall_followup') {
-    const stalledThread = await prisma.botThread.findUnique({ where: { id: threadId } });
-    const stalledMessages = (stalledThread?.messages as BotMessage[]) ?? [];
-    const systemPrompt = assembleBookPrompt(assemblerCtx);
-    const botMessages = [
-      ...stalledMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp })),
-      { role: 'user' as const, content: 'stall_followup', timestamp: new Date().toISOString() },
-    ];
-    const response = await runBot(systemPrompt, botMessages, { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
-    if (response === null) {
-      await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
-      return;
-    }
-    await writeBotContextToDb(ghlContactId, 'book', response.bot_context);
-    console.info('[book] writeBotContextToDb complete — motivation:', response.bot_context.motivation);
-    if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
-      writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
-    }
-    if (!response.stage_change && response.message) {
-      await sendGhlSms(ghlContactId, response.message);
-      await appendMessage(threadId, 'assistant', response.message);
-    }
-    if (response.signal === 'STALL') {
-      await addGhlTag(ghlContactId, 'booking_stall_exhausted');
-      await addGhlTag(ghlContactId, 'sr_follow_up');
-    } else if (response.signal === 'BOOKED' && response.booked_slot) {
-      await handleBooked(response.booked_slot, response.bot_context, lead, ghlContactId, zone, distanceZone);
-    }
-    return;
-  }
-
-  // ── Main inbound_sms conversation ─────────────────────────────────────────────
-  const reloadedThread = await prisma.botThread.findUnique({ where: { id: threadId } });
-  const reloadedMessages = (reloadedThread?.messages as BotMessage[]) ?? [];
-  const freshBotCtx = await readBotContextFromDb(ghlContactId);
-
-  const freshCtx: BookAssemblerContext = { ...assemblerCtx, message_history_count: reloadedMessages.length, bot_context: freshBotCtx };
-  const systemPrompt = assembleBookPrompt(freshCtx);
-  const botMessages = reloadedMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp }));
-
-  let response = await runBot(systemPrompt, botMessages, { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: freshBotCtx });
-  if (response === null) {
-    await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
-    return;
-  }
-
-  // ── Post-address: ask preference, then offer ──────────────────────────────
-  // The address arrived THIS turn, so the up-front fetch was skipped. Re-run once
-  // (no loop) to give the homeowner a real next step in the same message:
-  //   • No time-of-day preference yet → confirm address + ask ONE preference
-  //     question. Their reply hits the preferenceChanged re-fetch next turn.
-  //   • Preference already known → fetch and offer concrete times now; if the
-  //     fetch is empty/fails, escalate cleanly rather than re-running.
-  const addressJustConfirmed =
-    !!response.bot_context.address && response.bot_context.address !== freshBotCtx.address;
-  if (addressJustConfirmed && offeredSlots.length === 0 && response.signal !== 'BOOKED') {
-    const fn = lead.customerName.trim().split(/\s+/)[0];
-
-    if (timePreference === 'any') {
-      // No time-of-day preference known yet — don't push 'any' slots. Confirm the
-      // address and ask ONE focused preference question. Their reply hits the
-      // preferenceChanged re-fetch path next turn and offers matching times.
-      const askCtx: BookAssemblerContext = {
-        ...freshCtx,
-        bot_context: response.bot_context,
-        available_slots: [],
-        collect_time_preference: true,
-      };
-      const askResponse = await runBot(
-        assembleBookPrompt(askCtx),
-        botMessages,
-        { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: response.bot_context },
-      );
-      response = askResponse ?? {
-        // Haiku failure — synthesize the question so the lead always has a next
-        // step (never a dead-end).
-        ...response,
-        stage_change: false,
-        signal: null,
-        booked_slot: null,
-        message: `Got it, ${fn} — thanks. Morning or afternoon, what works better for you?`,
-      };
-    } else {
-      // Preference already known (e.g. captured during qualify) — fetch and offer
-      // immediately in the same turn.
-      const secondPassSlots = await getAvailableSlots(zone, distanceZone, timePreference, specificStartHour);
-
-      // Only attempt the re-run when we actually have slots to offer.
-      let offerResponse: BotResponse | null = null;
-      if (secondPassSlots.length > 0) {
-        const [y, m, d] = secondPassSlots[0].date.split('-').map(Number);
-        await createSlotLock({
-          date: new Date(y, m - 1, d),
-          time: secondPassSlots[0].time,
-          zone,
-          leadId: lead.id,
-          label: secondPassSlots[0].label || secondPassSlots[0].time,
-        });
-        const offerCtx: BookAssemblerContext = {
-          ...freshCtx,
-          bot_context: response.bot_context,
-          available_slots: secondPassSlots.map(s => ({ date: s.date, time: s.time, label: s.label, zone_label: zone })),
-        };
-        offerResponse = await runBot(
-          assembleBookPrompt(offerCtx),
-          botMessages,
-          { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: response.bot_context },
-        );
-      }
-
-      if (offerResponse !== null) {
-        // The second-pass output replaces pass 1 entirely — every downstream
-        // write/send below operates on `response`, so the slot-offer message (not
-        // pass 1's address-only/handoff message) is what gets stored and sent.
-        response = offerResponse;
-      } else {
-        // Could not produce slots for ANY reason — empty fetch, null/failed
-        // re-run. Escalate cleanly so the rep is notified and the homeowner gets
-        // a real next step. No further runBot — this cannot loop.
-        response = {
-          ...response,
-          stage_change: true,
-          signal: 'ESCALATE',
-          booked_slot: null,
-          message: `Thanks ${fn} — I've got your address. I'm having a team member reach out to lock in the best inspection time for you.`,
-        };
-      }
-    }
-  }
-
-  await writeBotContextToDb(ghlContactId, 'book', response.bot_context);
-  console.info('[book] writeBotContextToDb complete — motivation:', response.bot_context.motivation,
-    'time_of_day_preference:', response.bot_context.time_of_day_preference,
-    'appointment_time_preference:', response.bot_context.appointment_time_preference);
-  if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
-    writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
-  }
-
-  const atLimit = reloadedMessages.length >= CONVERSATION_LIMIT;
-  if (response.stage_change || atLimit) {
-    if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-      writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
-    }
-  }
-
-  // Handle address accumulation in bot_context
-  if (response.bot_context.address && response.bot_context.address !== freshBotCtx.address) {
-    const newAddr = response.bot_context.address;
-    await prisma.lead.update({ where: { id: lead.id }, data: { address: newAddr } }).catch(() => null);
-    if (lead.ghlContactId) {
-      await updateGhlContact(lead.ghlContactId, { address1: newAddr }).catch(() => null);
-    }
-  }
-
-  if (!response.stage_change && response.message) {
-    await sendGhlSms(ghlContactId, response.message);
-    await appendMessage(threadId, 'assistant', response.message);
-  }
-
-  if (response.signal === 'BOOKED' && response.booked_slot) {
-    await handleBooked(response.booked_slot, response.bot_context, lead, ghlContactId, zone, distanceZone);
-    return;
-  }
-
-  if (response.signal === 'STALL') {
-    await addGhlTag(ghlContactId, 'booking_stall');
-    return;
-  }
-
-  if (response.stage_change) {
-    if (response.signal === 'NOT_INTERESTED') {
-      await updateSrLead(lead.id, { sr_bot_stage: 'silent', sr_status: 'DEAD' });
-      await Promise.allSettled([
-        addGhlTag(ghlContactId, 'sr_dead'),
-        removeGhlTag(ghlContactId, 'sr_booking'),
-        lead.ghlOpportunityId
-          ? moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_DEAD!)
-          : Promise.resolve(),
-      ]);
-    } else if (response.signal === 'SOFT_CLOSE') {
-      await addGhlTag(ghlContactId, 'sr_soft_close');
-      await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
-    } else if (response.signal === 'ESCALATE') {
-      await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
-      // sr_escalation is the signal to GHL — its automation drives the human
-      // handoff (notify the rep, reassign, etc). The server only sets the tag and
-      // sends the homeowner the closing message; internal notifications are GHL's
-      // job, not the server's.
-      await addGhlTag(ghlContactId, 'sr_escalation').catch(() => null);
-      // Send the homeowner Alex's closing message (the main send block above is
-      // skipped because ESCALATE is a stage_change) so they aren't left hanging
-      // after a rejection.
-      if (response.message) {
-        await sendGhlSms(ghlContactId, response.message);
-        await appendMessage(threadId, 'assistant', response.message);
-      }
-    }
-  }
+  void removeTag; // reserved for parity with other handlers
 }
 
+// Resolve the concrete "YYYY-MM-DD HH:MM" slot for a BOOKED turn. Primary source
+// is the model-authored state.selectedSlot (the canonical home for the chosen
+// slot — ARCHITECTURE §5; signal.reason is prose-only). Falls back to the
+// locked/first-offered slot so a malformed/missing selectedSlot never blocks a
+// booking we have a valid slot for.
+function resolveBookedSlot(
+  selectedSlot: string | null,
+  offered: { date: string; time: string }[] | undefined,
+  lock: { date: Date; time: string } | null,
+): string | null {
+  if (selectedSlot) {
+    const m = selectedSlot.match(BOOKED_SLOT_RE);
+    if (m) return m[0];
+  }
+  if (offered && offered.length > 0) return `${offered[0].date} ${offered[0].time}`;
+  if (lock) {
+    const ld = lock.date;
+    const dateStr = `${ld.getFullYear()}-${String(ld.getMonth() + 1).padStart(2, "0")}-${String(ld.getDate()).padStart(2, "0")}`;
+    return `${dateStr} ${lock.time}`;
+  }
+  return null;
+}
+
+// Flatten the structured handoff summary (ARCHITECTURE §5) into a one-line string
+// for the rep notification. Prefers the just-emitted delta, falls back to the
+// stored row value.
+function summaryToText(stateDelta: Record<string, unknown>, stored: unknown): string | null {
+  const s = ((stateDelta.summary as ContractSummary | undefined) ?? (stored as ContractSummary | null)) || null;
+  if (!s) return null;
+  return [s.situation, s.problem, s.consequence, s.openObjection, s.nextStep]
+    .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    .join(" · ") || null;
+}
+
+// ── handleBooked — the EXISTING confirm path (reused; address/summary decoupled
+// from the dead BotContext type, otherwise unchanged: MT→UTC math,
+// validateSlotBeforeConfirm, confirmBooking, transitionLead, notifyRep). ───────
 async function handleBooked(
   bookedSlot: string,
-  botCtx: BotContext,
+  address: string | null,
+  summary: string | null,
   lead: Lead,
   ghlContactId: string,
   zone: string,
@@ -481,64 +393,64 @@ async function handleBooked(
 ): Promise<void> {
   void distanceZone;
 
-  if (!BOOKED_SLOT_RE.test(bookedSlot)) {
-    console.error(`[book] BOOKED signal has invalid booked_slot format: "${bookedSlot}"`);
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(bookedSlot)) {
+    console.error(`[book] BOOKED signal has invalid slot format: "${bookedSlot}"`);
     return;
   }
 
-  const [datePart, timePart] = bookedSlot.split(' ');
-  const [year, month, day] = datePart.split('-').map(Number);
-  const [hour, minute] = timePart.split(':').map(Number);
+  const [datePart, timePart] = bookedSlot.split(" ");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
 
   // Convert MT wall-clock to UTC
-  const tz = process.env.BOT_TIMEZONE ?? 'America/Denver';
+  const tz = process.env.BOT_TIMEZONE ?? "America/Denver";
   const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
   const off = ((): number => {
-    const pts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: false }).formatToParts(guess);
-    const h = parseInt(pts.find(p => p.type === 'hour')?.value ?? '0', 10);
-    const m = parseInt(pts.find(p => p.type === 'minute')?.value ?? '0', 10);
+    const pts = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit", hour12: false }).formatToParts(guess);
+    const h = parseInt(pts.find((p) => p.type === "hour")?.value ?? "0", 10);
+    const m = parseInt(pts.find((p) => p.type === "minute")?.value ?? "0", 10);
     return h * 60 + m - (hour * 60 + minute);
   })();
   const appointmentDate = new Date(guess.getTime() - off * 60 * 1000);
 
-  console.info('[book] booked_slot raw value from Claude:', bookedSlot);
+  console.info("[book] booked_slot raw value:", bookedSlot);
   const formattedDatetime = formatAppointmentDatetime(bookedSlot);
 
   const validation = await validateSlotBeforeConfirm(lead.id, appointmentDate, timePart, zone);
   if (!validation.ok) {
-    console.warn('[book] slot conflict on confirm:', validation.reason);
+    console.warn("[book] slot conflict on confirm:", validation.reason);
     return;
   }
 
   try {
-    await confirmBooking(lead.id, ghlContactId, appointmentDate, formattedDatetime, botCtx.address ?? undefined);
+    await confirmBooking(lead.id, ghlContactId, appointmentDate, formattedDatetime, address ?? undefined);
   } catch (err) {
-    console.error('[book] confirmBooking failed:', err);
+    console.error("[book] confirmBooking failed:", err);
     return;
   }
 
-  await transitionLead(lead.id, ghlContactId, 'sr_booking', 'sr_appointment_set', 'INSPECTION_SCHEDULED', 'silent', {
-    sr_status: 'INSPECTION_SCHEDULED', sr_appointment_at: appointmentDate.toISOString(), sr_bot_stage: 'silent',
-  });
+  await transitionLead(lead.id, ghlContactId, "sr_booking", "sr_appointment_set", "INSPECTION_SCHEDULED", "silent", {
+    sr_status: "INSPECTION_SCHEDULED", sr_appointment_at: appointmentDate.toISOString(), sr_bot_stage: "silent",
+  }, "BOOKED");
 
   if (lead.ghlOpportunityId) {
-    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_APPOINTMENT_SET!).catch(err =>
-      console.error('[book] moveStage APPOINTMENT_SET failed:', err),
+    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_APPOINTMENT_SET!).catch((err) =>
+      console.error("[book] moveStage APPOINTMENT_SET failed:", err),
     );
   }
 
   if (lead.assignedUserId) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.scopereports.com';
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.scopereports.com";
     const repMsg =
       `New inspection booked!\n\n` +
       `Homeowner: ${lead.customerName}\n` +
-      `Address:   ${botCtx.address ?? 'not provided'}\n` +
+      `Address:   ${address ?? "not provided"}\n` +
       `Date/Time: ${formattedDatetime}\n` +
-      `Phone:     ${lead.phone ?? 'not on file'}\n\n` +
-      `Summary: ${botCtx.summary}\n\n` +
+      `Phone:     ${lead.phone ?? "not on file"}\n\n` +
+      `Summary: ${summary ?? "n/a"}\n\n` +
       `${appUrl}/leads/${lead.id}`;
-    await notifyRep(lead.assignedUserId, lead.id, repMsg).catch(err =>
-      console.error('[book] notifyRep failed:', err),
+    await notifyRep(lead.assignedUserId, lead.id, repMsg).catch((err) =>
+      console.error("[book] notifyRep failed:", err),
     );
   }
 }

@@ -1,257 +1,206 @@
+// ── NURTURE HANDLER — LIVE ON THE NEW ENGINE (Sprint 3 cutover) ──────────────
+//
+// This is the FIRST live route cutover (sprint_3 Step 3). The old nurture
+// reply-generation (assembleNurturePrompt + runBot + BotThread.metadata.bot_context)
+// is GONE — git is the revert path. Reply generation now runs entirely through the
+// shared composed-prompt engine (`runComposedBotTurn`, ARCHITECTURE §4/§5), and
+// cross-phase state lives in the `Conversation` record (ARCHITECTURE §7), written
+// through the airtight authorship seam (applyModelStateDelta / writeSystemFields).
+//
+// The GHL plumbing AROUND this is UNCHANGED and reused: the webhook preamble
+// (auth/idempotency/opt-out) in the calling routes, `getOrCreateThread` +
+// `appendMessage` for the transcript, `sendGhlSms`, `transitionLead`,
+// `routeQualifiedLead`, and the tag helpers. Only WHAT generates the reply and HOW
+// state is stored changed.
+//
+// This same exported entry point is shared by the dedicated nurture route AND the
+// central router, so cutting it over here cuts over both callers at once.
+
 import { prisma } from "@/src/lib/prisma";
 import { sendGhlSms, addGhlTag } from "@/src/lib/ghl-sms";
 import {
   getOrCreateThread,
   appendMessage,
-  runBot,
   transitionLead,
-  getAreaAppointments,
-  readBotContextFromDb,
-  writeBotContextToDb,
   routeQualifiedLead,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
-  writeGhlContactCustomField,
-  writeGhlOpportunityCustomField,
-} from "@/src/lib/ghl-contacts";
-import { assembleNurturePrompt } from "@/src/lib/prompts/qntum/assemblers/nurture";
-import type { BotContext } from "@/src/lib/prompts/qntum/types";
-import type { NurtureAssemblerContext } from "@/src/lib/prompts/qntum/assemblers/nurture";
-import { getZoneForZip } from "@/src/lib/service-zones";
+  writeSystemFields,
+  applyModelStateDelta,
+  conversationToStateInput,
+  type SystemAuthoredFields,
+} from "@/src/lib/conversation";
+import { runComposedBotTurn } from "@/src/lib/bot-v2/engine";
+import type { Phase, TurnInput } from "@/src/lib/bot-v2/types";
 import type { Lead, SrLead } from "@prisma/client";
 
 type BotMessage = { role: string; content: string; timestamp: string };
 
-const CONVERSATION_LIMIT = 15;
+const PHASE: Phase = "nurture";
 
-async function mergeSourceFields(
-  bot_context: BotContext,
-  sourceType: BotContext['source_type'],
-  assignedUserId: string | null,
-): Promise<BotContext> {
-  let repName = bot_context.rep_name;
-  if (repName === null && (sourceType === 'door' || sourceType === 'card') && assignedUserId) {
-    const user = await prisma.user.findUnique({ where: { id: assignedUserId }, select: { name: true } });
+// Outward GHL side-effects, injectable for testability (mirrors the engine's
+// injectable callClaude seam from Sprint 0). Production callers omit `deps` and
+// get the real `sendGhlSms` / `addGhlTag`; the live-route harness injects no-ops
+// so it can exercise the full engine + Conversation/BotThread persistence loop
+// against the real DB WITHOUT sending a real SMS. This is the only addition to
+// the handler's surface — the GHL plumbing itself is unchanged.
+export interface NurtureIoDeps {
+  sendSms?: (ghlContactId: string, message: string) => Promise<void>;
+  addTag?: (ghlContactId: string, tag: string) => Promise<void>;
+}
+
+export async function handleNurtureWebhook(
+  ctx: {
+    lead: Lead;
+    srLead: SrLead;
+    ghlContactId: string;
+    trigger: string;
+    inboundMsg: string;
+    dripPosition: number | null;
+  },
+  deps: NurtureIoDeps = {},
+): Promise<void> {
+  const { lead, srLead, ghlContactId, trigger, inboundMsg, dripPosition } = ctx;
+  void srLead; // routing already resolved by the caller; kept for signature parity
+  const sendSms = deps.sendSms ?? sendGhlSms;
+  const addTag = deps.addTag ?? addGhlTag;
+
+  // ── Classify the turn ──────────────────────────────────────────────────────
+  // Only a genuine homeowner SMS is a "real inbound" (it alone resets the heat
+  // cooldown clock — ARCHITECTURE §3). new_guide_lead (form submit) and
+  // nurture_drip (our outbound nudge) are SYSTEM-initiated turns; the model still
+  // produces a message, but they do NOT reset the clock.
+  const isRealInbound =
+    trigger === "inbound_sms" && !!inboundMsg && inboundMsg !== "new_guide_lead";
+  const isDrip = trigger === "nurture_drip" && dripPosition !== null;
+
+  // The single user turn the model answers (history lives in the system prompt —
+  // Sprint 2 latest-inbound-only decision). System turns get a synthetic marker
+  // since there is no homeowner message to answer.
+  let turnMessage: string;
+  if (isRealInbound) {
+    turnMessage = inboundMsg;
+  } else if (isDrip) {
+    turnMessage =
+      `[system: nurture drip nudge #${dripPosition}. The homeowner has gone quiet. ` +
+      `Send ONE short, no-pressure, value-adding check-in that keeps the door open — not salesy.]`;
+  } else {
+    // new_guide_lead / empty inbound → first-contact, source-aware opener.
+    turnMessage = `[system: new guide lead — send your source-aware opening message. No prior conversation.]`;
+  }
+
+  // ── System-authored source fields → Conversation (app-written, durable) ─────
+  // Derived from the Lead each turn (ARCHITECTURE §8: guide → nurture). repName is
+  // looked up for rep_door/rep_card so the opener can reference the rep. This also
+  // ensures the Conversation row exists and returns the CURRENT (pre-turn) state.
+  const rawLead = lead as unknown as Record<string, unknown>;
+  const guideSource = (rawLead.guideSource as string | null) ?? null;
+  const sourceChannel =
+    guideSource === "door" ? "rep_door" : guideSource === "card" ? "rep_card" : "organic";
+
+  let repName: string | null = null;
+  if ((guideSource === "door" || guideSource === "card") && lead.assignedUserId) {
+    const user = await prisma.user.findUnique({
+      where: { id: lead.assignedUserId },
+      select: { name: true },
+    });
     repName = user?.name ?? null;
   }
-  return {
-    ...bot_context,
-    source_type: bot_context.source_type ?? sourceType,
-    rep_name: repName,
-  };
-}
 
-export async function handleNurtureWebhook(ctx: {
-  lead: Lead;
-  srLead: SrLead;
-  ghlContactId: string;
-  trigger: string;
-  inboundMsg: string;
-  dripPosition: number | null;
-}): Promise<void> {
-  const { lead, srLead, ghlContactId, trigger, inboundMsg, dripPosition } = ctx;
-  const rawLead = lead as unknown as Record<string, unknown>;
-
-  const sourceRaw = (rawLead.guideSource as string) ?? (rawLead.source as string) ?? 'organic';
-  const srcMap: Record<string, NurtureAssemblerContext['source']> = {
-    'facebook-guide': 'facebook-guide', 'door': 'door', 'card': 'card', 'organic': 'organic',
-  };
-  const source: NurtureAssemblerContext['source'] = srcMap[sourceRaw] ?? 'organic';
-
-  const sourceTypeMapped: BotContext['source_type'] =
-    source === 'door' ? 'door'
-    : source === 'card' ? 'card'
-    : source === 'facebook-guide' ? 'facebook'
-    : 'organic';
-
-  const leadZone = lead.sourceZip ? (getZoneForZip(lead.sourceZip) ?? 'el_paso_central') : 'el_paso_central';
-
-  const { id: threadId, messages, isNew } = await getOrCreateThread(ghlContactId, 'nurture');
-
-  // ── nurture_drip branch ──────────────────────────────────────────────────────
-  if (trigger === 'nurture_drip' && dripPosition !== null) {
-    const pos = dripPosition as 1 | 2 | 3 | 4;
-    const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-    const currentMessages = (thread?.messages as BotMessage[]) ?? [];
-
-    const bot_context = await mergeSourceFields(
-      await readBotContextFromDb(ghlContactId),
-      sourceTypeMapped,
-      lead.assignedUserId,
-    );
-    const area_appointments = await getAreaAppointments(leadZone).catch(() => []);
-
-    const assemblerCtx: NurtureAssemblerContext = {
-      homeowner_name: lead.customerName,
-      first_name: lead.customerName.trim().split(/\s+/)[0],
-      source,
-      rep: (rawLead.rep as string | null) ?? null,
-      message_history_count: currentMessages.length,
-      is_drip: true,
-      drip_sequence_position: pos,
-      bot_context,
-      area_appointments,
-    };
-
-    const systemPrompt = assembleNurturePrompt(assemblerCtx);
-    const botMessages = [
-      ...currentMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp })),
-      { role: 'user' as const, content: '[drip_trigger]', timestamp: new Date().toISOString() },
-    ];
-
-    const response = await runBot(systemPrompt, botMessages, { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
-    if (response === null) {
-      await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
-      return;
-    }
-
-    await writeBotContextToDb(ghlContactId, 'nurture', response.bot_context);
-    // Mirror to GHL — fire and forget
-    if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
-      writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
-    }
-
-    const atLimit = currentMessages.length >= CONVERSATION_LIMIT;
-    if (response.stage_change || atLimit) {
-      if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-        writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
-      }
-    }
-
-    if (!response.stage_change && response.message) {
-      await sendGhlSms(ghlContactId, response.message);
-      await appendMessage(threadId, 'assistant', response.message);
-    }
-
-    if (response.stage_change) {
-      await handleSignal(response.signal, lead, ghlContactId, srLead, leadZone);
-    } else if (response.signal === 'SOFT_CLOSE' || pos === 4) {
-      await addGhlTag(ghlContactId, 'sr_nurture_exhausted');
-    }
-
-    return;
-  }
-
-  // ── new_guide_lead / inbound_sms branch ─────────────────────────────────────
-
-  if (inboundMsg && inboundMsg !== 'new_guide_lead') {
-    await appendMessage(threadId, 'user', inboundMsg);
-  }
-
-  const thread = await prisma.botThread.findUnique({ where: { id: threadId } });
-  const currentMessages = (thread?.messages as BotMessage[]) ?? [];
-
-  const bot_context = await mergeSourceFields(
-    await readBotContextFromDb(ghlContactId),
-    sourceTypeMapped,
-    lead.assignedUserId,
-  );
-  const area_appointments = await getAreaAppointments(leadZone).catch(() => []);
-
-  const assemblerCtx: NurtureAssemblerContext = {
-    homeowner_name: lead.customerName,
-    first_name: lead.customerName.trim().split(/\s+/)[0],
-    source,
-    rep: (rawLead.rep as string | null) ?? null,
-    message_history_count: currentMessages.length,
-    is_drip: false,
-    drip_sequence_position: null,
-    bot_context,
-    area_appointments,
-  };
-
-  // Opener for new thread
-  if (isNew || messages.length === 0) {
-    const systemPrompt = assembleNurturePrompt(assemblerCtx);
-    const openerResponse = await runBot(systemPrompt, [
-      { role: 'user', content: 'new_guide_lead', timestamp: new Date().toISOString() },
-    ], { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: bot_context });
-
-    if (openerResponse !== null) {
-      await writeBotContextToDb(ghlContactId, 'nurture', openerResponse.bot_context);
-      if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
-        writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(openerResponse.bot_context)).catch(() => null);
-      }
-      if (!openerResponse.stage_change && openerResponse.message) {
-        await sendGhlSms(ghlContactId, openerResponse.message);
-        await appendMessage(threadId, 'assistant', openerResponse.message);
-      }
-    }
-
-    if (!inboundMsg || inboundMsg === 'new_guide_lead') return;
-  }
-
-  // Reload thread after potential opener write
-  const freshThread = await prisma.botThread.findUnique({ where: { id: threadId } });
-  const freshMessages = (freshThread?.messages as BotMessage[]) ?? [];
-  const freshBotContext = await mergeSourceFields(
-    await readBotContextFromDb(ghlContactId),
-    sourceTypeMapped,
-    lead.assignedUserId,
+  const convo = await writeSystemFields(
+    ghlContactId,
+    { leadId: lead.id, sourceType: "guide", sourceChannel, repName },
+    { currentPhase: PHASE, leadId: lead.id },
   );
 
-  const freshCtx: NurtureAssemblerContext = {
-    ...assemblerCtx,
-    message_history_count: freshMessages.length,
-    bot_context: freshBotContext,
-  };
-
-  const systemPrompt = assembleNurturePrompt(freshCtx);
-  const botMessages = freshMessages.map(m => ({
-    role: m.role as 'user' | 'assistant', content: m.content, timestamp: m.timestamp,
+  // ── Build the turn input ────────────────────────────────────────────────────
+  const { id: threadId, messages: priorMessages } = await getOrCreateThread(ghlContactId, "nurture");
+  const history = (priorMessages as BotMessage[]).map((m) => ({
+    role: (m.role === "assistant" ? "bot" : "lead") as "bot" | "lead",
+    content: m.content,
+    timestamp: m.timestamp,
   }));
 
-  const response = await runBot(systemPrompt, botMessages, { isJsonMode: true, maxTokens: 600, ghlContactId, previousContext: freshBotContext });
-  if (response === null) {
-    await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
-    return;
+  const input: TurnInput = {
+    ghlContactId,
+    inboundMessage: turnMessage,
+    conversationState: conversationToStateInput(convo),
+    conversationHistory: history,
+    phase: PHASE,
+  };
+
+  // ── Run the engine (tier selection + assembly + repair ladder, all internal) ─
+  const result = await runComposedBotTurn(input);
+  const sig = result.signal.type;
+
+  // ── Persist model-authored state via the airtight seam ──────────────────────
+  await applyModelStateDelta(ghlContactId, result.stateDelta, { currentPhase: PHASE });
+
+  // ── Persist system-authored fields (heat eval + meta) ───────────────────────
+  const sysFields: Partial<SystemAuthoredFields> = {
+    lastSignal: sig ?? null,
+    lastModelTier: result.modelTier,
+  };
+  // Only a real homeowner inbound resets the cooldown clock (ARCHITECTURE §3).
+  if (isRealInbound) sysFields.heatLastInbound = new Date();
+  // The MODEL emits the WARMING signal; the SYSTEM owns heatState (Step 4).
+  if (sig === "WARMING") {
+    sysFields.heatState = "warming";
+    sysFields.heatPeakReached = true;
+  } else if (result.cooledDown) {
+    // Lazy cooldown materialized: warming lead aged past the window → persist cold.
+    sysFields.heatState = "cold";
+  }
+  await writeSystemFields(ghlContactId, sysFields, { currentPhase: PHASE });
+
+  // ── Transcript: append the real inbound (system turns have no real inbound) ──
+  if (isRealInbound) await appendMessage(threadId, "user", inboundMsg);
+
+  // ── Reply vs handoff ────────────────────────────────────────────────────────
+  // Conversational signals (continue / WARMING / SOFT_CLOSE) send Alex's reply and
+  // stay in nurture. Handoff/terminal signals (QUALIFIED / NOT_INTERESTED /
+  // ESCALATE) defer to the next bot or a human, so Alex's reply is suppressed —
+  // mirrors the old stage_change behavior so we never double-message at handoff.
+  const conversational = sig === null || sig === "WARMING" || sig === "SOFT_CLOSE";
+  if (conversational && result.reply) {
+    await sendSms(ghlContactId, result.reply);
+    await appendMessage(threadId, "assistant", result.reply);
   }
 
-  await writeBotContextToDb(ghlContactId, 'nurture', response.bot_context);
-  if (lead.ghlOpportunityId && process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT) {
-    writeGhlOpportunityCustomField(lead.ghlOpportunityId, process.env.GHL_FIELD_OPP_SR_PIPELINE_CONTEXT, JSON.stringify(response.bot_context)).catch(() => null);
+  // ── Act on the signal (existing GHL stage/tag plumbing, unchanged) ──────────
+  switch (sig) {
+    case "QUALIFIED":
+      // Stage move → GHL native automation fires the qualify bot (ARCHITECTURE §2).
+      await routeQualifiedLead(lead, ghlContactId);
+      break;
+    case "NOT_INTERESTED":
+      await transitionLead(
+        lead.id,
+        ghlContactId,
+        "source_free_guide",
+        "sr_dead",
+        "DEAD",
+        "silent",
+        { sr_status: "DEAD", sr_bot_stage: "silent" },
+        "NOT_INTERESTED",
+      );
+      break;
+    case "SOFT_CLOSE":
+      await addTag(ghlContactId, "sr_soft_close").catch((e) => console.error(e));
+      break;
+    case "ESCALATE":
+      // Rare in nurture. Existing behavior: park to silent for a human to pick up.
+      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch(() => null);
+      break;
+    default:
+      break;
   }
 
-  const atLimit = freshMessages.length >= CONVERSATION_LIMIT;
-  if (response.stage_change || atLimit) {
-    if (process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT) {
-      writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_PREVIOUS_CONTEXT, response.bot_context.summary).catch(() => null);
-    }
+  // ── Drip cadence exhaustion (preserved from the old handler) ────────────────
+  if (isDrip && (sig === "SOFT_CLOSE" || dripPosition === 4)) {
+    await addTag(ghlContactId, "sr_nurture_exhausted").catch((e) => console.error(e));
   }
 
-  if (!response.stage_change && response.message) {
-    await sendGhlSms(ghlContactId, response.message);
-    await appendMessage(threadId, 'assistant', response.message);
-  }
-
-  if (response.stage_change) {
-    await handleSignal(response.signal, lead, ghlContactId, srLead, leadZone);
-  } else if (response.signal === 'SOFT_CLOSE') {
-    await addGhlTag(ghlContactId, 'sr_soft_close');
-  }
-}
-
-async function handleSignal(
-  signal: string | null,
-  lead: Lead,
-  ghlContactId: string,
-  srLead: SrLead,
-  leadZone: string,
-): Promise<void> {
-  void leadZone;
-  if (signal === 'QUALIFIED') {
-    // Stage-move handoff (shared with nurture-drip) — moves the Roof Guide opp to
-    // the Qualified or ZIP-Review stage and lets GHL native automation drive the
-    // rest. Replaces the old API-tag approach, which didn't reliably fire GHL.
-    await routeQualifiedLead(lead, ghlContactId);
-  } else if (signal === 'NOT_INTERESTED') {
-    await transitionLead(lead.id, ghlContactId, 'source_free_guide', 'sr_dead', 'DEAD', 'silent', {
-      sr_status: 'DEAD', sr_bot_stage: 'silent',
-    });
-  } else if (signal === 'SOFT_CLOSE') {
-    await addGhlTag(ghlContactId, 'sr_soft_close');
-  } else if (signal === 'ESCALATE') {
-    await updateSrLead(lead.id, { sr_bot_stage: 'silent' }).catch(() => null);
-  }
+  // SPRINT 5: Jordan's revival/reschedule/finance plug into this same loop.
 }
