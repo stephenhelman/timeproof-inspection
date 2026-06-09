@@ -37,6 +37,7 @@ interface Props {
   issuesNoticed: string[];
   config: PersonalizationConfig;
   token: string;
+  leadId: string;
 }
 
 // ─── Static diagram data ──────────────────────────────────────────────────────
@@ -354,6 +355,7 @@ export default function GuideClient({
   issuesNoticed,
   config,
   token,
+  leadId,
 }: Props) {
   const ctaRef = useRef<HTMLElement>(null);
 
@@ -830,7 +832,7 @@ export default function GuideClient({
             Free inspection. Same-day written report. No obligation.
           </p>
           <a
-            href="/qualify"
+            href={`/api/qualify/from-guide?leadId=${encodeURIComponent(leadId)}`}
             className="inline-block w-full py-4 rounded-lg text-base font-bold bg-[#F06B30] hover:bg-[#e05520] text-white transition-colors text-center"
           >
             Schedule My Free Inspection

@@ -4,6 +4,12 @@ import { prisma } from "@/src/lib/prisma";
 import { leadToGuidePayload, type GuideJWTPayload } from "@/src/lib/guide-pdf";
 import GuideClient, { type PersonalizationConfig } from "./GuideClient";
 
+// Render on every request so the lead lookup + null-lead redirect always run.
+// Without this the route is statically cacheable (Prisma isn't a fetch, no dynamic
+// APIs used) and Next's Full Route Cache will serve a stale guide for a slug whose
+// Lead has since been deleted.
+export const dynamic = "force-dynamic";
+
 function buildPersonalizationConfig(payload: GuideJWTPayload): PersonalizationConfig {
   const issues = payload.issuesNoticed ?? [];
   const roofAge = payload.roofAge ?? "";
@@ -113,6 +119,7 @@ export default async function GuideSlugPage({
       issuesNoticed={payload.issuesNoticed}
       config={config}
       token={slimToken}
+      leadId={lead.id}
     />
   );
 }

@@ -340,12 +340,14 @@ export default function RoofGuidePage() {
   const [source, setSource] = useState("");
   const [rep, setRep] = useState("");
   const [expired, setExpired] = useState(false);
+  const [outOfArea, setOutOfArea] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSource(params.get("source") ?? "");
     setRep(params.get("rep") ?? "");
     setExpired(params.get("expired") === "true");
+    setOutOfArea(params.get("out_of_area") === "true");
   }, []);
 
   return (
@@ -353,6 +355,11 @@ export default function RoofGuidePage() {
       {expired && (
         <div className="fixed top-16 inset-x-0 z-50 bg-amber-500 text-black text-sm font-medium text-center py-3 px-4">
           That guide link has expired or is invalid. Please fill out the form below to get a new one.
+        </div>
+      )}
+      {outOfArea && (
+        <div className="fixed top-16 inset-x-0 z-50 bg-amber-500 text-black text-sm font-medium text-center py-3 px-4">
+          We&apos;re not in your area yet, but we&apos;re expanding — we&apos;ll reach out when we are.
         </div>
       )}
 
