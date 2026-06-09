@@ -88,6 +88,13 @@ export interface JordanTurnCtx {
   // The current Conversation row AFTER the handler wrote recovery context — used
   // as the read-only state the engine sees this turn.
   convo: Conversation;
+  // SPRINT 6 (read-seeding, ARCHITECTURE §7): durable known-problem facts that
+  // predate the Conversation — the original inspection findings and the prior
+  // objection from the rep's dispo. The handlers load these via loadRecoveryContext;
+  // jordan-core seeds them into the read-only context so Jordan does NOT re-ask what
+  // the company already knows (the revival mission tells him to "read the DB context"
+  // and to ground consequence in the real prior problem). Optional; absent → no seed.
+  readSeed?: { inspectionFindings?: string | null; priorObjection?: string | null };
 }
 
 /**
@@ -161,6 +168,23 @@ export async function runJordanTurn(
   // homeowner. Backfill it as prior conversation state so Jordan treats it as known.
   const stateInput = conversationToStateInput(convo);
   if (!stateInput.address && lead.address) stateInput.address = lead.address;
+
+  // Read-seed the KNOWN problem context (ARCHITECTURE §7 read-seeding; §8 makes
+  // funnelConcerns the system-authored "pre-stated problem context" slot). The
+  // recovery missions are told to read the DB context and to ground consequence in
+  // the real prior problem ("the leak that got you on the schedule — still
+  // happening?"). Those facts — the original inspection findings and the prior
+  // objection — live on the durable Inspection/dispo record, predating the
+  // Conversation. Seed them into the read-only context here (pure, in-memory, like
+  // the address seed above; not written back, model stays non-author) so Jordan can
+  // reference what's known instead of re-collecting it. Only when the Conversation
+  // doesn't already carry funnelConcerns.
+  if (!stateInput.funnelConcerns && (ctx.readSeed?.inspectionFindings || ctx.readSeed?.priorObjection)) {
+    stateInput.funnelConcerns = {
+      inspectionFindings: ctx.readSeed.inspectionFindings ?? null,
+      priorObjection: ctx.readSeed.priorObjection ?? null,
+    };
+  }
 
   const input: TurnInput = {
     ghlContactId,

@@ -45,7 +45,12 @@ export async function handleFinanceWebhook(
 
   // ── Run the shared Jordan recovery turn ─────────────────────────────────────
   await runJordanTurn(
-    { lead, ghlContactId, trigger, inboundMsg, convo },
+    {
+      lead, ghlContactId, trigger, inboundMsg, convo,
+      // Read-seed known-problem context (ARCHITECTURE §7): the lead wanted to buy,
+      // so the prior problem is real and known — reference it, don't re-collect.
+      readSeed: { inspectionFindings: recovery.inspectionFindings, priorObjection: recovery.dispoPrimaryObjection },
+    },
     {
       phase: PHASE,
       fromStage: "sr_credit_fail",

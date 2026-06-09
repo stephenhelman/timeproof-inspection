@@ -42,7 +42,12 @@ export async function handleRescheduleWebhook(
 
   // ── Run the shared Jordan recovery turn ─────────────────────────────────────
   await runJordanTurn(
-    { lead, ghlContactId, trigger, inboundMsg, convo },
+    {
+      lead, ghlContactId, trigger, inboundMsg, convo,
+      // Read-seed known-problem context (ARCHITECTURE §7) so a porched/no-show
+      // rebuild references the real prior problem rather than re-asking.
+      readSeed: { inspectionFindings: recovery.inspectionFindings, priorObjection: recovery.dispoPrimaryObjection },
+    },
     {
       phase: PHASE,
       fromStage: "sr_reschedule",

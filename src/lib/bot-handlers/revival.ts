@@ -41,7 +41,13 @@ export async function handleRevivalWebhook(
 
   // ── Run the shared Jordan recovery turn ─────────────────────────────────────
   await runJordanTurn(
-    { lead, ghlContactId, trigger, inboundMsg, convo },
+    {
+      lead, ghlContactId, trigger, inboundMsg, convo,
+      // Read-seed Jordan's known-problem context (ARCHITECTURE §7) so revival's
+      // "read the DB context" / "the leak that got you on the schedule" lands on
+      // real facts instead of a re-ask.
+      readSeed: { inspectionFindings: recovery.inspectionFindings, priorObjection: recovery.dispoPrimaryObjection },
+    },
     {
       phase: PHASE,
       fromStage: "sr_follow_up",
