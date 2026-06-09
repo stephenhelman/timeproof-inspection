@@ -1,4 +1,5 @@
 import { prisma } from "@/src/lib/prisma";
+import { syncPhaseTransition } from "@/src/lib/conversation";
 import { sendGhlSms, addGhlTag, removeGhlTag, notifyManager } from "@/src/lib/ghl-sms";
 import { updateSrLead, type SrLeadFields } from "@/src/lib/ghl-custom-object";
 import { writeGhlContactCustomField, moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
@@ -367,29 +368,48 @@ export async function transitionLead(
   toTag: string | null,
   newStatus: LeadStatus,
   newBotStage: string,
-  srLeadUpdates?: Partial<SrLeadFields>
+  srLeadUpdates?: Partial<SrLeadFields>,
+  // SPRINT 1: the signal that caused this transition, recorded in
+  // Conversation.phaseHistory[].exitSignal. Optional/back-compat — null when not
+  // applicable or not supplied by an existing caller.
+  exitSignal?: string | null,
 ): Promise<void> {
-  // 1. Update Lead in DB — awaited
-  await prisma.lead.update({
-    where: { id: leadId },
-    data: {
-      status: newStatus,
-      lastBotType: newBotStage,
-      lastBotMessage: new Date(),
-    },
+  // SPRINT 1: the Lead + SrLead stage change and the Conversation phase mirror
+  // now move together in ONE interactive transaction (ARCHITECTURE §7) so routing
+  // state (srBotStage) and conversation state (currentPhase + phaseHistory) can
+  // never diverge. The existing Lead/SrLead behavior is unchanged — SrLead stays
+  // best-effort (its catch keeps a missing row from rolling anything back), and
+  // the GHL fire-and-forget below is untouched.
+  await prisma.$transaction(async (tx) => {
+    // 1. Update Lead in DB
+    await tx.lead.update({
+      where: { id: leadId },
+      data: {
+        status: newStatus,
+        lastBotType: newBotStage,
+        lastBotMessage: new Date(),
+      },
+    });
+
+    // 2. Update SrLead in DB (best-effort: may not exist for legacy leads). A 0-row
+    //    update throws P2025 at the Prisma layer but does NOT abort the Postgres
+    //    transaction, so catching here preserves the original best-effort behavior.
+    await tx.srLead.update({
+      where: { leadId },
+      data: {
+        srBotStage: newBotStage,
+        srStatus: srLeadUpdates?.sr_status ?? (newStatus as string),
+        updatedAt: new Date(),
+      },
+    }).catch(e => console.warn("[bot-engine] srLead.update failed (may not exist):", e));
+
+    // 3. Sync the Conversation phase mirror in the SAME transaction: set
+    //    currentPhase (normalized from srBotStage vocab) and append a
+    //    phaseHistory entry { phase, enteredAt, exitSignal }.
+    await syncPhaseTransition(tx, ghlContactId, newBotStage, exitSignal ?? null, { leadId });
   });
 
-  // 2. Update SrLead in DB — awaited (best-effort: may not exist for legacy leads)
-  await prisma.srLead.update({
-    where: { leadId },
-    data: {
-      srBotStage: newBotStage,
-      srStatus: srLeadUpdates?.sr_status ?? (newStatus as string),
-      updatedAt: new Date(),
-    },
-  }).catch(e => console.warn("[bot-engine] srLead.update failed (may not exist):", e));
-
-  // 3. GHL updates — parallel, non-blocking. DB is source of truth.
+  // 4. GHL updates — parallel, non-blocking. DB is source of truth.
   Promise.allSettled([
     fromTag
       ? removeGhlTag(ghlContactId, fromTag)
