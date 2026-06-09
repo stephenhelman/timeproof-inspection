@@ -1,15 +1,8 @@
-import { jwtVerify } from "jose";
+import { jwtVerify, SignJWT } from "jose";
 import { redirect } from "next/navigation";
 import { prisma } from "@/src/lib/prisma";
+import { leadToGuidePayload, type GuideJWTPayload } from "@/src/lib/guide-pdf";
 import GuideClient, { type PersonalizationConfig } from "./GuideClient";
-
-interface GuideJWTPayload {
-  leadId: string;
-  roofType: string;
-  roofAge: string;
-  issuesNoticed: string[];
-  firstName: string;
-}
 
 function buildPersonalizationConfig(payload: GuideJWTPayload): PersonalizationConfig {
   const issues = payload.issuesNoticed ?? [];
@@ -92,14 +85,24 @@ export default async function GuideSlugPage({
   }
 
   const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET!);
-  let payload: GuideJWTPayload;
+
+  // Verify the stored token for access only. Its payload may be the old fat shape
+  // or the new slim { leadId } — we don't read fields from it; everything is
+  // re-derived from the lead record below.
   try {
-    const { payload: p } = await jwtVerify(lead.guideToken, secret);
-    payload = p as unknown as GuideJWTPayload;
+    await jwtVerify(lead.guideToken, secret);
   } catch {
     redirect("/roof-guide?expired=true");
   }
 
+  // Self-heal: mint a fresh slim token so the PDF download link carries the small
+  // payload even for leads created before the slimming (no DB migration needed).
+  const slimToken = await new SignJWT({ leadId: lead.id })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .sign(secret);
+
+  const payload: GuideJWTPayload = leadToGuidePayload(lead);
   const config = buildPersonalizationConfig(payload);
 
   return (
@@ -109,7 +112,7 @@ export default async function GuideSlugPage({
       roofAge={payload.roofAge}
       issuesNoticed={payload.issuesNoticed}
       config={config}
-      token={lead.guideToken}
+      token={slimToken}
     />
   );
 }

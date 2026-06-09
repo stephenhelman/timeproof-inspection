@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
-import { generateGuidePdf, type GuideJWTPayload } from "@/src/lib/guide-pdf";
+import { prisma } from "@/src/lib/prisma";
+import { generateGuidePdf, leadToGuidePayload } from "@/src/lib/guide-pdf";
 
 export async function GET(
   request: NextRequest,
@@ -9,16 +10,22 @@ export async function GET(
   const { token } = params;
   const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET!);
 
-  let payload: GuideJWTPayload;
+  // Token now carries only { leadId } — re-derive the guide fields from the DB.
+  let leadId: string;
   try {
-    const { payload: p } = await jwtVerify(token, secret);
-    payload = p as unknown as GuideJWTPayload;
+    const { payload } = await jwtVerify(token, secret);
+    leadId = (payload as { leadId?: string }).leadId ?? "";
   } catch {
     return NextResponse.redirect(new URL("/roof-guide", request.url));
   }
 
+  const lead = leadId ? await prisma.lead.findUnique({ where: { id: leadId } }) : null;
+  if (!lead) {
+    return NextResponse.redirect(new URL("/roof-guide", request.url));
+  }
+
   try {
-    const pdfBuffer = await generateGuidePdf(payload);
+    const pdfBuffer = await generateGuidePdf(leadToGuidePayload(lead));
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {

@@ -9,6 +9,7 @@ import {
 } from "@react-pdf/renderer";
 import React from "react";
 import path from "path";
+import type { Lead } from "@prisma/client";
 
 // ─── Colors ────────────────────────────────────────────────────────────────────
 const NAVY = "#0F1E3C";
@@ -231,6 +232,23 @@ export interface GuideJWTPayload {
   roofAge: string;
   issuesNoticed: string[];
   firstName: string;
+}
+
+// Reconstruct the guide payload from the persisted lead. The guide JWT is slimmed
+// to { leadId } only (the fat payload pushed the PDF URL past header-size limits),
+// so both the PDF route and the slug page re-derive these fields from the DB
+// here — one place, so the logic can't drift between them. issuesNoticed is stored
+// comma-joined on the lead and split back into the array the consumers expect.
+export function leadToGuidePayload(lead: Lead): GuideJWTPayload {
+  return {
+    leadId: lead.id,
+    firstName: lead.customerName.trim().split(" ")[0],
+    roofType: lead.roofType ?? "",
+    roofAge: lead.roofAge ?? "",
+    issuesNoticed: lead.issuesNoticed
+      ? lead.issuesNoticed.split(",").map((s) => s.trim()).filter(Boolean)
+      : [],
+  };
 }
 
 const TIMELINE = [

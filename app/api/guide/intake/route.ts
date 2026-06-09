@@ -116,14 +116,13 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Sign guide JWT — no expiry, guide access is permanent
-  const token = await new SignJWT({
-    leadId:        lead.id,
-    roofType:      roofType.trim(),
-    roofAge:       roofAge?.trim() ?? "",
-    issuesNoticed: issuesArray,
-    firstName,
-  })
+  // Sign guide JWT — no expiry, guide access is permanent.
+  // Payload is intentionally just { leadId }: the fat payload (roofType, roofAge,
+  // issuesNoticed, firstName) bloated the token, and since it rides in the PDF URL
+  // path it pushed requests past header-size limits (400 "Header Or Cookie Too
+  // Large"). The PDF route and slug page re-derive those fields from the DB by
+  // leadId via leadToGuidePayload.
+  const token = await new SignJWT({ leadId: lead.id })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .sign(secret);
