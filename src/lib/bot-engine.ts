@@ -32,56 +32,14 @@ export interface BotMessage {
 }
 
 // ── Alex bot utilities ─────────────────────────────────────────
-
-export async function readBotContextFromDb(
-  ghlContactId: string
-): Promise<BotContext> {
-  const thread = await prisma.botThread.findFirst({
-    where: { ghlContactId },
-    // nulls: 'last' — a freshly-created thread has a null lastMessageAt, which
-    // Postgres sorts FIRST under DESC by default (NULLS FIRST). That would return
-    // the unstamped thread's empty bot_context and wipe accumulated state. Push
-    // nulls last so the read always lands on the most-recently-stamped context.
-    orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } }
-  })
-
-  const metadata = thread?.metadata as Record<string, unknown> | null
-  const stored = metadata?.bot_context
-
-  if (!stored) return { ...EMPTY_BOT_CONTEXT }
-
-  try {
-    return stored as BotContext
-  } catch {
-    return { ...EMPTY_BOT_CONTEXT }
-  }
-}
-
-export async function writeBotContextToDb(
-  ghlContactId: string,
-  botType: string,
-  context: BotContext
-): Promise<void> {
-  const thread = await prisma.botThread.findFirst({
-    where: { ghlContactId, botType },
-    orderBy: { lastMessageAt: 'desc' }
-  })
-
-  if (!thread) {
-    console.warn('[bot-engine] writeBotContextToDb: no thread found for', ghlContactId, botType)
-    return
-  }
-
-  const existingMetadata = (thread.metadata as Record<string, unknown>) ?? {}
-
-  await prisma.botThread.update({
-    where: { id: thread.id },
-    data: {
-      metadata: { ...existingMetadata, bot_context: context } as unknown as never,
-      lastMessageAt: new Date()
-    }
-  })
-}
+//
+// SPRINT 6: readBotContextFromDb / writeBotContextToDb (the BotThread.metadata.
+// bot_context read/write path, including the NULLS-LAST read-before-create
+// ordering hack) were deleted here — they had zero live callers. All six missions
+// read/write durable state through the Conversation record now (ARCHITECTURE §7).
+// NOTE: runBot + assembleNurturePrompt + EMPTY_BOT_CONTEXT below are still live via
+// the legacy nurture-drip route, which has NOT yet been migrated onto the new
+// engine — see docs/bot-v2-telemetry.md "Outstanding migration" flag.
 
 export function formatAppointmentDatetime(slot: string): string {
   console.info('[bot-engine] formatAppointmentDatetime input:', slot, '→ split:', slot.split(' '));
