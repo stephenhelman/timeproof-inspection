@@ -16,35 +16,19 @@
 // This REPLACES the Sprint 0 stub inside runComposedBotTurn. The engine's
 // signature is unchanged; only the prompt it sends changes.
 
-import { readFileSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import type { ConversationStateInput, Phase, TurnInput } from "./types";
+import { PROMPT_TIERS } from "./prompts.generated";
 
-// Prompt-content root: src/lib/bot-v2/prompts/ (NOT the dead top-level
-// lib/prompts/ the audit flagged).
+// Prompt content is BUNDLED, not read from disk (SPRINT 6 Step 2). The authored
+// .md tiers under src/lib/bot-v2/prompts/ are compiled into prompts.generated.ts
+// by scripts/compile-prompts.mjs (run via `npm run prompts:compile`, wired into
+// `prebuild`). This makes the content ship with any bundle — including a fully
+// bundled serverless deploy that would not copy loose markdown read at runtime —
+// and removes all runtime disk I/O from the prompt path.
 //
-// Resolution is robust across both runtimes this engine serves:
-//   - the raw-Node harness, where this module runs from its real source path, so
-//     the module-relative `./prompts` dir exists; and
-//   - the live Next.js route (Sprint 3 cutover), where the bundler can relocate
-//     code such that the module-relative path no longer points at the source tree
-//     — there we fall back to a process.cwd()-anchored path (project root /
-//     src/lib/bot-v2/prompts), which holds under `next dev`/`next start`.
-// FLAG: a fully bundled serverless deploy may copy neither location; if/when we
-// deploy nurture serverless, the .md files must be shipped as runtime assets
-// (or inlined). Not a concern for the local-ngrok cutover this sprint does.
-function resolvePromptsDir(): string {
-  const moduleRelative = join(dirname(fileURLToPath(import.meta.url)), "prompts");
-  if (existsSync(moduleRelative)) return moduleRelative;
-  const cwdRelative = join(process.cwd(), "src", "lib", "bot-v2", "prompts");
-  if (existsSync(cwdRelative)) return cwdRelative;
-  // Last resort: return the module-relative path so the failure is a clear
-  // ENOENT on a known path rather than a silent empty prompt.
-  return moduleRelative;
-}
-
-const PROMPTS_DIR = resolvePromptsDir();
+// Editing a prompt: change the .md, then `npm run prompts:compile` to regenerate
+// the module (the harness reads the generated module too, so this keeps it fresh
+// outside of `next build`).
 
 type PersonaOwner = "alex" | "jordan";
 
@@ -97,25 +81,26 @@ const PERSONA_TIER: Record<PersonaOwner, string> = {
 //
 // Every tier of authored content (kernel, methodology, persona, mission) loads
 // through this ONE function. The assembler never reads disk directly — this is
-// the swappable seam. Today it reads the `.md` from disk (keeping the Sprint 3
-// module-relative/cwd path resolution inside resolvePromptsDir); later a CMS
-// fetch replaces only this function's body.
+// the swappable seam. Today it reads from the bundled, build-time-compiled
+// PROMPT_TIERS module (no runtime disk I/O); later a CMS fetch replaces only this
+// function's body.
 //
-// FUTURE: CMS-backed per-tenant content swaps in here — replace the disk read
-// with a per-tenant fetch keyed by `tierPath`; nothing else in the assembler
-// changes.
+// FUTURE: CMS-backed per-tenant content swaps in here — replace the PROMPT_TIERS
+// lookup with a per-tenant fetch keyed by `tierPath`; nothing else in the
+// assembler changes.
 //
 // Cached by tier-path: content is static for a process run, so each tier is
-// fetched once. (The harness reruns the process per fixture, so the cache is
-// per-run regardless.)
+// resolved once.
 const tierCache = new Map<string, string>();
 
 export async function loadPromptTier(tierPath: string): Promise<string> {
   const cached = tierCache.get(tierPath);
   if (cached !== undefined) return cached;
   // FUTURE: CMS-backed per-tenant content swaps in here.
-  const absPath = join(PROMPTS_DIR, `${tierPath}.md`);
-  const content = readFileSync(absPath, "utf8").trim();
+  const content = PROMPT_TIERS[tierPath];
+  if (content === undefined) {
+    throw new Error(`[bot-v2] unknown prompt tier "${tierPath}" — run \`npm run prompts:compile\` after adding it`);
+  }
   tierCache.set(tierPath, content);
   return content;
 }
