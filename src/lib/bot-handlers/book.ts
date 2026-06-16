@@ -39,7 +39,13 @@ import {
   formatAppointmentDatetime,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
-import { moveGhlOpportunityStage, updateGhlContact } from "@/src/lib/ghl-contacts";
+import {
+  moveGhlOpportunityStage,
+  updateGhlContact,
+  resolveGhlOpportunity,
+  createGhlOpportunity,
+  writeGhlContactCustomField,
+} from "@/src/lib/ghl-contacts";
 import { createAppointmentWithInspection, deriveZoneForLead } from "@/src/lib/appointment-service";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
 import { detectTimePreference } from "@/src/lib/time-utils";
@@ -47,9 +53,17 @@ import {
   writeSystemFields,
   applyModelStateDelta,
   conversationToStateInput,
+  getConversation,
   type SystemAuthoredFields,
 } from "@/src/lib/conversation";
 import { runComposedBotTurn } from "@/src/lib/bot-v2/engine";
+import { purgePipelineTags } from "@/src/lib/bot-v2/pipeline-tags";
+import {
+  BOOKING_PENDING_TAG,
+  bookingPendingStage,
+  bookingPendingExhausted,
+  planBookingExhaustion,
+} from "@/src/lib/bot-v2/booking-pending";
 import type { ContractSummary, Phase, TurnInput } from "@/src/lib/bot-v2/types";
 import type { Lead, SrLead } from "@prisma/client";
 
@@ -85,17 +99,63 @@ export interface BookIoDeps {
 
 // ── Named-trigger booking machinery — UNCHANGED (reused, not rewritten) ──────
 
-async function handleStallExhaustedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
-  await updateSrLead(lead.id, { sr_bot_stage: "revival", sr_status: "DEMO_NOT_SOLD" });
-  if (lead.ghlOpportunityId) {
-    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_FOLLOW_UP_ACTIVE!).catch((err) =>
-      console.error("[book/stall_exhausted] moveStage failed:", err),
+// Inspection Booking Pending EXHAUSTED (Sprint 9 Part D) — the lifecycle-aware
+// crossing. Alex first-booked, the lead qualified but never picked a first time.
+// One failure, real recovery value: mark the Inspection opp LOST → purge Inspection
+// tags (§12 Pattern B) → create a Revival opp at Follow-Up Active with
+// sr_dispo_context=booking_stall (Jordan's opener excavates "you qualified but
+// something's holding you back from a time — what is it really?"). NOT hard-dead.
+//
+// Shared by the server-driven attempts exhaustion (stall_followup) and any legacy
+// GHL stall_exhausted fire. Mirrors the dispo Inspection→Revival crossing.
+async function crossInspectionBookingToRevival(lead: Lead, ghlContactId: string): Promise<void> {
+  const plan = planBookingExhaustion("inspection");
+
+  // resolve → purge → create (the atomic crossing order).
+  if (lead.ghlOpportunityId && process.env.GHL_STAGE_BOOKING_PENDING_INSPECTION) {
+    await resolveGhlOpportunity(
+      lead.ghlOpportunityId,
+      process.env.GHL_STAGE_BOOKING_PENDING_INSPECTION,
+      "lost",
+    ).catch((e) => console.error("[book/exhaust] resolve Inspection opp (lost) failed:", e));
+  }
+  await purgePipelineTags(ghlContactId, "inspection");
+
+  // DB transition → revival mission; sync Conversation phase + record the exit.
+  await transitionLead(lead.id, ghlContactId, "sr_booking", "sr_follow_up", "DEMO_NOT_SOLD", "revival", {
+    sr_status: "DEMO_NOT_SOLD", sr_bot_stage: "revival",
+  }, plan.exitSignal);
+
+  // Durable booking_stall nuance: Lead mirror + GHL contact field (§8 — rides every
+  // webhook). Jordan reads it at activation to seed the excavation opener.
+  await prisma.lead.update({ where: { id: lead.id }, data: { srDispoContext: plan.srDispoContext ?? null } }).catch(() => null);
+  if (plan.srDispoContext && process.env.GHL_FIELD_SR_DISPO_CONTEXT) {
+    await writeGhlContactCustomField(ghlContactId, process.env.GHL_FIELD_SR_DISPO_CONTEXT, plan.srDispoContext).catch((e) =>
+      console.error("[book/exhaust] sr_dispo_context write failed:", e),
     );
   }
-  await Promise.allSettled([
-    addGhlTag(ghlContactId, "sr_follow_up"),
-    removeGhlTag(ghlContactId, "booking_stall"),
-  ]);
+
+  // Create the Revival opp at the destination stage (GHL fires Jordan's activation
+  // on this stage change). Point the lead at the new opp.
+  if (plan.revivalStage && process.env.GHL_PIPELINE_REVIVAL) {
+    try {
+      const revivalOppId = await createGhlOpportunity({
+        ghlContactId,
+        contactName: lead.customerName ?? "Homeowner",
+        pipelineId: process.env.GHL_PIPELINE_REVIVAL,
+        pipelineStageId: plan.revivalStage,
+        sourceName: "revival:booking_stall",
+      });
+      await prisma.lead.update({ where: { id: lead.id }, data: { ghlOpportunityId: revivalOppId } });
+    } catch (e) {
+      console.error("[book/exhaust] create Revival opp failed:", e);
+    }
+  }
+}
+
+// Legacy GHL stall_exhausted trigger — now a thin alias of the server crossing.
+async function handleStallExhaustedWebhook(lead: Lead, ghlContactId: string): Promise<void> {
+  await crossInspectionBookingToRevival(lead, ghlContactId);
 }
 
 async function handleAppointmentConfirmedWebhook(lead: Lead, srLead: SrLead, ghlContactId: string): Promise<void> {
@@ -151,6 +211,24 @@ export async function handleBookWebhook(
   if (trigger === "appointment_confirmed") {
     await handleAppointmentConfirmedWebhook(lead, srLead, ghlContactId);
     return;
+  }
+
+  // ── Booking Pending nudge accounting (Sprint 9 Part B/D) ────────────────────
+  // A stall_followup fire is one UNANSWERED nudge (GHL fired it because
+  // booking_pending was still present at the wait checkpoint). Increment the
+  // CUMULATIVE attempts counter — never reset on re-stall, so a serial almost-books-
+  // then-bails lead exhausts faster (it IS the seriousness metric / serial-no-show
+  // seed). On exhaustion, cross to Revival instead of nudging again (Part D); only
+  // full silence through the sequence reaches here.
+  if (trigger === "stall_followup") {
+    const cur = await getConversation(ghlContactId, { currentPhase: PHASE, leadId: lead.id });
+    const attempts = cur.bookingPendingAttempts + 1;
+    await writeSystemFields(ghlContactId, { bookingPendingAttempts: attempts }, { currentPhase: PHASE });
+    if (bookingPendingExhausted(attempts)) {
+      await crossInspectionBookingToRevival(lead, ghlContactId);
+      return;
+    }
+    // else fall through: generate + send the diagnostic nudge (the engine flow).
   }
 
   // ── Cancellation (existing behavior, unchanged) ─────────────────────────────
@@ -308,9 +386,18 @@ export async function handleBookWebhook(
       break;
     }
     case "STALL":
-      // Normal "didn't land a time" exit → booking_stall (routes to revival later).
-      // SPRINT 5: revival picks this up via the GHL booking_stall automation.
-      await addTag(ghlContactId, "booking_stall").catch((e) => console.error(e));
+      // PATTERN A (Sprint 9 Part B): the lead was offered times and went quiet. Add
+      // booking_pending (the "awaiting commitment" tag) and move the opp to the
+      // Booking Pending STAGE so the silence clock + nudge cadence trigger on STAGE
+      // ENTRY. srBotStage stays "booking" so a stall_followup nudge routes back here
+      // by stage. The cumulative attempts counter increments per UNANSWERED nudge
+      // (the stall_followup branch above), never here.
+      await addTag(ghlContactId, BOOKING_PENDING_TAG).catch((e) => console.error(e));
+      if (lead.ghlOpportunityId && bookingPendingStage("inspection")) {
+        await moveGhlOpportunityStage(lead.ghlOpportunityId, bookingPendingStage("inspection")!).catch((e) =>
+          console.error("[book] move→Booking Pending failed:", e),
+        );
+      }
       break;
     case "WOBBLING":
       // A real named objection reopened a supposedly-closed gate at the booking

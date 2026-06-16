@@ -9,9 +9,11 @@
 //
 // The GHL plumbing AROUND this is UNCHANGED and reused: the webhook preamble
 // (auth/idempotency/opt-out) in the calling routes, `getOrCreateThread` +
-// `appendMessage` for the transcript, `sendGhlSms`, `transitionLead`,
-// `routeQualifiedLead`, and the tag helpers. Only WHAT generates the reply and HOW
-// state is stored changed.
+// `appendMessage` for the transcript, `sendGhlSms`, `transitionLead`, and the tag
+// helpers. (Sprint 9: the QUALIFIED handoff now goes through the server-owned
+// Guide→Inspection crossing, `handleGuideQualified`, replacing `routeQualifiedLead`
+// + GHL workflow 02's opp-creation.) Only WHAT generates the reply and HOW state is
+// stored changed.
 //
 // This same exported entry point is shared by the dedicated nurture route AND the
 // central router, so cutting it over here cuts over both callers at once.
@@ -22,8 +24,8 @@ import {
   getOrCreateThread,
   appendMessage,
   transitionLead,
-  routeQualifiedLead,
 } from "@/src/lib/bot-engine";
+import { handleGuideQualified } from "@/src/lib/bot-v2/guide-crossing";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
   writeSystemFields,
@@ -57,38 +59,31 @@ export async function handleNurtureWebhook(
     ghlContactId: string;
     trigger: string;
     inboundMsg: string;
-    dripPosition: number | null;
   },
   deps: NurtureIoDeps = {},
 ): Promise<void> {
-  const { lead, srLead, ghlContactId, trigger, inboundMsg, dripPosition } = ctx;
+  const { lead, srLead, ghlContactId, trigger, inboundMsg } = ctx;
   void srLead; // routing already resolved by the caller; kept for signature parity
   const sendSms = deps.sendSms ?? sendGhlSms;
   const addTag = deps.addTag ?? addGhlTag;
 
   // ── Classify the turn ──────────────────────────────────────────────────────
   // Only a genuine homeowner SMS is a "real inbound" (it alone resets the heat
-  // cooldown clock — ARCHITECTURE §3). new_guide_lead (form submit) and
-  // nurture_drip (our outbound nudge) are SYSTEM-initiated turns; the model still
-  // produces a message, but they do NOT reset the clock.
+  // cooldown clock — ARCHITECTURE §3). new_guide_lead (form submit) is a
+  // SYSTEM-initiated opener turn; it does NOT reset the clock.
+  //
+  // SPRINT 8: the old universal nurture_drip branch is GONE. Re-engagement is now a
+  // separate, per-mission, context-driven handler (handleReengageWebhook, trigger=
+  // reengage) gated by GHL's guard-tag pattern — not a blind drip in this handler.
   const isRealInbound =
     trigger === "inbound_sms" && !!inboundMsg && inboundMsg !== "new_guide_lead";
-  const isDrip = trigger === "nurture_drip" && dripPosition !== null;
 
   // The single user turn the model answers (history lives in the system prompt —
-  // Sprint 2 latest-inbound-only decision). System turns get a synthetic marker
-  // since there is no homeowner message to answer.
-  let turnMessage: string;
-  if (isRealInbound) {
-    turnMessage = inboundMsg;
-  } else if (isDrip) {
-    turnMessage =
-      `[system: nurture drip nudge #${dripPosition}. The homeowner has gone quiet. ` +
-      `Send ONE short, no-pressure, value-adding check-in that keeps the door open — not salesy.]`;
-  } else {
-    // new_guide_lead / empty inbound → first-contact, source-aware opener.
-    turnMessage = `[system: new guide lead — send your source-aware opening message. No prior conversation.]`;
-  }
+  // Sprint 2 latest-inbound-only decision). A system opener turn gets a synthetic
+  // marker since there is no homeowner message to answer.
+  const turnMessage = isRealInbound
+    ? inboundMsg
+    : `[system: new guide lead — send your source-aware opening message. No prior conversation.]`;
 
   // ── System-authored source fields → Conversation (app-written, durable) ─────
   // Derived from the Lead each turn (ARCHITECTURE §8: guide → nurture). repName is
@@ -171,8 +166,13 @@ export async function handleNurtureWebhook(
   // ── Act on the signal (existing GHL stage/tag plumbing, unchanged) ──────────
   switch (sig) {
     case "QUALIFIED":
-      // Stage move → GHL native automation fires the qualify bot (ARCHITECTURE §2).
-      await routeQualifiedLead(lead, ghlContactId);
+      // SPRINT 9 (Part E/G): the server now OWNS the Roof Guide → Inspection crossing
+      // (replacing GHL workflow 02's opp-creation). In-area (zip auto-approved) →
+      // cross now (purge Guide tags → Guide opp won → Inspection opp at New Lead →
+      // qualify). Expansion-zone → HOLD for manual zip review (the pullback already
+      // captured commitment; send the service-area string, move to Zip Review). The
+      // held lead crosses later on the Zip Confirmed stage entry (zip_confirmed).
+      await handleGuideQualified(lead, ghlContactId, { sendSms });
       break;
     case "NOT_INTERESTED":
       await transitionLead(
@@ -187,7 +187,12 @@ export async function handleNurtureWebhook(
       );
       break;
     case "SOFT_CLOSE":
+      // SPRINT 8 (Part B5/B7): the server adds the re-engagement GUARD tag on
+      // SOFT_CLOSE. GHL's "21. Nurture Re-Engagement" sequence gates every fire on
+      // this tag and removes it when the lead replies — the reply-gate the old
+      // blind drip lacked. sr_soft_close stays for reporting/segmentation.
       await addTag(ghlContactId, "sr_soft_close").catch((e) => console.error(e));
+      await addTag(ghlContactId, "sr_nurture_reengage").catch((e) => console.error(e));
       break;
     case "ESCALATE":
       // Rare in nurture. Existing behavior: park to silent for a human to pick up.
@@ -196,11 +201,4 @@ export async function handleNurtureWebhook(
     default:
       break;
   }
-
-  // ── Drip cadence exhaustion (preserved from the old handler) ────────────────
-  if (isDrip && (sig === "SOFT_CLOSE" || dripPosition === 4)) {
-    await addTag(ghlContactId, "sr_nurture_exhausted").catch((e) => console.error(e));
-  }
-
-  // SPRINT 5: Jordan's revival/reschedule/finance plug into this same loop.
 }

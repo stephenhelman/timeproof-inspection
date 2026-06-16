@@ -31,6 +31,7 @@ import {
   type SystemAuthoredFields,
 } from "@/src/lib/conversation";
 import { runComposedBotTurn } from "@/src/lib/bot-v2/engine";
+import { qualifyOpenerInstruction } from "@/src/lib/bot-v2/guide-context";
 import type { Phase, TurnInput } from "@/src/lib/bot-v2/types";
 import type { Lead, SrLead } from "@prisma/client";
 
@@ -55,6 +56,9 @@ export async function handleQualifyWebhook(
     ghlContactId: string;
     trigger: string;
     inboundMsg: string;
+    // Sprint 9 Part G: the §G guide nuance, ridden in on the webhook (mirrors
+    // sr_dispo_context). Optional; falls back to the Lead.srGuideContext mirror.
+    srGuideContext?: string | null;
   },
   deps: QualifyIoDeps = {},
 ): Promise<void> {
@@ -97,9 +101,14 @@ export async function handleQualifyWebhook(
     turnMessage = inboundMsg;
   } else {
     // new_inspection_lead / scheduling_approved / first-contact → source-aware opener.
-    turnMessage =
-      `[system: new qualify lead — send your source-aware opening message. ` +
-      `No prior conversation. Read sourceType/funnelConcerns and open accordingly.]`;
+    // Sprint 9 Part G: a held-then-cleared expansion-zone lead (sr_guide_context =
+    // zip_cleared) gets the "good news, we service your area" opener; otherwise the
+    // normal source-aware opener. The re-engagement IS the qualify opener — there is
+    // no separate clearance message. Prefer the webhook nuance, fall back to the
+    // Lead.srGuideContext mirror written by the crossing.
+    const guideCtx =
+      ctx.srGuideContext ?? ((lead as unknown as { srGuideContext?: string | null }).srGuideContext ?? null);
+    turnMessage = qualifyOpenerInstruction(guideCtx);
   }
 
   // ── System-authored source fields → Conversation (app-written, durable) ─────

@@ -23,10 +23,11 @@ export async function handleRevivalWebhook(
     ghlContactId: string;
     trigger: string;
     inboundMsg: string;
+    srDispoContext?: string | null;
   },
   deps: JordanIoDeps = {},
 ): Promise<void> {
-  const { lead, srLead, ghlContactId, trigger, inboundMsg } = ctx;
+  const { lead, srLead, ghlContactId, trigger, inboundMsg, srDispoContext } = ctx;
   void srLead; // routing already resolved by the caller; kept for signature parity
 
   // ── System-authored recovery context → Conversation (read-only for Jordan) ──
@@ -45,8 +46,12 @@ export async function handleRevivalWebhook(
       lead, ghlContactId, trigger, inboundMsg, convo,
       // Read-seed Jordan's known-problem context (ARCHITECTURE §7) so revival's
       // "read the DB context" / "the leak that got you on the schedule" lands on
-      // real facts instead of a re-ask.
-      readSeed: { inspectionFindings: recovery.inspectionFindings, priorObjection: recovery.dispoPrimaryObjection },
+      // real facts instead of a re-ask. priorObjection comes from sr_dispo_context
+      // (the objection that led here, §8), falling back to the dispo field.
+      readSeed: {
+        inspectionFindings: recovery.inspectionFindings,
+        priorObjection: srDispoContext ?? recovery.dispoPrimaryObjection,
+      },
     },
     {
       phase: PHASE,

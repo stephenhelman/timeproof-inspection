@@ -22,15 +22,18 @@ export async function handleRescheduleWebhook(
     ghlContactId: string;
     trigger: string;
     inboundMsg: string;
+    srDispoContext?: string | null;
   },
   deps: JordanIoDeps = {},
 ): Promise<void> {
-  const { lead, srLead, ghlContactId, trigger, inboundMsg } = ctx;
+  const { lead, srLead, ghlContactId, trigger, inboundMsg, srDispoContext } = ctx;
   void srLead;
 
   // ── System-authored recovery context → Conversation (read-only for Jordan) ──
+  // Derive the sub-case from (stage + sr_dispo_context) — door→porched_door,
+  // soft→porched_soft, no_show, simple — falling back to the legacy heuristic.
   const recovery = await loadRecoveryContext(lead);
-  const rescheduleSubCase = deriveRescheduleSubCase(lead);
+  const rescheduleSubCase = deriveRescheduleSubCase(lead, srDispoContext);
   const sysFields: Partial<SystemAuthoredFields> = {
     leadId: lead.id,
     repName: recovery.repName,

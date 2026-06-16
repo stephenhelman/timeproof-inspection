@@ -12,7 +12,6 @@ import {
   DISTANCE_ZONE_MIN_DAYS_AHEAD,
   getZoneForZip,
   getCompatibleZones,
-  getZipTier,
 } from "@/src/lib/service-zones";
 import {
   TIME_WINDOWS,
@@ -386,61 +385,13 @@ export async function transitionLead(
 }
 
 // ── Qualified-lead routing ─────────────────────────────────────
-
-// Shared by the nurture handler and the nurture-drip route so the QUALIFIED
-// handoff can never diverge between the two paths again (it has been a bug once
-// already). Instead of relying on API-added tags — which don't reliably fire GHL
-// automations — this moves the Roof Guide opportunity to the correct pipeline
-// stage and lets GHL's native stage-change automation drive everything
-// downstream (mark won, create the Inspection opp, move to Qualifying, fire the
-// qualify bot).
-export async function routeQualifiedLead(
-  lead: Lead,
-  ghlContactId: string,
-): Promise<void> {
-  if (!lead.sourceZip) {
-    console.warn(`[routeQualifiedLead] lead ${lead.id} QUALIFIED with no sourceZip — routing to ZIP review`);
-  }
-  const tier = lead.sourceZip ? getZipTier(lead.sourceZip) : 'out_of_area';
-
-  // The whole handoff now depends on the stage move, so a null ghlOpportunityId
-  // is a hard failure, not a silent skip: there is nothing to move. Log loudly so
-  // it's findable, and fall back to the legacy sr_qualifying tag (primary only)
-  // as a last-ditch catch GHL automation can react to. Internal notifications are
-  // GHL's job, not the server's.
-  if (!lead.ghlOpportunityId) {
-    console.error(
-      `[routeQualifiedLead] lead ${lead.id} QUALIFIED but has no ghlOpportunityId — ` +
-      `cannot move pipeline stage; manual handoff required`,
-    );
-
-    if (tier === 'primary') {
-      // Degraded backstop — let any surviving tag automation try to advance them.
-      await addGhlTag(ghlContactId, 'sr_qualifying').catch(() => null);
-    } else {
-      // Review path — keep the homeowner warm; do NOT advance past review.
-      await sendGhlSms(
-        ghlContactId,
-        "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
-      ).catch(() => null);
-    }
-    return;
-  }
-
-  if (tier === 'primary') {
-    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_GUIDE_QUALIFIED!)
-      .catch(err => console.error('[routeQualifiedLead] move→GHL_STAGE_GUIDE_QUALIFIED failed:', err));
-  } else {
-    // Manager reviews in GHL; on approval they add zip_approved manually, which a
-    // separate GHL automation turns into a move to Qualified.
-    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_GUIDE_ZIP_REVIEW!)
-      .catch(err => console.error('[routeQualifiedLead] move→GHL_STAGE_GUIDE_ZIP_REVIEW failed:', err));
-    await sendGhlSms(
-      ghlContactId,
-      "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
-    ).catch(() => null);
-  }
-}
+//
+// SPRINT 9 (Part E): `routeQualifiedLead` was DELETED. The Roof Guide → Inspection
+// crossing is now SERVER-owned and lives in the single, uniform crossing module
+// `src/lib/bot-v2/guide-crossing.ts` (`handleGuideQualified` / `crossGuideToInspection`)
+// — it performs the §12 Pattern B tag purge, marks the Guide opp won, and creates
+// the Inspection opp (replacing GHL workflow 02's opp-creation role). The old
+// stage-move-and-let-GHL-create approach is gone so there is ONE guide-crossing path.
 
 // ── Opt-out and cancellation ───────────────────────────────────
 

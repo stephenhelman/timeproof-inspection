@@ -1,3 +1,27 @@
+// ── DISPOSITION HANDLER — UNIFIED §8 MODEL (Sprint 7) ────────────────────────
+//
+// Per ARCHITECTURE §8 ("the unified handoff principle"), the dispo handler's job
+// is narrow and the same for every outcome:
+//
+//   1. RESOLVE the Inspection opportunity (won/lost) — the reporting metric.
+//   2. Write sr_dispo_context (the nuance, scoped by destination stage).
+//   3. Add a reporting tag (filtering/reporting only — NEVER an activation trigger).
+//   4. CREATE the Revival opp at the correct destination STAGE — the SERVER decides
+//      the stage (this is where revival-vs-finance branches), GHL is dumb.
+//   5. Sync currentPhase + phaseHistory atomically with the stage change (audit #3).
+//
+// What it deliberately does NOT do (handlers/GHL own these):
+//   - It does NOT fire the Jordan activation webhook — GHL fires that on the stage
+//     change (Sprint 8). The handler's job ends at "Revival opp placed at correct stage".
+//   - It does NOT set Jordan recovery-context (affordabilityIsReal, rescheduleSubCase,
+//     primaryObjection seed) — the Jordan handlers DERIVE those at activation from
+//     (stage + sr_dispo_context).
+//   - It does NOT branch revival-vs-finance anywhere but in the destination STAGE.
+//   - It does NOT trigger anything on tags.
+//
+// The whole routing table lives as DATA (planDispo) and a single generic executor
+// runs it — so the handler is simpler, not more complex.
+
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/src/lib/auth";
@@ -5,24 +29,14 @@ import { prisma } from "@/src/lib/prisma";
 import { addGhlTag, notifyManager } from "@/src/lib/ghl-sms";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
-  moveGhlOpportunityStage,
+  resolveGhlOpportunity,
+  createGhlOpportunity,
   writeGhlOpportunityCustomField,
+  writeGhlContactCustomField,
 } from "@/src/lib/ghl-contacts";
-
-type Outcome =
-  | "sold"
-  | "demo_not_sold"
-  | "no_show"
-  | "porched"
-  | "reschedule";
-
-const VALID_OUTCOMES = new Set<string>([
-  "sold",
-  "demo_not_sold",
-  "no_show",
-  "porched",
-  "reschedule",
-]);
+import { syncPhaseTransition } from "@/src/lib/conversation";
+import { planDispo, VALID_OUTCOMES, type Outcome } from "@/src/lib/bot-v2/dispo-plan";
+import { purgePipelineTags } from "@/src/lib/bot-v2/pipeline-tags";
 
 // Logs a GHL sync call attempt to WebhookLog. Never throws.
 async function logGhlSync(
@@ -45,7 +59,7 @@ async function logGhlSync(
     .catch((err) => console.error("[dispo] webhookLog create failed:", err));
 }
 
-// Writes sr_inspection_id and sr_appointment_id to GHL opportunity. Logs result.
+// Writes sr_inspection_id and sr_appointment_id to a GHL opportunity. Logs result.
 async function writeDispoIdsToGhl(
   leadId: string,
   ghlOpportunityId: string,
@@ -124,6 +138,11 @@ export async function POST(
   if (!VALID_OUTCOMES.has(outcome))
     return NextResponse.json({ error: "Invalid outcome" }, { status: 422 });
 
+  // Resolve the routing plan (ARCHITECTURE §8 table). Validation lives here.
+  const plan = planDispo(outcome, fork);
+  if ("error" in plan)
+    return NextResponse.json({ error: plan.error }, { status: 422 });
+
   const lead = await prisma.lead.findUnique({
     where: { id: params.id },
     include: {
@@ -140,271 +159,150 @@ export async function POST(
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const ghlId = lead.ghlContactId;
-  const oppId = lead.ghlOpportunityId;
+  const inspectionOppId = lead.ghlOpportunityId; // the Inspection-pipeline opp
   const inspId = bodyInspectionId ?? lead.inspections[0]?.id ?? null;
   const apptId =
-    bodyAppointmentId ??
-    (lead.inspections[0]?.appointment?.id ?? null);
+    bodyAppointmentId ?? (lead.inspections[0]?.appointment?.id ?? null);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.scopereports.com";
 
   try {
-    // ── SOLD ──────────────────────────────────────────────────────────────────
-    if (outcome === "sold") {
-      await prisma.$transaction(async (tx) => {
-        await tx.lead.update({
-          where: { id: params.id },
-          data: { status: "PENDING_SOLD_CONFIRMATION" },
-        });
-        if (inspId)
-          await tx.inspection.update({
-            where: { id: inspId },
-            data: { outcome: "sold" },
-          });
-      });
-
-      if (ghlId) {
-        try {
-          await addGhlTag(ghlId, "sr_sold");
-          await logGhlSync(params.id, "dispo_sold_tag", "ok");
-        } catch (err) {
-          await logGhlSync(params.id, "dispo_sold_tag", "error", err instanceof Error ? err.message : String(err));
-        }
-
-        try {
-          await updateSrLead(ghlId, { sr_status: "SOLD", sr_bot_stage: "silent" });
-          await logGhlSync(params.id, "dispo_sold_sr_update", "ok");
-        } catch (err) {
-          await logGhlSync(params.id, "dispo_sold_sr_update", "error", err instanceof Error ? err.message : String(err));
-        }
-
-        if (oppId) {
-          if (process.env.GHL_STAGE_PENDING_SOLD) {
-            try {
-              await moveGhlOpportunityStage(oppId, process.env.GHL_STAGE_PENDING_SOLD);
-              await logGhlSync(params.id, "dispo_sold_stage", "ok", undefined, { stage: "PENDING_SOLD" });
-            } catch (err) {
-              await logGhlSync(params.id, "dispo_sold_stage", "error", err instanceof Error ? err.message : String(err));
-            }
-          }
-          await writeDispoIdsToGhl(params.id, oppId, inspId, apptId);
-        }
-      }
-
-      await notifyManager(
-        `SOLD (pending confirmation) — ${lead.customerName}\n${lead.streetAddress}, ${lead.city}\n${appUrl}/leads/${params.id}`,
-      ).catch(() => {});
-    }
-
-    // ── DEMO NOT SOLD ─────────────────────────────────────────────────────────
-    else if (outcome === "demo_not_sold") {
-      if (!fork.dispoPrimaryObjection)
-        return NextResponse.json({ error: "Primary objection is required" }, { status: 422 });
-
-      const objection = fork.dispoPrimaryObjection as string;
-      const isFinanceDecline = objection === "finance_decline";
-
-      await prisma.$transaction(async (tx) => {
-        await tx.lead.update({
-          where: { id: params.id },
-          data: {
-            status: "DEMO_NOT_SOLD",
-            dispoPrimaryObjection: objection,
-            dispoNotes: (fork.dispoNotes as string | null) ?? null,
-          },
-        });
-        if (inspId)
-          await tx.inspection.update({
-            where: { id: inspId },
-            data: { outcome: "demo_not_sold" },
-          });
-      });
-
-      if (ghlId) {
-        if (isFinanceDecline) {
-          try {
-            await addGhlTag(ghlId, "sr_finance_declined");
-            await logGhlSync(params.id, "dispo_dns_finance_tag", "ok");
-          } catch (err) {
-            await logGhlSync(params.id, "dispo_dns_finance_tag", "error", err instanceof Error ? err.message : String(err));
-          }
-          try {
-            await updateSrLead(ghlId, { sr_status: "DEMO_NOT_SOLD", sr_bot_stage: "finance" });
-            await logGhlSync(params.id, "dispo_dns_finance_sr", "ok");
-          } catch (err) {
-            await logGhlSync(params.id, "dispo_dns_finance_sr", "error", err instanceof Error ? err.message : String(err));
-          }
-          if (oppId && process.env.GHL_STAGE_FINANCE_DISCOVERY) {
-            try {
-              await moveGhlOpportunityStage(oppId, process.env.GHL_STAGE_FINANCE_DISCOVERY);
-              await logGhlSync(params.id, "dispo_dns_finance_stage", "ok");
-            } catch (err) {
-              await logGhlSync(params.id, "dispo_dns_finance_stage", "error", err instanceof Error ? err.message : String(err));
-            }
-          }
-        } else {
-          try {
-            await addGhlTag(ghlId, "sr_follow_up");
-            await logGhlSync(params.id, "dispo_dns_tag", "ok");
-          } catch (err) {
-            await logGhlSync(params.id, "dispo_dns_tag", "error", err instanceof Error ? err.message : String(err));
-          }
-          try {
-            await updateSrLead(ghlId, { sr_status: "DEMO_NOT_SOLD", sr_bot_stage: "revival" });
-            await logGhlSync(params.id, "dispo_dns_sr", "ok");
-          } catch (err) {
-            await logGhlSync(params.id, "dispo_dns_sr", "error", err instanceof Error ? err.message : String(err));
-          }
-          if (oppId && process.env.GHL_STAGE_DEMO_NOT_SOLD) {
-            try {
-              await moveGhlOpportunityStage(oppId, process.env.GHL_STAGE_DEMO_NOT_SOLD);
-              await logGhlSync(params.id, "dispo_dns_stage", "ok");
-            } catch (err) {
-              await logGhlSync(params.id, "dispo_dns_stage", "error", err instanceof Error ? err.message : String(err));
-            }
-          }
-        }
-
-        if (oppId) await writeDispoIdsToGhl(params.id, oppId, inspId, apptId);
-      }
-    }
-
-    // ── NO SHOW ───────────────────────────────────────────────────────────────
-    else if (outcome === "no_show") {
-      await prisma.$transaction(async (tx) => {
-        await tx.lead.update({
-          where: { id: params.id },
-          data: {
-            status: "NO_SHOW",
-            dispoNotes: (fork.dispoNotes as string | null) ?? null,
-          },
-        });
-        if (inspId)
-          await tx.inspection.update({
-            where: { id: inspId },
-            data: { outcome: "no_show" },
-          });
-      });
-
-      if (ghlId) {
-        try {
-          await addGhlTag(ghlId, "sr_no_show");
-          await logGhlSync(params.id, "dispo_noshow_tag", "ok");
-        } catch (err) {
-          await logGhlSync(params.id, "dispo_noshow_tag", "error", err instanceof Error ? err.message : String(err));
-        }
-        try {
-          await updateSrLead(ghlId, { sr_status: "NO_SHOW", sr_bot_stage: "revival" });
-          await logGhlSync(params.id, "dispo_noshow_sr", "ok");
-        } catch (err) {
-          await logGhlSync(params.id, "dispo_noshow_sr", "error", err instanceof Error ? err.message : String(err));
-        }
-        if (oppId) {
-          if (process.env.GHL_STAGE_NO_SHOW) {
-            try {
-              await moveGhlOpportunityStage(oppId, process.env.GHL_STAGE_NO_SHOW);
-              await logGhlSync(params.id, "dispo_noshow_stage", "ok");
-            } catch (err) {
-              await logGhlSync(params.id, "dispo_noshow_stage", "error", err instanceof Error ? err.message : String(err));
-            }
-          }
-          await writeDispoIdsToGhl(params.id, oppId, inspId, apptId);
-        }
-      }
-    }
-
-    // ── PORCHED ───────────────────────────────────────────────────────────────
-    else if (outcome === "porched") {
-      await prisma.$transaction(async (tx) => {
-        await tx.lead.update({
-          where: { id: params.id },
-          data: {
-            status: "NO_SHOW",
-            rescheduleReason: "porched",
-            dispoNotes: (fork.dispoNotes as string | null) ?? null,
-          },
-        });
-        if (inspId)
-          await tx.inspection.update({
-            where: { id: inspId },
-            data: { outcome: "porched" },
-          });
-      });
-
-      if (ghlId) {
-        try {
-          await addGhlTag(ghlId, "sr_porched");
-          await logGhlSync(params.id, "dispo_porched_tag", "ok");
-        } catch (err) {
-          await logGhlSync(params.id, "dispo_porched_tag", "error", err instanceof Error ? err.message : String(err));
-        }
-        try {
-          await updateSrLead(ghlId, { sr_status: "NO_SHOW", sr_bot_stage: "revival" });
-          await logGhlSync(params.id, "dispo_porched_sr", "ok");
-        } catch (err) {
-          await logGhlSync(params.id, "dispo_porched_sr", "error", err instanceof Error ? err.message : String(err));
-        }
-        if (oppId) {
-          if (process.env.GHL_STAGE_FOLLOW_UP_ACTIVE) {
-            try {
-              await moveGhlOpportunityStage(oppId, process.env.GHL_STAGE_FOLLOW_UP_ACTIVE);
-              await logGhlSync(params.id, "dispo_porched_stage", "ok");
-            } catch (err) {
-              await logGhlSync(params.id, "dispo_porched_stage", "error", err instanceof Error ? err.message : String(err));
-            }
-          }
-          await writeDispoIdsToGhl(params.id, oppId, inspId, apptId);
-        }
-      }
-    }
-
-    // ── RESCHEDULE ────────────────────────────────────────────────────────────
-    // KNOWN ISSUE (post-launch cleanup): RESCHEDULE Manual has a compensation gap.
-    // The new Appointment record is created client-side (DispoModal) before this route
-    // is called. If this route returns 500 after the booking succeeds, the Appointment
-    // persists in the DB but the lead status and all GHL writes below are skipped.
-    // There is no automatic rollback. The rep will need to re-submit dispo manually.
-    // Fix: move appointment creation server-side and wrap the whole flow in a transaction.
-    else if (outcome === "reschedule") {
-      // path: "manual" | "office"
-      const reschedulePath = (fork.reschedulePath as string | null) ?? "office";
-
-      await prisma.lead.update({
+    // ── 1. DB writes — atomic (audit #3: phase sync rides the SAME transaction) ──
+    await prisma.$transaction(async (tx) => {
+      await tx.lead.update({
         where: { id: params.id },
         data: {
-          rescheduleReason: reschedulePath,
-          dispoNotes: (fork.dispoNotes as string | null) ?? null,
+          ...(plan.leadStatus ? { status: plan.leadStatus } : {}),
+          ...plan.leadData,
+          srDispoContext: plan.srDispoContext, // durable local mirror of the §8 nuance
         },
       });
 
-      if (ghlId) {
+      if (inspId && plan.inspectionOutcome) {
+        await tx.inspection.update({
+          where: { id: inspId },
+          data: { outcome: plan.inspectionOutcome },
+        });
+      }
+
+      // Phase change → mirror srBotStage on the DB SrLead row AND sync the
+      // Conversation phase (currentPhase + phaseHistory) atomically, exactly like
+      // every other transition (transitionLead). Skipped for Book Now (no phase change).
+      if (plan.botStage) {
+        await tx.srLead
+          .update({
+            where: { leadId: params.id },
+            data: {
+              srBotStage: plan.botStage,
+              ...(plan.srStatus ? { srStatus: plan.srStatus } : {}),
+              updatedAt: new Date(),
+            },
+          })
+          .catch((e) =>
+            console.warn("[dispo] srLead.update failed (may not exist):", e),
+          );
+
+        await syncPhaseTransition(tx, ghlId ?? "", plan.botStage, plan.exitSignal, {
+          leadId: params.id,
+        });
+      }
+    });
+
+    // ── 2. GHL side-effects (best-effort, logged) ──
+    if (ghlId) {
+      // 2a. Reporting tag (filtering/reporting ONLY — never an activation trigger).
+      if (plan.reportingTag) {
         try {
-          await addGhlTag(ghlId, "sr_reschedule");
-          await logGhlSync(params.id, "dispo_reschedule_tag", "ok");
+          await addGhlTag(ghlId, plan.reportingTag);
+          await logGhlSync(params.id, `dispo_${outcome}_tag`, "ok", undefined, { tag: plan.reportingTag });
         } catch (err) {
-          await logGhlSync(params.id, "dispo_reschedule_tag", "error", err instanceof Error ? err.message : String(err));
-        }
-
-        if (reschedulePath === "office") {
-          try {
-            await updateSrLead(ghlId, { sr_bot_stage: "reschedule" });
-            await logGhlSync(params.id, "dispo_reschedule_office_sr", "ok");
-          } catch (err) {
-            await logGhlSync(params.id, "dispo_reschedule_office_sr", "error", err instanceof Error ? err.message : String(err));
-          }
-        }
-
-        if (oppId) {
-          if (process.env.GHL_STAGE_RESCHEDULING) {
-            try {
-              await moveGhlOpportunityStage(oppId, process.env.GHL_STAGE_RESCHEDULING);
-              await logGhlSync(params.id, "dispo_reschedule_stage", "ok");
-            } catch (err) {
-              await logGhlSync(params.id, "dispo_reschedule_stage", "error", err instanceof Error ? err.message : String(err));
-            }
-          }
-          await writeDispoIdsToGhl(params.id, oppId, inspId, apptId);
+          await logGhlSync(params.id, `dispo_${outcome}_tag`, "error", err instanceof Error ? err.message : String(err));
         }
       }
+
+      // 2b. GHL SrLead custom-object mirror (visibility only; routing reads the DB).
+      if (plan.botStage) {
+        try {
+          await updateSrLead(ghlId, {
+            sr_bot_stage: plan.botStage as never,
+            ...(plan.srStatus ? { sr_status: plan.srStatus as never } : {}),
+          });
+          await logGhlSync(params.id, `dispo_${outcome}_sr`, "ok");
+        } catch (err) {
+          await logGhlSync(params.id, `dispo_${outcome}_sr`, "error", err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      // 2c. sr_dispo_context contact field (the durable raw nuance, §8). Guarded
+      // on the field id — created GHL-side in Sprint 8; until then the durable
+      // mirror is Lead.srDispoContext (written above).
+      if (plan.srDispoContext && process.env.GHL_FIELD_SR_DISPO_CONTEXT) {
+        try {
+          await writeGhlContactCustomField(ghlId, process.env.GHL_FIELD_SR_DISPO_CONTEXT, plan.srDispoContext);
+          await logGhlSync(params.id, `dispo_${outcome}_context`, "ok", undefined, { srDispoContext: plan.srDispoContext });
+        } catch (err) {
+          await logGhlSync(params.id, `dispo_${outcome}_context`, "error", err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      // 2d. RESOLVE the Inspection opp (won/lost) — the reporting metric.
+      if (inspectionOppId && plan.inspectionResolveStage && plan.inspectionStatus) {
+        try {
+          await resolveGhlOpportunity(inspectionOppId, plan.inspectionResolveStage, plan.inspectionStatus);
+          await logGhlSync(params.id, `dispo_${outcome}_resolve_inspection`, "ok", undefined, { status: plan.inspectionStatus });
+        } catch (err) {
+          await logGhlSync(params.id, `dispo_${outcome}_resolve_inspection`, "error", err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      // 2d-bis. PURGE the LEFT (Inspection) pipeline's tag set (§12 Pattern B).
+      // Order is resolve → purge → create: after resolve (so won/lost is recorded)
+      // and before create (so the new Revival pipeline never inherits Inspection
+      // working tags). Critically this strips the stale `sr_appointment_set` so the
+      // Booking Pending early-exit guard stays truthful when this lead later rebooks.
+      if (plan.purgePipeline) {
+        const purged = await purgePipelineTags(ghlId, plan.purgePipeline);
+        await logGhlSync(params.id, `dispo_${outcome}_purge`, "ok", undefined, {
+          pipeline: plan.purgePipeline,
+          tags: [...purged],
+        });
+      }
+
+      // 2e. CREATE the Revival opp at the destination STAGE (the §8 handoff).
+      // SPRINT 8: GHL fires the Jordan activation webhook on THIS stage change.
+      if (plan.revivalStage && process.env.GHL_PIPELINE_REVIVAL) {
+        try {
+          const revivalOppId = await createGhlOpportunity({
+            ghlContactId: ghlId,
+            contactName: lead.customerName ?? "Homeowner",
+            pipelineId: process.env.GHL_PIPELINE_REVIVAL,
+            pipelineStageId: plan.revivalStage,
+            sourceName: plan.revivalSourceName,
+          });
+          // The Revival opp is now the active opp Jordan works (REBOOKED stage
+          // moves, etc.); point the lead at it. The Inspection opp is resolved.
+          await prisma.lead.update({
+            where: { id: params.id },
+            data: { ghlOpportunityId: revivalOppId },
+          });
+          await writeDispoIdsToGhl(params.id, revivalOppId, inspId, apptId);
+          await logGhlSync(params.id, `dispo_${outcome}_create_revival`, "ok", undefined, {
+            revivalOppId,
+            stage: plan.revivalStage,
+          });
+        } catch (err) {
+          await logGhlSync(params.id, `dispo_${outcome}_create_revival`, "error", err instanceof Error ? err.message : String(err));
+        }
+      } else if (inspectionOppId && !plan.revivalStage) {
+        // No Revival opp (e.g. SOLD): keep the dispo ids on the Inspection opp.
+        await writeDispoIdsToGhl(params.id, inspectionOppId, inspId, apptId);
+      }
+    }
+
+    // ── 3. Manager notification (SOLD pending confirmation) ──
+    if (plan.managerNotify) {
+      await notifyManager(
+        `SOLD (pending confirmation) — ${lead.customerName}\n${lead.streetAddress}, ${lead.city}\n${appUrl}/leads/${params.id}`,
+      ).catch(() => {});
     }
 
     return NextResponse.json({ ok: true });

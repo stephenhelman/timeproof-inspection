@@ -67,9 +67,11 @@ export async function POST(
     );
   }
 
-  // GHL opportunity stage sync (optional env var)
-  if (lead.ghlOpportunityId && process.env.GHL_STAGE_EN_ROUTE) {
-    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_EN_ROUTE).catch(
+  // GHL opportunity stage sync (optional env var). Name aligned to .env
+  // (GHL_STAGE_INSPECTION_EN_ROUTE) — the old GHL_STAGE_EN_ROUTE read silently
+  // no-op'd because the env var is the descriptive INSPECTION_ form (audit #2).
+  if (lead.ghlOpportunityId && process.env.GHL_STAGE_INSPECTION_EN_ROUTE) {
+    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_INSPECTION_EN_ROUTE).catch(
       (err) => console.error("[dispatch] GHL stage sync failed:", err),
     );
   }

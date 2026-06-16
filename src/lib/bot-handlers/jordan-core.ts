@@ -28,11 +28,17 @@ import {
   getAvailableSlots,
   createSlotLock,
   validateSlotBeforeConfirm,
+  confirmBooking,
+  formatAppointmentDatetime,
   notifyRep,
 } from "@/src/lib/bot-engine";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
-import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
-import { createAppointmentWithInspection } from "@/src/lib/appointment-service";
+import {
+  moveGhlOpportunityStage,
+  resolveGhlOpportunity,
+  createGhlOpportunity,
+} from "@/src/lib/ghl-contacts";
+import { purgePipelineTags } from "@/src/lib/bot-v2/pipeline-tags";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
 import {
   writeSystemFields,
@@ -249,9 +255,20 @@ export async function runJordanTurn(
     }
     case "SOFT_CLOSE":
       if (config.phase === "finance") {
-        // Lead is pursuing an alternative payment path → finance_retry follow-up.
+        // PATTERN A (Sprint 9 Part A): the lead COMMITTED to pursuing a payment path
+        // — the "idea hatched" moment. Move the opp to the Finance Retry Pending
+        // STAGE so the 7-day clock triggers on STAGE ENTRY (not at Finance Discovery
+        // arrival — commitment, not arrival) and stage presence is the reply-gate. We
+        // do NOT park in "silent": srBotStage STAYS "finance" so the 7-day
+        // finance_retry routes purely by stage (the §8 finance exception is gone).
         await addTag(ghlContactId, "sr_finance_ready").catch((e) => console.error(e));
         await removeGhlTag(ghlContactId, "sr_credit_fail").catch(() => null);
+        if (lead.ghlOpportunityId && process.env.GHL_STAGE_FINANCE_RETRY_PENDING) {
+          await moveGhlOpportunityStage(
+            lead.ghlOpportunityId,
+            process.env.GHL_STAGE_FINANCE_RETRY_PENDING,
+          ).catch((e) => console.error("[jordan/finance] move→Finance Retry Pending failed:", e));
+        }
         if (lead.assignedUserId) {
           await notifyRep(
             lead.assignedUserId,
@@ -259,10 +276,17 @@ export async function runJordanTurn(
             `Finance path identified — ${lead.customerName} pursuing an alternative payment path. Follow up to support. (${result.signal.reason ?? "path noted"})`,
           ).catch((e) => console.error(e));
         }
+        // Keep the routing key on "finance" (named stage); do NOT park in silent.
+        await updateSrLead(lead.id, { sr_bot_stage: "finance" }).catch(() => null);
       } else {
+        // SPRINT 8 (Part B5/B7): add the per-mission re-engagement GUARD tag on
+        // SOFT_CLOSE (e.g. sr_revival_reengage). GHL's "22. Revival Re-Engagement"
+        // sequence gates each fire on it and removes it on reply — the reply-gate.
+        // Cadence is mission-specific and GHL-owned; this just opens the gate.
         await addTag(ghlContactId, "sr_soft_close").catch((e) => console.error(e));
+        await addTag(ghlContactId, `sr_${config.phase}_reengage`).catch((e) => console.error(e));
+        await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch(() => null);
       }
-      await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch(() => null);
       break;
     case "NOT_INTERESTED":
       await transitionLead(lead.id, ghlContactId, config.fromStage, "sr_dead", "DEAD", "silent", {
@@ -314,13 +338,22 @@ function summaryToText(stateDelta: Record<string, unknown>, stored: unknown): st
     .join(" · ") || null;
 }
 
-// ── confirmRebooking — the EXISTING recovery confirm machinery (reused) ───────
+// ── confirmRebooking — UNIVERSAL appointment creation via the Revival→Inspection
+// crossing (Sprint 9 Part C/E) ────────────────────────────────────────────────
 //
-// Mirrors the legacy reschedule-route confirm path verbatim in behavior: parse the
-// MT wall-clock slot → UTC, validateSlotBeforeConfirm, createAppointmentWithInspection
-// (createdBy JORDAN), clean the SlotLock, transitionLead → INSPECTION_SCHEDULED,
-// notifyRep. A `soft` REBOOKED still confirms (it is a real slot) but is tagged for
-// the confirmation/reminder step rather than treated as solid rep time (ARCHITECTURE §6).
+// Jordan does NOT create the appointment. Per Part C there is exactly ONE creation
+// path — Inspection pipeline → Appointment Set stage → workflow #08 — and a rebooked
+// appointment must be created IDENTICALLY to a fresh one. So on REBOOKED this:
+//   1. validates the slot,
+//   2. writes the sr_appointment_datetime field (confirmBooking) — the SAME signal
+//      Alex's first-booking writes; it triggers #08, which creates the appointment,
+//   3. performs the Revival→Inspection pipeline CROSSING atomically (Part E):
+//      resolve the Revival opp WON → PURGE the Revival tag set (§12 Pattern B) →
+//      create a fresh Inspection opp at Appointment Set and point the lead at it,
+//   4. transitionLead → INSPECTION_SCHEDULED (sets sr_appointment_at for #08), tags
+//      the rebook (soft vs solid), notifies the rep.
+// The lead re-enters the normal Inspection flow, indistinguishable from a fresh
+// booking except for its history (superseded appts + the recovering Revival opp).
 async function confirmRebooking(args: {
   slot: string;
   confidence: "solid" | "soft" | null;
@@ -358,29 +391,48 @@ async function confirmRebooking(args: {
     return;
   }
 
-  const assignedUserId = lead.assignedUserId ?? process.env.GHL_DEFAULT_ASSIGNEE_ID ?? null;
-  if (assignedUserId) {
-    try {
-      await createAppointmentWithInspection({
-        leadId: lead.id,
-        assignedUserId,
-        scheduledAt: appointmentDate,
-        zone,
-        createdBy: "JORDAN",
-      });
-    } catch (err) {
-      console.error("[jordan] createAppointmentWithInspection failed:", err);
-      return;
-    }
-  } else {
-    console.error("[jordan] REBOOKED but no assignedUserId — cannot create appointment");
+  // ── (2) Write the datetime field — the SAME signal Alex's first-booking writes;
+  // it triggers #08, which is the SOLE appointment creator (Part C). confirmBooking
+  // also sets the lead status + clears the SlotLock. We do NOT call
+  // createAppointmentWithInspection here — that would be a second creation path.
+  const formattedDatetime = formatAppointmentDatetime(slot);
+  try {
+    await confirmBooking(lead.id, ghlContactId, appointmentDate, formattedDatetime);
+  } catch (err) {
+    console.error("[jordan] confirmBooking (datetime write) failed:", err);
+    return;
   }
 
-  await prisma.slotLock.deleteMany({ where: { leadId: lead.id } }).catch((err) =>
-    console.error("[jordan] SlotLock cleanup failed:", err),
-  );
+  // ── (3) Revival→Inspection CROSSING (Part E), atomic order resolve → purge →
+  // create. Resolve the Revival opp WON (Jordan recovered the lead — the Revival
+  // pipeline's attributable win), purge the Revival tag set so the re-entered
+  // Inspection pipeline starts clean, then create a fresh Inspection opp at
+  // Appointment Set and point the lead at it (#08 fires on that stage entry).
+  const revivalOppId = lead.ghlOpportunityId;
+  if (revivalOppId && process.env.GHL_STAGE_RE_QUALIFIED) {
+    await resolveGhlOpportunity(revivalOppId, process.env.GHL_STAGE_RE_QUALIFIED, "won").catch((e) =>
+      console.error("[jordan] resolve Revival opp (won) failed:", e),
+    );
+  }
+  await purgePipelineTags(ghlContactId, "revival");
+  if (process.env.GHL_PIPELINE_INSPECTION && process.env.GHL_STAGE_APPOINTMENT_SET) {
+    try {
+      const inspectionOppId = await createGhlOpportunity({
+        ghlContactId,
+        contactName: lead.customerName ?? "Homeowner",
+        pipelineId: process.env.GHL_PIPELINE_INSPECTION,
+        pipelineStageId: process.env.GHL_STAGE_APPOINTMENT_SET,
+        sourceName: "revival:rebooked",
+      });
+      await prisma.lead.update({ where: { id: lead.id }, data: { ghlOpportunityId: inspectionOppId } });
+    } catch (e) {
+      console.error("[jordan] create Inspection opp at Appointment Set failed:", e);
+    }
+  }
 
-  await transitionLead(lead.id, ghlContactId, fromStage, "sr_rescheduled", "INSPECTION_SCHEDULED", "silent", {
+  // ── (4) Mirror Alex's book transition: INSPECTION_SCHEDULED + sr_appointment_set,
+  // park the bot in "silent", set sr_appointment_at (read by #08). REBOOKED exit.
+  await transitionLead(lead.id, ghlContactId, fromStage, "sr_appointment_set", "INSPECTION_SCHEDULED", "silent", {
     sr_status: "INSPECTION_SCHEDULED", sr_appointment_at: appointmentDate.toISOString(), sr_bot_stage: "silent",
   }, "REBOOKED");
 

@@ -106,8 +106,7 @@ async function main(): Promise<void> {
   section("1. NURTURE — invested inbound through the live handler");
   await handleNurtureWebhook(
     { lead, srLead, ghlContactId: TEST_CONTACT, trigger: "inbound_sms",
-      inboundMsg: "a couple spots where shingles blew off after that windstorm — is that something I'd catch from the ground or do you have to get up there?",
-      dripPosition: null },
+      inboundMsg: "a couple spots where shingles blew off after that windstorm — is that something I'd catch from the ground or do you have to get up there?" },
     ioDeps,
   );
   const cNurture = await getConversation(TEST_CONTACT);

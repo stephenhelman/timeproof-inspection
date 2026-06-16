@@ -50,6 +50,9 @@ export const SYSTEM_AUTHORED_FIELDS = [
   "heatState",
   "heatLastInbound",
   "heatPeakReached",
+  // booking / zip timed-stage hygiene (Sprint 9)
+  "bookingPendingAttempts",
+  "zipWasHeld",
   // meta
   "lastSignal",
   "lastModelTier",

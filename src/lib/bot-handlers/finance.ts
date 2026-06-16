@@ -23,6 +23,10 @@ export async function handleFinanceWebhook(
     ghlContactId: string;
     trigger: string;
     inboundMsg: string;
+    // Accepted for handler-signature parity. Finance does NOT read it: the
+    // affordabilityIsReal override is derived from the Finance Discovery STAGE,
+    // not from the nuance string (§8 — "the stage itself says finance").
+    srDispoContext?: string | null;
   },
   deps: JordanIoDeps = {},
 ): Promise<void> {

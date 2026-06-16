@@ -1,5 +1,7 @@
 // ── DEDICATED NURTURE WEBHOOK ROUTE ──────────────────────────────────────────
-// Triggers: new_guide_lead, nurture_drip, inbound_sms (srBotStage === 'nurture')
+// Triggers: new_guide_lead, inbound_sms (srBotStage === 'nurture')
+// SPRINT 8: nurture_drip removed — re-engagement is per-mission (trigger=reengage,
+// routed via the central webhook to handleReengageWebhook).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextRequest } from "next/server";
@@ -28,9 +30,6 @@ export async function POST(request: NextRequest) {
   const ghlContactId: string | null = data.contact_id ?? data.contactId ?? null;
   const trigger: string = data.trigger ?? "inbound_sms";
   const inboundMsg: string = data.message ?? "";
-  const dripPosition: number | null = data.drip_position
-    ? parseInt(data.drip_position)
-    : null;
 
   if (!ghlContactId) {
     console.error(
@@ -111,7 +110,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await handleNurtureWebhook({ lead, srLead, ghlContactId, trigger, inboundMsg, dripPosition });
+    await handleNurtureWebhook({ lead, srLead, ghlContactId, trigger, inboundMsg });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[nurture] uncaught error:", message);

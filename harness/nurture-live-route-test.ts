@@ -91,7 +91,6 @@ async function main(): Promise<void> {
     {
       lead, srLead, ghlContactId: TEST_CONTACT, trigger: "inbound_sms",
       inboundMsg: "honestly I've got a couple spots where shingles blew off — is that something I'd catch from the ground or do you have to get up there?",
-      dripPosition: null,
     },
     stubbedIo,
   );
@@ -121,7 +120,6 @@ async function main(): Promise<void> {
     {
       lead, srLead, ghlContactId: TEST_CONTACT, trigger: "inbound_sms",
       inboundMsg: "probably since that windstorm a few weeks back. starting to worry about the next big rain",
-      dripPosition: null,
     },
     stubbedIo,
   );

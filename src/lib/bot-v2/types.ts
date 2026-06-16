@@ -144,6 +144,10 @@ export interface ConversationStateInput {
   heatLastInbound?: string | null; // ISO timestamp of lead's last INBOUND
   heatPeakReached?: boolean;
 
+  // ── BOOKING / ZIP (SYSTEM-authored — Sprint 9 timed-stage hygiene) ──
+  bookingPendingAttempts?: number; // cumulative unanswered booking nudges (Part B)
+  zipWasHeld?: boolean;            // expansion-zone lead held + cleared (Part G)
+
   // ── HANDOFF SUMMARY (MODEL-authored) ──
   summary?: ContractSummary | null;
 

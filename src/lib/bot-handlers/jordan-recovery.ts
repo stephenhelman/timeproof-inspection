@@ -12,6 +12,7 @@
 
 import { prisma } from "@/src/lib/prisma";
 import type { Lead } from "@prisma/client";
+import { rescheduleSubCaseFromDispoContext } from "@/src/lib/bot-v2/dispo-context";
 
 export interface RecoveryDbContext {
   inspectionFindings: string | null;
@@ -28,7 +29,16 @@ export async function loadRecoveryContext(lead: Lead): Promise<RecoveryDbContext
     where: { leadId: lead.id },
     orderBy: { createdAt: "desc" },
   });
+  // Read the field the ACTIVE wizard actually writes: aiDiagnosisStructured
+  // (the machine-readable Claude output reserved "for Jordan"), then the
+  // human-readable description, then the legacy fields for old inspections
+  // (audit #5). The old read used findingsNotes/diagnosis, which the modern
+  // wizard never writes — so Jordan referenced nothing specific.
   const inspectionFindings =
+    (lastInspection?.aiDiagnosisStructured
+      ? JSON.stringify(lastInspection.aiDiagnosisStructured)
+      : null) ??
+    lastInspection?.aiDiagnosisDescription ??
     lastInspection?.findingsNotes ??
     (lastInspection?.diagnosis ? JSON.stringify(lastInspection.diagnosis) : null);
   const daysSinceAppointment = lastInspection?.createdAt
@@ -73,10 +83,20 @@ function deriveConsequenceLikelySurfaced(
   return hasProblem && hasConsequence;
 }
 
-// rescheduleSubCase — set from the GHL trigger + tags + rep notes (ARCHITECTURE §7,
-// kernel/07). Maps the dispo `rescheduleReason` / outcome to the four sub-cases.
-export function deriveRescheduleSubCase(lead: Lead): string {
+// rescheduleSubCase — derived from (stage + sr_dispo_context), ARCHITECTURE §8/§7.
+// PRIMARY source is sr_dispo_context (the structured rep-set nuance): the dispo
+// handler wrote no_show | door | soft | simple, and door→porched_door /
+// soft→porched_soft. Prefer the webhook-supplied value (Sprint 8 customData),
+// then the durable Lead.srDispoContext mirror, then fall back to the legacy
+// rescheduleReason/notes heuristic for any lead disposed before sr_dispo_context.
+export function deriveRescheduleSubCase(lead: Lead, srDispoContext?: string | null): string {
   const rawLead = lead as unknown as Record<string, unknown>;
+
+  const ctx = srDispoContext ?? (rawLead.srDispoContext as string | null) ?? null;
+  const fromContext = rescheduleSubCaseFromDispoContext(ctx);
+  if (fromContext) return fromContext;
+
+  // ── Legacy fallback: infer from rescheduleReason + outcome + notes ──
   const reason = String(rawLead.rescheduleReason ?? "").toLowerCase();
   const notes = String(rawLead.dispoNotes ?? "").toLowerCase();
   const outcome = String(rawLead.revivalOutcome ?? rawLead.dispoOutcome ?? "").toLowerCase();

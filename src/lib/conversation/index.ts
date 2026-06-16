@@ -68,6 +68,8 @@ export type SystemAuthoredFields = {
   heatState: string;
   heatLastInbound: Date | null;
   heatPeakReached: boolean;
+  bookingPendingAttempts: number;
+  zipWasHeld: boolean;
   lastSignal: string | null;
   lastModelTier: string | null;
 };
@@ -347,6 +349,8 @@ export function conversationToStateInput(c: Conversation): ConversationStateInpu
     heatState: (c.heatState as "cold" | "warming") ?? "cold",
     heatLastInbound: c.heatLastInbound ? c.heatLastInbound.toISOString() : null,
     heatPeakReached: c.heatPeakReached,
+    bookingPendingAttempts: c.bookingPendingAttempts,
+    zipWasHeld: c.zipWasHeld,
     summary: (c.summary as ConversationStateInput["summary"]) ?? null,
     lastSignal: c.lastSignal,
     lastModelTier: c.lastModelTier,

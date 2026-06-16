@@ -210,6 +210,17 @@ model Lead {
   dispoNotes                String?
   rescheduleReason          String?
   lenderAttempted           Boolean?
+  // §8 dispo nuance ("how it happened"), scoped by the lead's current mission
+  // stage. The durable local mirror of the GHL sr_dispo_context contact field:
+  // written by the dispo handler, read by the Jordan handlers as the fallback
+  // when the webhook customData doesn't carry it (pre-Sprint 8). Vocabulary is
+  // locked in src/lib/bot-v2/dispo-context.ts.
+  srDispoContext            String?
+  // §G guide nuance carried from the Roof Guide pipeline into Inspection/qualify
+  // (Sprint 9 Part G). Durable local mirror of the GHL sr_guide_context contact
+  // field. "zip_cleared" when a held expansion-zone lead was manually approved;
+  // empty for an in-area lead. Qualify reads it to pick the opener.
+  srGuideContext            String?
 
   // SOLD confirmation
   pendingSoldAt             DateTime?
@@ -589,6 +600,15 @@ model Conversation {
   heatState         String   @default("cold") // cold | warming  (bidirectional via cooldown)
   heatLastInbound   DateTime?                  // timestamp of lead's last INBOUND — drives cooldown
   heatPeakReached   Boolean  @default(false)   // ever warmed? informs re-approach tone, never resets
+
+  // ─── BOOKING / ZIP (SYSTEM-authored — Sprint 9 timed-stage hygiene) ───
+  // Cumulative count of UNANSWERED booking nudges across the whole booking saga
+  // (never reset on re-stall — the serial-non-committer signal, Part B). Exhaustion
+  // is bookingPendingAttempts >= N, lifecycle-routed (Part D).
+  bookingPendingAttempts Int     @default(0)
+  // True once an expansion-zone guide lead was held for manual zip review and then
+  // cleared (Part G). Drives the qualify "good news, we service your area" opener.
+  zipWasHeld             Boolean @default(false)
 
   // ─── HANDOFF SUMMARY (MODEL-authored, structured) ───
   summary           Json?                      // {situation, problem, consequence, openObjection, nextStep}
