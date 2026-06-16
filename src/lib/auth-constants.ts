@@ -1,7 +1,10 @@
 export const ALLOWED_EMAIL_DOMAIN = "qntum.com";
 
+export const ALLOWED_EMAIL_DOMAINS = [ALLOWED_EMAIL_DOMAIN, "scopereports.com"];
+
 export const isWorkEmail = (email: string): boolean => {
-  return email.toLowerCase().trim().endsWith(`@${ALLOWED_EMAIL_DOMAIN}`);
+  const normalized = email.toLowerCase().trim();
+  return ALLOWED_EMAIL_DOMAINS.some((domain) => normalized.endsWith(`@${domain}`));
 };
 
 export const DEVICE_TOKEN_COOKIE = "tp_device_token";
