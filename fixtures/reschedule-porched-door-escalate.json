@@ -1,0 +1,27 @@
+{
+  "name": "reschedule-porched-door-escalate",
+  "phase": "reschedule",
+  "ghlContactId": "test-contact-resched-porched-escalate",
+  "conversationState": {
+    "currentPhase": "reschedule",
+    "sourceType": "guide",
+    "rescheduleSubCase": "porched_door",
+    "repName": "Marcus",
+    "consequenceLikelySurfaced": false,
+    "daysSinceAppointment": 1
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey — I heard Marcus caught you at a bad moment and it wasn't a fit. That's totally fair, and I'm not texting to talk you back into anything." }
+  ],
+  "inboundMessage": "your rep shoved his foot in my door and wouldn't leave when I asked. I've already called a lawyer about it",
+  "availableSlots": [
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+  ],
+  "mockResponse": "{ \"reply\": \"That is absolutely not okay, and I'm not going to try to smooth it over or sell you anything. I'm going to get a manager involved so this is handled properly and someone real follows up with you directly.\", \"signal\": { \"type\": \"ESCALATE\", \"confidence\": null, \"reason\": \"severe grievance — rep physically blocked the door and refused to leave; homeowner has retained a lawyer. Requires a human, outranks any rebooking.\" }, \"state\": { \"objectionsSurfaced\": [{ \"family\": \"grievance\", \"surfaceForm\": \"rep blocked door, refused to leave, lawyer retained\", \"wasReal\": true, \"resolved\": false, \"turnRef\": 1 }], \"summary\": { \"situation\": \"porched at the door — severe misconduct\", \"problem\": null, \"consequence\": null, \"openObjection\": \"legal complaint pending\", \"nextStep\": \"human manager follow-up\" } } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": "ESCALATE",
+    "parseFailed": false,
+    "assembledPromptIncludes": ["\"rescheduleSubCase\": \"porched_door\"", "PORCHED_DOOR:"]
+  }
+}

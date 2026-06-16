@@ -1,0 +1,29 @@
+{
+  "name": "nurture-cold-opener",
+  "phase": "nurture",
+  "ghlContactId": "test-contact-001",
+  "conversationState": {
+    "currentPhase": "nurture",
+    "heatState": "cold",
+    "heatLastInbound": "2026-06-08T12:00:00Z",
+    "sourceType": "guide",
+    "sourceChannel": "rep_card",
+    "funnelConcerns": { "damageSigns": ["curling shingles"], "roofAge": "12 years" },
+    "consequenceSurfaced": false,
+    "gateProblem": false,
+    "gateDecisionMaker": false,
+    "motivation": [],
+    "objectionsSurfaced": []
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey, saw you grabbed the roof guide — what got you looking?" },
+    { "role": "lead", "content": "yeah just browsing" }
+  ],
+  "inboundMessage": "yeah just browsing",
+  "mockResponse": "{ \"reply\": \"No worries at all — totally normal to just look. Anything in the guide jump out, or were you mostly curious?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": null }, \"state\": { \"nepqPhase\": \"connection\", \"motivation\": [] } }",
+  "expect": {
+    "tierSelected": "haiku",
+    "signalType": null,
+    "parseFailed": false
+  }
+}

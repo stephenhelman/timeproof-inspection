@@ -1,0 +1,44 @@
+{
+  "name": "book-price-wobble",
+  "phase": "book",
+  "ghlContactId": "test-contact-b-wobble",
+  "conversationState": {
+    "currentPhase": "book",
+    "sourceType": "inspection",
+    "gateProblem": true,
+    "consequenceSurfaced": true,
+    "gateDecisionMaker": true,
+    "address": "4820 Mesa Hills Dr, El Paso, TX 79912"
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Got your address. I've got Thursday 6/11 at 2:00 PM or Friday 6/12 at 10:00 AM — which works better?" }
+  ],
+  "turns": [
+    {
+      "inboundMessage": "wait — how much is this inspection going to run me? I'm not paying hundreds just to have someone look",
+      "availableSlots": [
+        { "date": "2026-06-11", "time": "14:00", "label": "Thursday, June 11 at 2:00 PM" },
+        { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+      ],
+      "mockResponse": "{ \"reply\": \"Totally get it — and good news, the inspection itself is free, no charge for us coming out to take a look. So with that off the table, does Thursday at 2 still work?\", \"signal\": { \"type\": \"WOBBLING\", \"confidence\": null, \"reason\": \"qualified lead surfaced a specific PRICE objection at the booking moment, reopening a supposedly-closed gate — a real named objection, not a stall\" }, \"state\": { \"primaryObjection\": \"price\", \"objectionsSurfaced\": [{ \"family\": \"price\", \"surfaceForm\": \"not paying hundreds just to have someone look\", \"wasReal\": true, \"resolved\": false, \"turnRef\": 1 }] } }",
+      "expect": {
+        "tierSelected": "haiku",
+        "signalType": "WOBBLING",
+        "parseFailed": false
+      }
+    },
+    {
+      "inboundMessage": "oh it's free? ok yeah thursday at 2 is good then",
+      "availableSlots": [
+        { "date": "2026-06-11", "time": "14:00", "label": "Thursday, June 11 at 2:00 PM" },
+        { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+      ],
+      "mockResponse": "{ \"reply\": \"Perfect — you're set for Thursday, June 11 at 2:00 PM. See you then!\", \"signal\": { \"type\": \"BOOKED\", \"confidence\": null, \"reason\": \"price objection cleared (free inspection) and homeowner picked Thursday 2pm\" }, \"state\": { \"selectedSlot\": \"2026-06-11 14:00\", \"objectionsSurfaced\": [{ \"family\": \"price\", \"surfaceForm\": \"not paying hundreds just to have someone look\", \"wasReal\": true, \"resolved\": true, \"turnRef\": 1 }] } }",
+      "expect": {
+        "tierSelected": "haiku",
+        "signalType": "BOOKED",
+        "parseFailed": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "book-pick-slot-booked",
+  "phase": "book",
+  "ghlContactId": "test-contact-b-booked",
+  "conversationState": {
+    "currentPhase": "book",
+    "sourceType": "inspection",
+    "gateProblem": true,
+    "consequenceSurfaced": true,
+    "gateDecisionMaker": true,
+    "address": "4820 Mesa Hills Dr, El Paso, TX 79912"
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Great — got your address as 4820 Mesa Hills Dr. I've got a couple of times open: Thursday 6/11 at 2:00 PM or Friday 6/12 at 10:00 AM. Which works better?" }
+  ],
+  "inboundMessage": "thursday at 2 works for me",
+  "availableSlots": [
+    { "date": "2026-06-11", "time": "14:00", "label": "Thursday, June 11 at 2:00 PM" },
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+  ],
+  "mockResponse": "{ \"reply\": \"Perfect — you're all set for Thursday, June 11 at 2:00 PM at 4820 Mesa Hills Dr. We'll see you then!\", \"signal\": { \"type\": \"BOOKED\", \"confidence\": null, \"reason\": \"homeowner picked the Thursday afternoon slot\" }, \"state\": { \"address\": \"4820 Mesa Hills Dr, El Paso, TX 79912\", \"selectedSlot\": \"2026-06-11 14:00\", \"timePrefs\": { \"days\": [\"Thursday\"], \"windows\": [\"afternoon\"] } } }",
+  "expect": {
+    "tierSelected": "haiku",
+    "signalType": "BOOKED",
+    "parseFailed": false,
+    "assembledPromptIncludes": ["available_slots", "2026-06-11 14:00", "Thursday, June 11 at 2:00 PM"]
+  }
+}

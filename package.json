@@ -4,11 +4,23 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prompts:compile": "node scripts/compile-prompts.mjs",
+    "prebuild": "node scripts/compile-prompts.mjs",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "seed:user": "node --env-file=.env.local scripts/seed-user.js",
-    "seed:admin": "node --env-file=.env.local --experimental-strip-types scripts/seed-admin.ts"
+    "seed:admin": "node --env-file=.env.local --experimental-strip-types scripts/seed-admin.ts",
+    "bot:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/bot-test.ts",
+    "conversation:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/conversation-seam-test.ts",
+    "dispo:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/dispo-routing-test.ts",
+    "activation:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/activation-routing-test.ts",
+    "reengage:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/reengage-test.ts",
+    "sprint9:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/sprint9-test.ts",
+    "nurture:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/nurture-live-route-test.ts",
+    "alex:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/alex-arc-live-route-test.ts",
+    "jordan:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/jordan-live-route-test.ts",
+    "cache:verify": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/cache-verify.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",

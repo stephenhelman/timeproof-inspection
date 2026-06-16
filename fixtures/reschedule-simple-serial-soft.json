@@ -1,0 +1,28 @@
+{
+  "name": "reschedule-simple-serial-soft",
+  "phase": "reschedule",
+  "ghlContactId": "test-contact-resched-serial",
+  "conversationState": {
+    "currentPhase": "reschedule",
+    "sourceType": "inspection",
+    "rescheduleSubCase": "simple",
+    "repName": "Marcus",
+    "consequenceLikelySurfaced": true,
+    "daysSinceAppointment": 0
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Course — though this is the third time we've shuffled it, which is totally fine, but sometimes that means there's a little hesitation under the surface. Anything you're unsure about?" }
+  ],
+  "inboundMessage": "no nothing like that, just busy. let's do friday at 10 and I'll make it work this time",
+  "availableSlots": [
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" },
+    { "date": "2026-06-13", "time": "14:00", "label": "Saturday, June 13 at 2:00 PM" }
+  ],
+  "mockResponse": "{ \"reply\": \"Fair enough — life's busy. Got you down for Friday, June 12 at 10:00 AM. I'll send a reminder the day before so it stays on your radar.\", \"signal\": { \"type\": \"REBOOKED\", \"confidence\": \"soft\", \"reason\": \"third reschedule — cooperative on the surface but the repeated shuffling is a soft hesitation signal; confirmed slot but routing to a reminder step, not solid rep time\" }, \"state\": { \"nepqPhase\": \"commitment\", \"selectedSlot\": \"2026-06-12 10:00\", \"timePrefs\": { \"days\": [\"Friday\"], \"windows\": [\"morning\"] } } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": "REBOOKED",
+    "parseFailed": false,
+    "assembledPromptIncludes": ["\"rescheduleSubCase\": \"simple\"", "SIMPLE:"]
+  }
+}

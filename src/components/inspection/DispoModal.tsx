@@ -136,6 +136,12 @@ export default function DispoModal({
   // Demo Not Sold fields
   const [primaryObjection, setPrimaryObjection] = useState("");
 
+  // Porched fields — door (flat shut-down) vs soft (logistics deflection).
+  // This rep-set toggle becomes sr_dispo_context door|soft (§8): the reschedule
+  // handler derives porched_door / porched_soft from it, replacing the old
+  // infer-the-sub-case-from-freeform-notes heuristic.
+  const [porchedContext, setPorchedContext] = useState<"door" | "soft">("door");
+
   // Reschedule fields
   const [reschedulePath, setReschedulePath] = useState<"manual" | "office">("office");
   const [showBookingModal, setShowBookingModal] = useState(false);
@@ -152,6 +158,7 @@ export default function DispoModal({
     setError("");
     // Reset per-outcome state
     setPrimaryObjection("");
+    setPorchedContext("door");
     setReschedulePath("office");
     setShowBookingModal(false);
     setNotes("");
@@ -195,6 +202,7 @@ export default function DispoModal({
         body.dispoNotes = notes || null;
         break;
       case "porched":
+        body.porchedContext = porchedContext;
         body.dispoNotes = notes || null;
         break;
       case "reschedule":
@@ -405,6 +413,30 @@ export default function DispoModal({
                     <p className="text-text-secondary text-sm">
                       Made contact, could not get in. Jordan surfaces resistance before attempting rebook.
                     </p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-text-secondary text-xs font-semibold uppercase tracking-wider">How did it go?</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {([
+                        { id: "door", emoji: "🚪", label: "Door Slam", hint: "Flat shut-down" },
+                        { id: "soft", emoji: "🤷", label: "Soft Deflection", hint: "Bad timing / not home" },
+                      ] as const).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setPorchedContext(opt.id)}
+                          className={`flex flex-col items-center gap-1.5 rounded-xl border py-4 px-3 text-center transition-all ${
+                            porchedContext === opt.id
+                              ? "border-purple-500 bg-purple-500/10 text-text-primary"
+                              : "border-border text-text-secondary hover:border-border-hover"
+                          }`}
+                        >
+                          <span className="text-xl">{opt.emoji}</span>
+                          <span className="text-xs font-bold tracking-wide">{opt.label}</span>
+                          <span className="text-xs text-text-hint">{opt.hint}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <NotesField value={notes} onChange={setNotes} />
                 </>

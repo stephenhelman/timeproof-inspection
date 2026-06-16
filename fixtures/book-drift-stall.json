@@ -1,0 +1,30 @@
+{
+  "name": "book-drift-stall",
+  "phase": "book",
+  "ghlContactId": "test-contact-b-stall",
+  "conversationState": {
+    "currentPhase": "book",
+    "sourceType": "inspection",
+    "gateProblem": true,
+    "consequenceSurfaced": true,
+    "gateDecisionMaker": true,
+    "address": "4820 Mesa Hills Dr, El Paso, TX 79912"
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "I've got Thursday 6/11 at 2:00 PM or Friday 6/12 at 10:00 AM — which works?" },
+    { "role": "lead", "content": "idk" },
+    { "role": "bot", "content": "No problem — would mornings or afternoons generally be easier for you?" },
+    { "role": "lead", "content": "not sure" }
+  ],
+  "inboundMessage": "k",
+  "availableSlots": [
+    { "date": "2026-06-11", "time": "14:00", "label": "Thursday, June 11 at 2:00 PM" },
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+  ],
+  "mockResponse": "{ \"reply\": \"No worries at all — whenever you're ready to lock in a time, just shoot me a text and I'll get you on the schedule.\", \"signal\": { \"type\": \"STALL\", \"confidence\": null, \"reason\": \"qualified lead went flat and non-committal across two re-approaches with no surfaced objection — not a no, just not landing a time\" }, \"state\": { \"address\": \"4820 Mesa Hills Dr, El Paso, TX 79912\" } }",
+  "expect": {
+    "tierSelected": "haiku",
+    "signalType": "STALL",
+    "parseFailed": false
+  }
+}

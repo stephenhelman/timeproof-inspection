@@ -210,6 +210,17 @@ model Lead {
   dispoNotes                String?
   rescheduleReason          String?
   lenderAttempted           Boolean?
+  // §8 dispo nuance ("how it happened"), scoped by the lead's current mission
+  // stage. The durable local mirror of the GHL sr_dispo_context contact field:
+  // written by the dispo handler, read by the Jordan handlers as the fallback
+  // when the webhook customData doesn't carry it (pre-Sprint 8). Vocabulary is
+  // locked in src/lib/bot-v2/dispo-context.ts.
+  srDispoContext            String?
+  // §G guide nuance carried from the Roof Guide pipeline into Inspection/qualify
+  // (Sprint 9 Part G). Durable local mirror of the GHL sr_guide_context contact
+  // field. "zip_cleared" when a held expansion-zone lead was manually approved;
+  // empty for an in-area lead. Qualify reads it to pick the opener.
+  srGuideContext            String?
 
   // SOLD confirmation
   pendingSoldAt             DateTime?
@@ -527,6 +538,88 @@ model BotThread {
   updatedAt     DateTime  @updatedAt
 
   @@unique([ghlContactId, botType])
+}
+
+// The per-contact durable "brain" — ONE row per contact, living above the phase
+// boundaries (ARCHITECTURE.md §7). Read/written by every bot across all phases.
+// NOT the transcript (that stays in BotThread); this holds the STRUCTURED state
+// that must survive a phase handoff.
+//
+// AUTHORSHIP is load-bearing and enforced in code (lib/conversation +
+// lib/bot-v2/field-authorship): MODEL-authored fields are written from the
+// contract's `state` block each turn; SYSTEM-authored fields are written only by
+// app code and are injected into the prompt as read-only context. The model can
+// never write a SYSTEM-authored field — applyModelStateDelta won't accept it.
+model Conversation {
+  id              String   @id @default(cuid())
+  ghlContactId    String   @unique          // the cross-phase key
+  leadId          String?                    // FK to Lead, nullable for early-funnel
+
+  // ─── ROUTING / PHASE (SYSTEM-authored — mirrors srBotStage) ───
+  currentPhase    String                     // nurture|qualify|book|revival|reschedule|finance|silent
+  phaseHistory    Json     @default("[]")    // [{phase, enteredAt, exitSignal}] — the journey
+
+  // ─── NEPQ STATE (MODEL-authored) ───
+  nepqPhase           String?                // connection|situation|problem|consequence|commitment
+  motivation          Json    @default("[]") // string[]
+  urgency             String?                // none|low|medium|high
+  consequenceSurfaced Boolean @default(false)
+
+  // ─── GATES (MODEL-authored) ───
+  gateProblem         Boolean @default(false)
+  gateDecisionMaker   Boolean @default(false)
+  // NOTE: gate "consequence" == consequenceSurfaced. There is intentionally NO
+  //       separate gateConsequence field — qualify gate logic references
+  //       consequenceSurfaced. One field, no duplication (ARCHITECTURE §7).
+
+  // ─── OBJECTIONS (MODEL-authored) ───
+  objectionsSurfaced  Json    @default("[]") // [{family, surfaceForm, wasReal, resolved, turnRef}]
+  primaryObjection    String?
+
+  // ─── DECISION MAKERS / LOGISTICS (MODEL-authored) ───
+  decisionMakers      Json    @default("[]") // [{role, present, sharesConcern}]
+  timePrefs           Json?                  // {days, windows}
+  address             String?                // collected by Book; mirrored to Lead
+  selectedSlot        String?                // the slot the homeowner picked, emitted by Book on BOOKED
+                                             //   and Jordan on REBOOKED; handed to the existing confirm
+                                             //   path. Model-authored (ARCHITECTURE §5/§7).
+
+  // ─── SOURCE (SYSTEM-authored, set at lead creation) ───
+  sourceType          String?                // guide | inspection
+  sourceChannel       String?                // rep_door | rep_card | organic   (advisory only)
+  funnelConcerns      Json?                  // self-selected items from guide funnel (damage signs, roof age, etc.)
+  repName             String?
+
+  // ─── RECOVERY CONTEXT (SYSTEM-authored from DB/GHL — Jordan reads) ───
+  consequenceLikelySurfaced Boolean?         // derived from rep notes — reschedule calibration
+  affordabilityIsReal       Boolean @default(false) // set true on credit/finance fail — finance override
+  rescheduleSubCase         String?          // no_show | porched_door | porched_soft | simple
+  daysSinceAppointment      Int?
+
+  // ─── HEAT (SYSTEM-authored — tier selection) ───
+  heatState         String   @default("cold") // cold | warming  (bidirectional via cooldown)
+  heatLastInbound   DateTime?                  // timestamp of lead's last INBOUND — drives cooldown
+  heatPeakReached   Boolean  @default(false)   // ever warmed? informs re-approach tone, never resets
+
+  // ─── BOOKING / ZIP (SYSTEM-authored — Sprint 9 timed-stage hygiene) ───
+  // Cumulative count of UNANSWERED booking nudges across the whole booking saga
+  // (never reset on re-stall — the serial-non-committer signal, Part B). Exhaustion
+  // is bookingPendingAttempts >= N, lifecycle-routed (Part D).
+  bookingPendingAttempts Int     @default(0)
+  // True once an expansion-zone guide lead was held for manual zip review and then
+  // cleared (Part G). Drives the qualify "good news, we service your area" opener.
+  zipWasHeld             Boolean @default(false)
+
+  // ─── HANDOFF SUMMARY (MODEL-authored, structured) ───
+  summary           Json?                      // {situation, problem, consequence, openObjection, nextStep}
+
+  // ─── META ───
+  lastSignal        String?
+  lastModelTier     String?                    // haiku | sonnet — telemetry for tuning
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([ghlContactId])
 }
 
 model SlotLock {

@@ -1,0 +1,28 @@
+{
+  "name": "reschedule-no-show-rebooked",
+  "phase": "reschedule",
+  "ghlContactId": "test-contact-resched-noshow",
+  "conversationState": {
+    "currentPhase": "reschedule",
+    "sourceType": "inspection",
+    "rescheduleSubCase": "no_show",
+    "repName": "Marcus",
+    "consequenceLikelySurfaced": true,
+    "daysSinceAppointment": 2
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey — looks like we missed each other Tuesday. No big deal, life gets in the way. Everything okay on your end?" }
+  ],
+  "inboundMessage": "yeah sorry, my mom had a medical emergency and I totally spaced it. can we just find another time?",
+  "availableSlots": [
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" },
+    { "date": "2026-06-13", "time": "14:00", "label": "Saturday, June 13 at 2:00 PM" }
+  ],
+  "mockResponse": "{ \"reply\": \"Oh man, no apology needed — family comes first, hands down. Hope your mom's okay. Let's make this easy: Friday the 12th at 10, or Saturday the 13th at 2?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": \"genuine emergency — full grace, straight to an easy rebook, no surfacing needed\" }, \"state\": { \"nepqPhase\": \"commitment\", \"timePrefs\": { \"days\": [], \"windows\": [] } } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": null,
+    "parseFailed": false,
+    "assembledPromptIncludes": ["\"rescheduleSubCase\": \"no_show\"", "NO_SHOW:", "YOU ARE JORDAN"]
+  }
+}

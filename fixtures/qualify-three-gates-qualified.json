@@ -1,0 +1,28 @@
+{
+  "name": "qualify-three-gates-qualified",
+  "phase": "qualify",
+  "ghlContactId": "test-contact-q-qualified",
+  "conversationState": {
+    "currentPhase": "qualify",
+    "sourceType": "inspection",
+    "sourceChannel": "organic",
+    "gateProblem": true,
+    "consequenceSurfaced": true,
+    "gateDecisionMaker": false,
+    "nepqPhase": "consequence",
+    "motivation": ["stop the ceiling stain spreading"]
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "You asked us to come take a look — happy to set that up. Before we do, what's got you wanting eyes on it?" },
+    { "role": "lead", "content": "there's a brown stain spreading on the ceiling in the back bedroom" },
+    { "role": "bot", "content": "A spreading stain usually means water's already sitting in the decking. If it keeps going, what's that turning into for you?" },
+    { "role": "lead", "content": "honestly I'm worried the whole ceiling caves or it gets into the framing and turns into a huge bill" }
+  ],
+  "inboundMessage": "yeah it's just me and my wife and we're both ready to get someone out here, we talked about it last night",
+  "mockResponse": "{ \"reply\": \"That makes sense — catching it now is exactly how you avoid the framing bill. Since you're both on the same page, let's get someone out to look. I'll pass you over to lock in a time that works.\", \"signal\": { \"type\": \"QUALIFIED\", \"confidence\": null, \"reason\": \"all three gates confirmed: spreading stain (problem), feared framing damage + large bill (consequence), both spouses aligned and present (decision-maker)\" }, \"state\": { \"nepqPhase\": \"commitment\", \"gateProblem\": true, \"consequenceSurfaced\": true, \"gateDecisionMaker\": true, \"decisionMakers\": [{ \"role\": \"homeowner\", \"present\": true, \"sharesConcern\": true }, { \"role\": \"spouse\", \"present\": true, \"sharesConcern\": true }], \"summary\": { \"situation\": \"older roof, water intrusion in back bedroom\", \"problem\": \"brown stain spreading on the ceiling\", \"consequence\": \"fears ceiling collapse / framing damage and a large repair bill\", \"openObjection\": null, \"nextStep\": \"book the inspection\" } } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": "QUALIFIED",
+    "parseFailed": false
+  }
+}

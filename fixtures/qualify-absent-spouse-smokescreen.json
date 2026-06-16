@@ -1,0 +1,23 @@
+{
+  "name": "qualify-absent-spouse-smokescreen",
+  "phase": "qualify",
+  "ghlContactId": "test-contact-q-spouse",
+  "conversationState": {
+    "currentPhase": "qualify",
+    "sourceType": "inspection",
+    "sourceChannel": "organic",
+    "gateProblem": false,
+    "consequenceSurfaced": false,
+    "gateDecisionMaker": false
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "You asked us to come take a look — happy to set that up. Before we do, what's got you wanting eyes on it?" }
+  ],
+  "inboundMessage": "well I'd have to talk to my husband before doing anything like that",
+  "mockResponse": "{ \"reply\": \"Totally fair — no rush at all. Before the two of you talk it over, what was it that made you reach out in the first place? Was there something specific about the roof on your mind?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": \"spouse invoked BEFORE any problem was engaged — treating as an authority smokescreen for the lead's own hesitation, not a confirmed co-decider; surfacing whether a real concern exists before anything else\" }, \"state\": { \"nepqPhase\": \"connection\", \"gateProblem\": false, \"consequenceSurfaced\": false, \"gateDecisionMaker\": false, \"primaryObjection\": \"authority\", \"objectionsSurfaced\": [{ \"family\": \"authority\", \"surfaceForm\": \"have to talk to my husband\", \"wasReal\": null, \"resolved\": false, \"turnRef\": 1 }] } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": null,
+    "parseFailed": false
+  }
+}

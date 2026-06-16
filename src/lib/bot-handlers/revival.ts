@@ -1,66 +1,66 @@
-// SCAFFOLD — Jordan Revival bot handler (JSON mode)
-// Current production handler: handleRevivalWebhook in central/route.ts (string mode)
-// Migration: when ready —
-//   1. Implement assembleRevivalPromptV2 in assemblers/revival-v2.ts
-//   2. Implement handleRevivalWebhook below
-//   3. Import it in central/route.ts replacing the inline function
-//   4. Replace inline handleRevivalWebhook body with: return handleRevivalWebhook(ctx)
-//   5. Add 'revival' case to inbound SMS switch in central/route.ts
+// ── REVIVAL HANDLER — LIVE ON THE NEW ENGINE (Sprint 5 cutover) ──────────────
+//
+// Jordan's revival mission on the shared composed-prompt JSON engine
+// (runComposedBotTurn, ARCHITECTURE §4/§5) — same live loop as Alex's handlers,
+// via jordan-core's runJordanTurn. This REPLACES the old string-mode inline
+// handleRevivalWebhook in central/route.ts and the dedicated ghl/revival route
+// (both deleted in Sprint 5). Reply generation, signal handling, and state all
+// flow through the one contract + repair ladder; cross-phase state lives in the
+// Conversation record behind the airtight authorship seam.
 
-import type { Lead, SrLead } from '@prisma/client'
-import type { BotContext, BotResponse } from '../prompts/qntum/types'
-import { EMPTY_BOT_CONTEXT } from '../prompts/qntum/types'
-import {
-  runBot,
-  readBotContextFromDb,
-  writeBotContextToDb,
-  getAreaAppointments,
-  getOrCreateThread,
-  appendMessage,
-} from '../bot-engine'
-import { assembleRevivalPromptV2 } from '../prompts/qntum/assemblers/revival-v2'
+import { writeSystemFields, type SystemAuthoredFields } from "@/src/lib/conversation";
+import { runJordanTurn, type JordanIoDeps } from "@/src/lib/bot-handlers/jordan-core";
+import { loadRecoveryContext } from "@/src/lib/bot-handlers/jordan-recovery";
+import type { Phase } from "@/src/lib/bot-v2/types";
+import type { Lead, SrLead } from "@prisma/client";
 
-// Unused type references — present to surface migration shape, removed at implementation time
-type _BotResponse = BotResponse
-type _BotContext = BotContext
-const _emptyCtx = EMPTY_BOT_CONTEXT
+const PHASE: Phase = "revival";
 
-interface RevivalWebhookCtx {
-  lead: Lead
-  srLead: SrLead
-  ghlContactId: string
-  trigger: string
-  inboundMsg: string
-}
+export async function handleRevivalWebhook(
+  ctx: {
+    lead: Lead;
+    srLead: SrLead;
+    ghlContactId: string;
+    trigger: string;
+    inboundMsg: string;
+    srDispoContext?: string | null;
+  },
+  deps: JordanIoDeps = {},
+): Promise<void> {
+  const { lead, srLead, ghlContactId, trigger, inboundMsg, srDispoContext } = ctx;
+  void srLead; // routing already resolved by the caller; kept for signature parity
 
-export async function handleRevivalWebhook(ctx: RevivalWebhookCtx): Promise<void> {
-  // TODO — implement JSON mode revival handler
-  // Pattern to follow: src/lib/bot-handlers/qualify.ts
-  //
-  // Steps:
-  // 1. readBotContextFromDb(ghlContactId) — load accumulated context
-  // 2. getAreaAppointments(zone) — proximity data
-  // 3. Load inspect data from DB: aiDiagnosisStructured, postDiagnosisAdmission, warningSignResponses
-  // 4. assembleRevivalPromptV2(ctx) — build JSON mode system prompt
-  // 5. runBot(systemPrompt, messages, { isJsonMode: true, maxTokens: 600, ghlContactId })
-  // 6. Parse BotResponse
-  // 7. writeBotContextToDb(ghlContactId, 'revival', response.bot_context)
-  // 8. Mirror bot_context to GHL opportunity field — fire and forget
-  // 9. Route on response.signal:
-  //    RE_QUALIFY   → transitionLead + moveGhlOpportunityStage(GHL_STAGE_RE_QUALIFIED)
-  //                   + createGhlOpportunity on Inspection pipeline at Appointment Set
-  //    DEAD         → transitionLead to DEAD / silent
-  //    ESCALATE     → notifyManager + updateSrLead silent
-  // 10. If !stage_change && response.message → sendGhlSms(ghlContactId, response.message)
-  // 11. If response.bot_context.referral_seed_planted → update thread metadata
-  void ctx
-  void readBotContextFromDb
-  void writeBotContextToDb
-  void getAreaAppointments
-  void getOrCreateThread
-  void appendMessage
-  void assembleRevivalPromptV2
-  void runBot
-  void _emptyCtx
-  throw new Error('handleRevivalWebhook not yet implemented — scaffold only')
+  // ── System-authored recovery context → Conversation (read-only for Jordan) ──
+  const recovery = await loadRecoveryContext(lead);
+  const sysFields: Partial<SystemAuthoredFields> = {
+    leadId: lead.id,
+    repName: recovery.repName,
+    consequenceLikelySurfaced: recovery.consequenceLikelySurfaced,
+    daysSinceAppointment: recovery.daysSinceAppointment,
+  };
+  const convo = await writeSystemFields(ghlContactId, sysFields, { currentPhase: PHASE, leadId: lead.id });
+
+  // ── Run the shared Jordan recovery turn ─────────────────────────────────────
+  await runJordanTurn(
+    {
+      lead, ghlContactId, trigger, inboundMsg, convo,
+      // Read-seed Jordan's known-problem context (ARCHITECTURE §7) so revival's
+      // "read the DB context" / "the leak that got you on the schedule" lands on
+      // real facts instead of a re-ask. priorObjection comes from sr_dispo_context
+      // (the objection that led here, §8), falling back to the dispo field.
+      readSeed: {
+        inspectionFindings: recovery.inspectionFindings,
+        priorObjection: srDispoContext ?? recovery.dispoPrimaryObjection,
+      },
+    },
+    {
+      phase: PHASE,
+      fromStage: "sr_follow_up",
+      openerInstruction:
+        `[system: revival activation — a demo didn't sell. Send your acknowledgment-first opener. ` +
+        `Name what happened, validate it, never defend the rep, and begin surfacing the REAL objection ` +
+        `underneath the stated reason. No prior conversation.]`,
+    },
+    deps,
+  );
 }

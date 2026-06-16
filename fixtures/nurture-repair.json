@@ -1,0 +1,23 @@
+{
+  "name": "nurture-repair (attempt-2 repair succeeds)",
+  "phase": "nurture",
+  "ghlContactId": "test-contact-repair",
+  "conversationState": {
+    "currentPhase": "nurture",
+    "heatState": "cold",
+    "sourceType": "guide",
+    "sourceChannel": "rep_card"
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey, saw you grabbed the roof guide — what got you looking?" }
+  ],
+  "inboundMessage": "just wanted to know how old a roof usually lasts around here",
+  "mockResponse": "{ \"reply\": \"Most asphalt roofs out here run 18-22 years,\", \"signal\": { \"type\": null \"confidence\": null }, \"state\": { \"nepqPhase\": \"situation\" } }",
+  "mockRepairResponse": "{ \"reply\": \"Most asphalt roofs out here run about 18-22 years, sun's hard on them. How old's yours, roughly?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": null }, \"state\": { \"nepqPhase\": \"situation\" } }",
+  "expect": {
+    "tierSelected": "haiku",
+    "parseFailed": false,
+    "parseAttempts": 2,
+    "signalType": null
+  }
+}

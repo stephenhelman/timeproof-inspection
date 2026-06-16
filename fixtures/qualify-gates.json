@@ -1,0 +1,24 @@
+{
+  "name": "qualify-gates",
+  "phase": "qualify",
+  "ghlContactId": "test-contact-003",
+  "conversationState": {
+    "currentPhase": "qualify",
+    "sourceType": "inspection",
+    "sourceChannel": "organic",
+    "gateProblem": false,
+    "gateDecisionMaker": false,
+    "consequenceSurfaced": false
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Appreciate you reaching out for a look. What's going on with the roof that's got your attention?" },
+    { "role": "lead", "content": "there's a brown stain spreading on the ceiling in the back bedroom" }
+  ],
+  "inboundMessage": "there's a brown stain spreading on the ceiling in the back bedroom",
+  "mockResponse": "{ \"reply\": \"That spreading stain usually means water's already getting in and sitting in the decking. If it keeps going you're looking at the ceiling itself, not just the roof. Are you the one who'd make the call on getting it looked at, or is there a partner in on that too?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": null }, \"state\": { \"nepqPhase\": \"problem\", \"gateProblem\": true, \"consequenceSurfaced\": true, \"primaryObjection\": null, \"objectionsSurfaced\": [] } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": null,
+    "parseFailed": false
+  }
+}

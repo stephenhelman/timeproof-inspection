@@ -1,0 +1,25 @@
+{
+  "name": "revival-competitor-signed-not-interested",
+  "phase": "revival",
+  "ghlContactId": "test-contact-revival-competitor",
+  "conversationState": {
+    "currentPhase": "revival",
+    "sourceType": "guide",
+    "repName": "Marcus",
+    "daysSinceAppointment": 14
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Hey — I know the visit a couple weeks back didn't end with a plan. Straight up, is the roof still on your radar at all?" }
+  ],
+  "inboundMessage": "we already went with another company, they started the tear-off yesterday",
+  "availableSlots": [
+    { "date": "2026-06-12", "time": "10:00", "label": "Friday, June 12 at 10:00 AM" }
+  ],
+  "mockResponse": "{ \"reply\": \"Ah, that's actually great to hear you got it handled — a roof you can stop worrying about is the whole point. If anything ever comes up down the road, you know where to find me. Take care.\", \"signal\": { \"type\": \"NOT_INTERESTED\", \"confidence\": null, \"reason\": \"competitor signed and tear-off already started — no live concern, clean respectful exit with door left open\" }, \"state\": { \"objectionsSurfaced\": [{ \"family\": \"competitor\", \"surfaceForm\": \"went with another company, work already started\", \"wasReal\": true, \"resolved\": true, \"turnRef\": 1 }], \"summary\": { \"situation\": \"prior demo did not close\", \"problem\": \"roof replacement\", \"consequence\": null, \"openObjection\": null, \"nextStep\": \"closed — competitor already executing\" } } }",
+  "expect": {
+    "tierSelected": "sonnet",
+    "signalType": "NOT_INTERESTED",
+    "parseFailed": false,
+    "assembledPromptIncludes": ["YOU ARE JORDAN", "MISSION: REVIVAL"]
+  }
+}

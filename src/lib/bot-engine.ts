@@ -1,4 +1,5 @@
 import { prisma } from "@/src/lib/prisma";
+import { syncPhaseTransition } from "@/src/lib/conversation";
 import { sendGhlSms, addGhlTag, removeGhlTag, notifyManager } from "@/src/lib/ghl-sms";
 import { updateSrLead, type SrLeadFields } from "@/src/lib/ghl-custom-object";
 import { writeGhlContactCustomField, moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
@@ -11,7 +12,6 @@ import {
   DISTANCE_ZONE_MIN_DAYS_AHEAD,
   getZoneForZip,
   getCompatibleZones,
-  getZipTier,
 } from "@/src/lib/service-zones";
 import {
   TIME_WINDOWS,
@@ -31,56 +31,14 @@ export interface BotMessage {
 }
 
 // ── Alex bot utilities ─────────────────────────────────────────
-
-export async function readBotContextFromDb(
-  ghlContactId: string
-): Promise<BotContext> {
-  const thread = await prisma.botThread.findFirst({
-    where: { ghlContactId },
-    // nulls: 'last' — a freshly-created thread has a null lastMessageAt, which
-    // Postgres sorts FIRST under DESC by default (NULLS FIRST). That would return
-    // the unstamped thread's empty bot_context and wipe accumulated state. Push
-    // nulls last so the read always lands on the most-recently-stamped context.
-    orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } }
-  })
-
-  const metadata = thread?.metadata as Record<string, unknown> | null
-  const stored = metadata?.bot_context
-
-  if (!stored) return { ...EMPTY_BOT_CONTEXT }
-
-  try {
-    return stored as BotContext
-  } catch {
-    return { ...EMPTY_BOT_CONTEXT }
-  }
-}
-
-export async function writeBotContextToDb(
-  ghlContactId: string,
-  botType: string,
-  context: BotContext
-): Promise<void> {
-  const thread = await prisma.botThread.findFirst({
-    where: { ghlContactId, botType },
-    orderBy: { lastMessageAt: 'desc' }
-  })
-
-  if (!thread) {
-    console.warn('[bot-engine] writeBotContextToDb: no thread found for', ghlContactId, botType)
-    return
-  }
-
-  const existingMetadata = (thread.metadata as Record<string, unknown>) ?? {}
-
-  await prisma.botThread.update({
-    where: { id: thread.id },
-    data: {
-      metadata: { ...existingMetadata, bot_context: context } as unknown as never,
-      lastMessageAt: new Date()
-    }
-  })
-}
+//
+// SPRINT 6: readBotContextFromDb / writeBotContextToDb (the BotThread.metadata.
+// bot_context read/write path, including the NULLS-LAST read-before-create
+// ordering hack) were deleted here — they had zero live callers. All six missions
+// read/write durable state through the Conversation record now (ARCHITECTURE §7).
+// NOTE: runBot + assembleNurturePrompt + EMPTY_BOT_CONTEXT below are still live via
+// the legacy nurture-drip route, which has NOT yet been migrated onto the new
+// engine — see docs/bot-v2-telemetry.md "Outstanding migration" flag.
 
 export function formatAppointmentDatetime(slot: string): string {
   console.info('[bot-engine] formatAppointmentDatetime input:', slot, '→ split:', slot.split(' '));
@@ -367,29 +325,48 @@ export async function transitionLead(
   toTag: string | null,
   newStatus: LeadStatus,
   newBotStage: string,
-  srLeadUpdates?: Partial<SrLeadFields>
+  srLeadUpdates?: Partial<SrLeadFields>,
+  // SPRINT 1: the signal that caused this transition, recorded in
+  // Conversation.phaseHistory[].exitSignal. Optional/back-compat — null when not
+  // applicable or not supplied by an existing caller.
+  exitSignal?: string | null,
 ): Promise<void> {
-  // 1. Update Lead in DB — awaited
-  await prisma.lead.update({
-    where: { id: leadId },
-    data: {
-      status: newStatus,
-      lastBotType: newBotStage,
-      lastBotMessage: new Date(),
-    },
+  // SPRINT 1: the Lead + SrLead stage change and the Conversation phase mirror
+  // now move together in ONE interactive transaction (ARCHITECTURE §7) so routing
+  // state (srBotStage) and conversation state (currentPhase + phaseHistory) can
+  // never diverge. The existing Lead/SrLead behavior is unchanged — SrLead stays
+  // best-effort (its catch keeps a missing row from rolling anything back), and
+  // the GHL fire-and-forget below is untouched.
+  await prisma.$transaction(async (tx) => {
+    // 1. Update Lead in DB
+    await tx.lead.update({
+      where: { id: leadId },
+      data: {
+        status: newStatus,
+        lastBotType: newBotStage,
+        lastBotMessage: new Date(),
+      },
+    });
+
+    // 2. Update SrLead in DB (best-effort: may not exist for legacy leads). A 0-row
+    //    update throws P2025 at the Prisma layer but does NOT abort the Postgres
+    //    transaction, so catching here preserves the original best-effort behavior.
+    await tx.srLead.update({
+      where: { leadId },
+      data: {
+        srBotStage: newBotStage,
+        srStatus: srLeadUpdates?.sr_status ?? (newStatus as string),
+        updatedAt: new Date(),
+      },
+    }).catch(e => console.warn("[bot-engine] srLead.update failed (may not exist):", e));
+
+    // 3. Sync the Conversation phase mirror in the SAME transaction: set
+    //    currentPhase (normalized from srBotStage vocab) and append a
+    //    phaseHistory entry { phase, enteredAt, exitSignal }.
+    await syncPhaseTransition(tx, ghlContactId, newBotStage, exitSignal ?? null, { leadId });
   });
 
-  // 2. Update SrLead in DB — awaited (best-effort: may not exist for legacy leads)
-  await prisma.srLead.update({
-    where: { leadId },
-    data: {
-      srBotStage: newBotStage,
-      srStatus: srLeadUpdates?.sr_status ?? (newStatus as string),
-      updatedAt: new Date(),
-    },
-  }).catch(e => console.warn("[bot-engine] srLead.update failed (may not exist):", e));
-
-  // 3. GHL updates — parallel, non-blocking. DB is source of truth.
+  // 4. GHL updates — parallel, non-blocking. DB is source of truth.
   Promise.allSettled([
     fromTag
       ? removeGhlTag(ghlContactId, fromTag)
@@ -408,61 +385,13 @@ export async function transitionLead(
 }
 
 // ── Qualified-lead routing ─────────────────────────────────────
-
-// Shared by the nurture handler and the nurture-drip route so the QUALIFIED
-// handoff can never diverge between the two paths again (it has been a bug once
-// already). Instead of relying on API-added tags — which don't reliably fire GHL
-// automations — this moves the Roof Guide opportunity to the correct pipeline
-// stage and lets GHL's native stage-change automation drive everything
-// downstream (mark won, create the Inspection opp, move to Qualifying, fire the
-// qualify bot).
-export async function routeQualifiedLead(
-  lead: Lead,
-  ghlContactId: string,
-): Promise<void> {
-  if (!lead.sourceZip) {
-    console.warn(`[routeQualifiedLead] lead ${lead.id} QUALIFIED with no sourceZip — routing to ZIP review`);
-  }
-  const tier = lead.sourceZip ? getZipTier(lead.sourceZip) : 'out_of_area';
-
-  // The whole handoff now depends on the stage move, so a null ghlOpportunityId
-  // is a hard failure, not a silent skip: there is nothing to move. Log loudly so
-  // it's findable, and fall back to the legacy sr_qualifying tag (primary only)
-  // as a last-ditch catch GHL automation can react to. Internal notifications are
-  // GHL's job, not the server's.
-  if (!lead.ghlOpportunityId) {
-    console.error(
-      `[routeQualifiedLead] lead ${lead.id} QUALIFIED but has no ghlOpportunityId — ` +
-      `cannot move pipeline stage; manual handoff required`,
-    );
-
-    if (tier === 'primary') {
-      // Degraded backstop — let any surviving tag automation try to advance them.
-      await addGhlTag(ghlContactId, 'sr_qualifying').catch(() => null);
-    } else {
-      // Review path — keep the homeowner warm; do NOT advance past review.
-      await sendGhlSms(
-        ghlContactId,
-        "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
-      ).catch(() => null);
-    }
-    return;
-  }
-
-  if (tier === 'primary') {
-    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_GUIDE_QUALIFIED!)
-      .catch(err => console.error('[routeQualifiedLead] move→GHL_STAGE_GUIDE_QUALIFIED failed:', err));
-  } else {
-    // Manager reviews in GHL; on approval they add zip_approved manually, which a
-    // separate GHL automation turns into a move to Qualified.
-    await moveGhlOpportunityStage(lead.ghlOpportunityId, process.env.GHL_STAGE_GUIDE_ZIP_REVIEW!)
-      .catch(err => console.error('[routeQualifiedLead] move→GHL_STAGE_GUIDE_ZIP_REVIEW failed:', err));
-    await sendGhlSms(
-      ghlContactId,
-      "To make sure we can help, I want to loop in my team real quick. I'll get back to you shortly.",
-    ).catch(() => null);
-  }
-}
+//
+// SPRINT 9 (Part E): `routeQualifiedLead` was DELETED. The Roof Guide → Inspection
+// crossing is now SERVER-owned and lives in the single, uniform crossing module
+// `src/lib/bot-v2/guide-crossing.ts` (`handleGuideQualified` / `crossGuideToInspection`)
+// — it performs the §12 Pattern B tag purge, marks the Guide opp won, and creates
+// the Inspection opp (replacing GHL workflow 02's opp-creation role). The old
+// stage-move-and-let-GHL-create approach is gone so there is ONE guide-crossing path.
 
 // ── Opt-out and cancellation ───────────────────────────────────
 

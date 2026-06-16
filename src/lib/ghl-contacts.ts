@@ -206,6 +206,20 @@ export async function moveGhlOpportunityStage(
   await opportunities.update(ghlOpportunityId, { pipelineStageId });
 }
 
+// RESOLVE an opportunity: move it to a terminal stage AND set its win/loss
+// status in one call (ARCHITECTURE §8 — "the dispo modal RESOLVES the Inspection
+// opp (won/lost) for reporting"). Each pipeline's win/loss is the attributable
+// metric for the section that owned it; this is how the Inspection opp gets its
+// clean won (sold) / lost (no-show, porched, demo-not-sold) outcome.
+export async function resolveGhlOpportunity(
+  ghlOpportunityId: string,
+  pipelineStageId: string,
+  status: "won" | "lost",
+): Promise<void> {
+  const { opportunities } = getClients();
+  await opportunities.update(ghlOpportunityId, { pipelineStageId, status });
+}
+
 // Write a single custom field value to a GHL contact.
 // Used by bot routes to store pipeline context fields (e.g. sr_previous_context).
 export async function writeGhlContactCustomField(
