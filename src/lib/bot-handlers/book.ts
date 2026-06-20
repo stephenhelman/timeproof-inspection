@@ -47,6 +47,7 @@ import {
   writeGhlContactCustomField,
 } from "@/src/lib/ghl-contacts";
 import { createAppointmentWithInspection, deriveZoneForLead } from "@/src/lib/appointment-service";
+import { resolveLeadAddress } from "@/src/lib/lead-address";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
 import { detectTimePreference } from "@/src/lib/time-utils";
 import {
@@ -268,7 +269,12 @@ export async function handleBookWebhook(
   // before that, availableSlots stays undefined and the Book mission keeps
   // collecting the address. Pre-fetching on every address-known book turn is
   // intentional (slots are cheap; one round-trip keeps Haiku snappy).
-  const address = convo.address ?? lead.address ?? null;
+  // Read-seed the durable address (ARCHITECTURE §7). For a guide-origin lead the
+  // address predates the Conversation and lives on streetAddress/city/state (the
+  // bot-collected Lead.address is still null until book runs), so resolve from the
+  // canonical components — never re-collect what the record already holds. Used both
+  // to pre-fetch slots and (below) to seed the model's read-only context.
+  const address = convo.address ?? resolveLeadAddress(lead);
   let availableSlots: { date: string; time: string; label: string }[] | undefined;
   let existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
   if (address) {
@@ -314,10 +320,18 @@ export async function handleBookWebhook(
     timestamp: m.timestamp,
   }));
 
+  // Seed the resolved durable address into the model's read-only context so book
+  // does NOT re-ask what the record already holds (ARCHITECTURE §7 read-seeding —
+  // a READ-side seed into the prompt; the model stays the author of Conversation.
+  // address). Mirrors jordan-core's address seed, but resolves from the canonical
+  // components so it covers guide-origin leads (whose Lead.address is still null).
+  const stateInput = conversationToStateInput(convo);
+  if (!stateInput.address && address) stateInput.address = address;
+
   const input: TurnInput = {
     ghlContactId,
     inboundMessage: turnMessage,
-    conversationState: conversationToStateInput(convo),
+    conversationState: stateInput,
     conversationHistory: history,
     phase: PHASE,
     availableSlots,

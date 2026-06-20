@@ -43,6 +43,8 @@ import {
 } from "@/src/lib/bot-v2/guide-context";
 import { REVIVAL_DISPO_CONTEXT } from "@/src/lib/bot-v2/dispo-context";
 import { planDispo, type DispoPlan } from "@/src/lib/bot-v2/dispo-plan";
+import { guideQualifiedDecision } from "@/src/lib/bot-v2/guide-crossing";
+import { resolveLeadAddress } from "@/src/lib/lead-address";
 
 let pass = 0;
 let fail = 0;
@@ -129,6 +131,44 @@ const heldOpener = qualifyOpenerInstruction("zip_cleared");
 const normalOpener = qualifyOpenerInstruction(null);
 check("held opener mentions 'good news' + 'service your area'", /good news/i.test(heldOpener) && /service your area/i.test(heldOpener));
 check("normal opener is the source-aware opener (no zip acknowledgment)", !/good news/i.test(normalOpener) && /source-aware/i.test(normalOpener));
+
+// ── Bug B — guide zip auto-approve (live-run fix) ────────────────────────────
+// In-area zip must auto-approve (cross); manual_only/out-of-area/missing hold. The
+// regression was reading lead.sourceZip (null for guide leads) instead of lead.zip:
+// resolve the SAME way intake/from-guide do, then decide.
+section("Bug B — guide zip auto-approve: in-area crosses, expansion/unknown holds");
+const resolveGuideZip = (l: { sourceZip?: string | null; zip?: string | null }) =>
+  l.sourceZip?.trim() || l.zip?.trim() || null;
+check("in-area zip (primary) → cross", guideQualifiedDecision("79912") === "cross");
+check("manual_only zip (secondary) → hold", guideQualifiedDecision("88030") === "hold");
+check("out-of-area zip → hold", guideQualifiedDecision("99999") === "hold");
+check("missing zip → hold", guideQualifiedDecision(null) === "hold");
+// The actual bug: a guide lead carries its in-area zip on Lead.zip, sourceZip null.
+check(
+  "guide lead {sourceZip:null, zip:'79912'} resolves to in-area → cross",
+  guideQualifiedDecision(resolveGuideZip({ sourceZip: null, zip: "79912" })) === "cross",
+);
+check(
+  "rep-set sourceZip still wins when present",
+  resolveGuideZip({ sourceZip: "79925", zip: "99999" }) === "79925",
+);
+
+// ── Bug A — durable address read-seed resolution (live-run fix) ──────────────
+section("Bug A — resolveLeadAddress: components seed when bot-collected is null");
+check(
+  "bot-collected Lead.address wins when set",
+  resolveLeadAddress({ address: "10 Bot St, El Paso, TX", streetAddress: "1 Form St", city: "El Paso", state: "TX" }) ===
+    "10 Bot St, El Paso, TX",
+);
+check(
+  "guide lead (address null) → composed from streetAddress/city/state",
+  resolveLeadAddress({ address: null, streetAddress: "742 Evergreen", city: "El Paso", state: "TX" }) ===
+    "742 Evergreen, El Paso, TX",
+);
+check(
+  "no street → null (don't seed a partial; let book ask)",
+  resolveLeadAddress({ address: null, streetAddress: "", city: "El Paso", state: "TX" }) === null,
+);
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${"═".repeat(70)}`);

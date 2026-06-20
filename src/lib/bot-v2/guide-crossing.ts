@@ -39,8 +39,10 @@ export const SERVICE_AREA_HOLD_MESSAGE =
 
 // Pure decision: does a QUALIFIED guide lead cross now (in-area) or hold for manual
 // zip review (expansion / unknown)? Mirrors the legacy routeQualifiedLead tiering.
-export function guideQualifiedDecision(sourceZip: string | null | undefined): "cross" | "hold" {
-  const tier = sourceZip ? getZipTier(sourceZip) : "out_of_area";
+// Takes the already-resolved zip (see handleGuideQualified for the field resolution —
+// a guide lead's zip lives on Lead.zip, NOT Lead.sourceZip).
+export function guideQualifiedDecision(zip: string | null | undefined): "cross" | "hold" {
+  const tier = zip ? getZipTier(zip) : "out_of_area";
   return tier === "primary" ? "cross" : "hold";
 }
 
@@ -126,7 +128,12 @@ export async function handleGuideQualified(
   deps: { sendSms?: (ghlContactId: string, message: string) => Promise<void> } = {},
 ): Promise<"cross" | "hold"> {
   const sendSms = deps.sendSms ?? sendGhlSms;
-  const decision = guideQualifiedDecision(lead.sourceZip);
+  // Resolve the zip the SAME way intake/from-guide do: a guide-origin lead carries
+  // the gate-form zip on Lead.zip, and Lead.sourceZip is only set by the inspection/
+  // facebook/waitlist paths. Reading sourceZip alone made EVERY guide lead resolve to
+  // out_of_area → manual zip review, even in-area ones (the auto-approve bug).
+  const zip = lead.sourceZip?.trim() || lead.zip?.trim() || null;
+  const decision = guideQualifiedDecision(zip);
 
   if (decision === "cross") {
     await crossGuideToInspection(lead, ghlContactId, { zipCleared: false });
