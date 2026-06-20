@@ -27,9 +27,11 @@
 // ONE trigger is examined BEFORE stage routing — NOT as a trigger-based bot
 // shortcut, but because it targets a lead the server PARKED in "silent" (after a
 // non-finance recovery SOFT_CLOSE), where the stage no longer names a mission:
-//   reengage       → proactive per-mission re-engagement (mission + attempt in
-//                    customData; the handler re-derives the mission from the lead's
-//                    CURRENT stage and uses the hint only as a parked-lead fallback)
+//   reengage       → proactive per-mission re-engagement. The stage-triggered
+//                    re-engagement workflows (21/22, addendum) send NO mission hint
+//                    and NO attempt: the handler derives the mission from the lead's
+//                    CURRENT stage and owns the cumulative attempt counter itself.
+//                    (`mission` is forwarded only as a parked-lead fallback.)
 // SPRINT 9 (Part A): finance_retry is no longer a pre-stage exception. Finance
 // SOFT_CLOSE now moves the opp to the Finance Retry Pending STAGE (srBotStage stays
 // "finance"), so finance_retry dispatches by STAGE to the finance mission like
@@ -70,7 +72,7 @@ import { handleBookWebhook } from "@/src/lib/bot-handlers/book";
 import { handleRevivalWebhook } from "@/src/lib/bot-handlers/revival";
 import { handleRescheduleWebhook } from "@/src/lib/bot-handlers/reschedule";
 import { handleFinanceWebhook } from "@/src/lib/bot-handlers/finance";
-import { handleReengageWebhook } from "@/src/lib/bot-handlers/reengage";
+import { handleReengageWebhook, REENGAGE_GUARD_TAGS } from "@/src/lib/bot-handlers/reengage";
 import { resolveActivation, type Mission } from "@/src/lib/bot-v2/activation-routing";
 
 // ── Context type ──────────────────────────────────────────────────────────────
@@ -81,9 +83,9 @@ interface CentralWebhookContext {
   ghlContactId: string;
   trigger: string;
   inboundMsg: string;
-  // Re-engagement (trigger=reengage) carries the mission + attempt number (Part A).
+  // Re-engagement (trigger=reengage): the mission is a parked-lead fallback hint
+  // only (the handler derives it from stage; attempts are server-owned — addendum).
   mission: string | null;
-  attempt: number;
   // §8: sr_dispo_context is a contact field, so GHL returns it with EVERY webhook
   // (Sprint 8 adds it to customData). The durable raw nuance; null until then,
   // in which case the Jordan handlers fall back to the Lead.srDispoContext mirror.
@@ -157,9 +159,9 @@ export async function POST(request: NextRequest) {
   const ghlContactId: string | null = data.contact_id ?? data.contactId ?? null;
   const trigger: string = data.trigger ?? "inbound_sms";
   const inboundMsg: string = data.message ?? "";
-  // Re-engagement params (Part A): the mission whose guard tag fired + the attempt #.
+  // Re-engagement: parked-lead fallback mission hint only (stage-triggered workflows
+  // send none; the handler derives mission from stage and owns attempts — addendum).
   const mission: string | null = data.mission ?? null;
-  const attempt: number = data.attempt ? parseInt(data.attempt) : 1;
   // §8 dispo nuance — rides every webhook once Sprint 8 adds it to customData.
   const srDispoContext: string | null = data.sr_dispo_context ?? null;
   // Sprint 9 Part G guide nuance — rides every webhook (mirrors sr_dispo_context).
@@ -250,6 +252,19 @@ export async function POST(request: NextRequest) {
     await removeGhlTag(ghlContactId, BOOKING_PENDING_TAG).catch((e) =>
       console.error("[central] booking_pending reply-exit removal failed:", e),
     );
+    // Re-engagement reply-stop (addendum). The nurture/revival re-engagement
+    // sequences (workflows 21/22) are now STAGE-triggered (Pattern A), but they
+    // still use the per-mission guard tag as their IN-SEQUENCE reply-gate: the GHL
+    // workflow adds it, then at each wait checkpoint nudges only if it's still
+    // present. A genuine homeowner inbound means they replied — remove the guard
+    // tags so the workflow's `goto` restarts the silence timer instead of nudging an
+    // active lead, EXACTLY as booking_pending works above. (The stage move is what
+    // ends the loop on exhaustion; the tag is only the live-reply gate.)
+    for (const tag of REENGAGE_GUARD_TAGS) {
+      await removeGhlTag(ghlContactId, tag).catch((e) =>
+        console.error(`[central] ${tag} reply-stop removal failed:`, e),
+      );
+    }
   }
 
   // 7c. Zip Confirmed crossing (Sprint 9 Part G). A human reviewer cleared the zip
@@ -276,7 +291,6 @@ export async function POST(request: NextRequest) {
     trigger,
     inboundMsg,
     mission,
-    attempt,
     srDispoContext,
     srGuideContext,
     idempotencyKey,
@@ -304,8 +318,10 @@ export async function POST(request: NextRequest) {
           lead: context.lead,
           srLead: context.srLead,
           ghlContactId: context.ghlContactId,
+          // No mission hint and no attempt: the handler derives the mission from the
+          // lead's current STAGE and owns the cumulative attempt counter itself
+          // (addendum). `mission` is forwarded only as the parked-lead fallback.
           mission: context.mission,
-          attempt: context.attempt,
           srDispoContext: context.srDispoContext,
         });
         break;

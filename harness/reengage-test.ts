@@ -16,7 +16,7 @@
 
 import { prisma } from "@/src/lib/prisma";
 import { getConversation, writeSystemFields } from "@/src/lib/conversation";
-import { handleReengageWebhook } from "@/src/lib/bot-handlers/reengage";
+import { handleReengageWebhook, REENGAGE_MAX_ATTEMPTS } from "@/src/lib/bot-handlers/reengage";
 import type { ClaudeCaller } from "@/src/lib/bot-v2/claude-call";
 import type { Lead, SrLead } from "@prisma/client";
 
@@ -57,8 +57,12 @@ const B_LEAD = `__reengage_nurture_lead_${PID}`;
 
 const FINDING_TOKEN = "cracked_flashing_east_eave";
 
+// ── Scenario C — attempt increment + exhaustion (server-owned) ──
+const C_CONTACT = `__reengage_exhaust_${PID}`;
+const C_LEAD = `__reengage_exhaust_lead_${PID}`;
+
 async function cleanup(): Promise<void> {
-  for (const [c, l] of [[A_CONTACT, A_LEAD], [B_CONTACT, B_LEAD]] as const) {
+  for (const [c, l] of [[A_CONTACT, A_LEAD], [B_CONTACT, B_LEAD], [C_CONTACT, C_LEAD]] as const) {
     await prisma.botThread.deleteMany({ where: { ghlContactId: c } }).catch(() => {});
     await prisma.conversation.deleteMany({ where: { ghlContactId: c } }).catch(() => {});
     await prisma.inspection.deleteMany({ where: { leadId: l } }).catch(() => {});
@@ -147,6 +151,43 @@ async function main(): Promise<void> {
   check("lastModelTier is NULL (no model ran)", convoB.lastModelTier === null, convoB.lastModelTier);
   check("heatLastInbound UNCHANGED (template send must not reset cooldown)",
     convoB.heatLastInbound?.toISOString() === heatStampB.toISOString(), convoB.heatLastInbound);
+
+  // ── Scenario C: server-owned attempt increment + exhaustion ────────────────
+  section("C. Attempts increment per fire; exhaustion at N moves the lead OUT (no nudge)");
+  const leadC = await makeLead(C_LEAD, C_CONTACT);
+  const srC = await makeSrLead(C_LEAD, C_CONTACT, "nurture");
+  await getConversation(C_CONTACT, { currentPhase: "nurture", leadId: C_LEAD });
+
+  const spyC = makeSpyCaller();
+  const sentC: string[] = [];
+  const taggedC: string[] = [];
+  const fireC = () =>
+    handleReengageWebhook(
+      // No attempt and no mission hint in the webhook — the server derives both.
+      { lead: leadC, srLead: srC, ghlContactId: C_CONTACT, mission: null, srDispoContext: null },
+      {
+        sendSms: async (_c, m) => { sentC.push(m); },
+        addTag: async (_c, t) => { taggedC.push(t); },
+        callClaude: spyC.caller,
+      },
+    );
+
+  // Fire N-1 times: each is a real nudge that increments the counter.
+  for (let i = 1; i < REENGAGE_MAX_ATTEMPTS; i++) {
+    await fireC();
+    const c = await getConversation(C_CONTACT);
+    check(`fire ${i}: reengageAttempts incremented to ${i}`, c.reengageAttempts === i, c.reengageAttempts);
+  }
+  check(`${REENGAGE_MAX_ATTEMPTS - 1} nudges sent before exhaustion`, sentC.length === REENGAGE_MAX_ATTEMPTS - 1, sentC.length);
+
+  // The Nth fire hits the cap → EXHAUST: no nudge sent, counter at MAX.
+  const sentBeforeExhaust = sentC.length;
+  await fireC();
+  const cExhausted = await getConversation(C_CONTACT);
+  check("exhaustion fire reached the cap (reengageAttempts === N)", cExhausted.reengageAttempts === REENGAGE_MAX_ATTEMPTS, cExhausted.reengageAttempts);
+  check("exhaustion fire sent NO nudge (loop ends, lead moved out)", sentC.length === sentBeforeExhaust, sentC.length);
+  check("exhaustion tagged sr_exhausted (dormant marker, not hard-dead)", taggedC.includes("sr_exhausted"), taggedC);
+  check("exhaustion called the model ZERO times (no nudge generated)", spyC.calls.length === 0, spyC.calls.length);
 
   // ── RESULT ──────────────────────────────────────────────────────────────────
   section("RESULT");

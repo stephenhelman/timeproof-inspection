@@ -146,6 +146,7 @@ export interface ConversationStateInput {
 
   // ── BOOKING / ZIP (SYSTEM-authored — Sprint 9 timed-stage hygiene) ──
   bookingPendingAttempts?: number; // cumulative unanswered booking nudges (Part B)
+  reengageAttempts?: number;       // cumulative re-engagement nudges (addendum)
   zipWasHeld?: boolean;            // expansion-zone lead held + cleared (Part G)
 
   // ── HANDOFF SUMMARY (MODEL-authored) ──

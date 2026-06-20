@@ -26,6 +26,7 @@ import {
   transitionLead,
 } from "@/src/lib/bot-engine";
 import { handleGuideQualified } from "@/src/lib/bot-v2/guide-crossing";
+import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
   writeSystemFields,
@@ -187,12 +188,23 @@ export async function handleNurtureWebhook(
       );
       break;
     case "SOFT_CLOSE":
-      // SPRINT 8 (Part B5/B7): the server adds the re-engagement GUARD tag on
-      // SOFT_CLOSE. GHL's "21. Nurture Re-Engagement" sequence gates every fire on
-      // this tag and removes it when the lead replies — the reply-gate the old
-      // blind drip lacked. sr_soft_close stays for reporting/segmentation.
+      // PATTERN A (addendum — re-engagement stage conversion): the warm deferral is
+      // the "idea hatched" moment for re-engagement. Move the opp to the Nurture
+      // Re-Engaging STAGE so GHL's "21. Nurture Re-Engagement" sequence triggers on
+      // STAGE ENTRY — not on a server-added guard tag (the §8 violation we're
+      // closing; the old `sr_nurture_reengage` add is gone). srBotStage STAYS
+      // "nurture" so a trigger=reengage fire routes back to the nurture mission
+      // purely by stage, with NO mission hint. This mirrors finance SOFT_CLOSE →
+      // Finance Retry Pending exactly. The in-sequence guard tag (the reply-gate) is
+      // now added by the GHL workflow after stage entry and removed on reply by the
+      // central inbound handler; sr_soft_close stays for reporting/segmentation.
       await addTag(ghlContactId, "sr_soft_close").catch((e) => console.error(e));
-      await addTag(ghlContactId, "sr_nurture_reengage").catch((e) => console.error(e));
+      if (lead.ghlOpportunityId && process.env.GHL_STAGE_NURTURE_REENGAGING) {
+        await moveGhlOpportunityStage(
+          lead.ghlOpportunityId,
+          process.env.GHL_STAGE_NURTURE_REENGAGING,
+        ).catch((e) => console.error("[nurture] move→Nurture Re-Engaging failed:", e));
+      }
       break;
     case "ESCALATE":
       // Rare in nurture. Existing behavior: park to silent for a human to pick up.

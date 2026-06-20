@@ -606,6 +606,12 @@ model Conversation {
   // (never reset on re-stall — the serial-non-committer signal, Part B). Exhaustion
   // is bookingPendingAttempts >= N, lifecycle-routed (Part D).
   bookingPendingAttempts Int     @default(0)
+  // Cumulative count of re-engagement nudges fired while the lead sits in a
+  // re-engaging stage (nurture/revival SOFT_CLOSE → re-engaging stage; addendum
+  // "Re-Engagement Stage Conversion"). Server-owned, like bookingPendingAttempts —
+  // the webhook no longer carries an attempt number. Exhaustion is
+  // reengageAttempts >= N, which moves the lead OUT of the re-engaging stage.
+  reengageAttempts       Int     @default(0)
   // True once an expansion-zone guide lead was held for manual zip review and then
   // cleared (Part G). Drives the qualify "good news, we service your area" opener.
   zipWasHeld             Boolean @default(false)
