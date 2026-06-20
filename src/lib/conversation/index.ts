@@ -69,6 +69,7 @@ export type SystemAuthoredFields = {
   heatLastInbound: Date | null;
   heatPeakReached: boolean;
   bookingPendingAttempts: number;
+  reengageAttempts: number;
   zipWasHeld: boolean;
   lastSignal: string | null;
   lastModelTier: string | null;
@@ -350,6 +351,7 @@ export function conversationToStateInput(c: Conversation): ConversationStateInpu
     heatLastInbound: c.heatLastInbound ? c.heatLastInbound.toISOString() : null,
     heatPeakReached: c.heatPeakReached,
     bookingPendingAttempts: c.bookingPendingAttempts,
+    reengageAttempts: c.reengageAttempts,
     zipWasHeld: c.zipWasHeld,
     summary: (c.summary as ConversationStateInput["summary"]) ?? null,
     lastSignal: c.lastSignal,

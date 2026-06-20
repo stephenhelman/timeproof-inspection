@@ -52,6 +52,8 @@ export const SYSTEM_AUTHORED_FIELDS = [
   "heatPeakReached",
   // booking / zip timed-stage hygiene (Sprint 9)
   "bookingPendingAttempts",
+  // re-engagement timed-stage hygiene (addendum — re-engagement stage conversion)
+  "reengageAttempts",
   "zipWasHeld",
   // meta
   "lastSignal",

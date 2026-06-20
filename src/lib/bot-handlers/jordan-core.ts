@@ -278,11 +278,33 @@ export async function runJordanTurn(
         }
         // Keep the routing key on "finance" (named stage); do NOT park in silent.
         await updateSrLead(lead.id, { sr_bot_stage: "finance" }).catch(() => null);
+      } else if (config.phase === "revival") {
+        // PATTERN A (addendum — re-engagement stage conversion): mirror finance
+        // exactly. The warm deferral moves the opp to the Revival Re-Engaging STAGE,
+        // so GHL's "22. Revival Re-Engagement" sequence triggers on STAGE ENTRY —
+        // not on the server-added `sr_revival_reengage` guard tag (the §8 violation
+        // we're closing; that server add is gone). srBotStage STAYS "revival" (we do
+        // NOT park in "silent") so a trigger=reengage fire — and any inbound reply —
+        // routes back to the revival mission purely by stage, with NO mission hint.
+        // This also kills the old srBotStage("silent")↔currentPhase("revival") drift.
+        // The in-sequence guard tag (reply-gate) is added by the GHL workflow after
+        // stage entry and removed on reply by central; sr_soft_close stays for
+        // reporting.
+        await addTag(ghlContactId, "sr_soft_close").catch((e) => console.error(e));
+        if (lead.ghlOpportunityId && process.env.GHL_STAGE_REVIVAL_REENGAGING) {
+          await moveGhlOpportunityStage(
+            lead.ghlOpportunityId,
+            process.env.GHL_STAGE_REVIVAL_REENGAGING,
+          ).catch((e) => console.error("[jordan/revival] move→Revival Re-Engaging failed:", e));
+        }
+        await updateSrLead(lead.id, { sr_bot_stage: "revival" }).catch(() => null);
       } else {
-        // SPRINT 8 (Part B5/B7): add the per-mission re-engagement GUARD tag on
-        // SOFT_CLOSE (e.g. sr_revival_reengage). GHL's "22. Revival Re-Engagement"
-        // sequence gates each fire on it and removes it on reply — the reply-gate.
-        // Cadence is mission-specific and GHL-owned; this just opens the gate.
+        // reschedule — OUT OF the addendum's scope (workflows 21/22 are nurture +
+        // revival only; there is no Reschedule Re-Engaging stage/workflow). Keep the
+        // existing behavior: a reporting/guard tag + park in "silent". This is NOT an
+        // active §8 violation because no workflow triggers on sr_reschedule_reengage;
+        // if a reschedule re-engagement sequence is ever built, give it the same
+        // Pattern-A treatment as revival above.
         await addTag(ghlContactId, "sr_soft_close").catch((e) => console.error(e));
         await addTag(ghlContactId, `sr_${config.phase}_reengage`).catch((e) => console.error(e));
         await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch(() => null);

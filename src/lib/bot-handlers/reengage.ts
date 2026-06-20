@@ -26,8 +26,13 @@
 // handler just generates THIS opener for THIS attempt when GHL fires.
 
 import { prisma } from "@/src/lib/prisma";
-import { sendGhlSms } from "@/src/lib/ghl-sms";
-import { getOrCreateThread, appendMessage } from "@/src/lib/bot-engine";
+import { sendGhlSms, addGhlTag } from "@/src/lib/ghl-sms";
+import { getOrCreateThread, appendMessage, transitionLead } from "@/src/lib/bot-engine";
+import { updateSrLead } from "@/src/lib/ghl-custom-object";
+import {
+  moveGhlOpportunityStage,
+  resolveGhlOpportunity,
+} from "@/src/lib/ghl-contacts";
 import {
   writeSystemFields,
   applyModelStateDelta,
@@ -54,10 +59,84 @@ const VALID_PHASES = new Set<string>([
   "finance",
 ]);
 
+// The in-sequence re-engagement guard tags (the reply-gate). The stage-triggered
+// workflows (21/22, addendum) add their mission's tag after stage entry; the central
+// inbound handler removes them on a real reply so the workflow's `goto` restarts the
+// silence timer instead of nudging an active lead — exactly like booking_pending.
+// Only the two in-scope (stage-triggered) missions are listed.
+export const REENGAGE_GUARD_TAGS = [
+  "sr_nurture_reengage",
+  "sr_revival_reengage",
+] as const;
+
+// Exhaust after N re-engagement nudges. CUMULATIVE (never reset) — the seriousness
+// metric, like bookingPendingAttempts. Tunable; start at 3. Cadence (time between
+// fires) is GHL-owned and mission-specific; the COUNT is server-owned and shared.
+export const REENGAGE_MAX_ATTEMPTS = 3;
+
+// Pure exhaustion test (mirrors bookingPendingExhausted) — testable in isolation.
+export function reengageExhausted(attempts: number): boolean {
+  return attempts >= REENGAGE_MAX_ATTEMPTS;
+}
+
+// EXHAUST a re-engagement: move the lead OUT of its re-engaging stage so the GHL
+// loop ends (its top guard sees the lead left the stage). The server owns
+// exhaustion; GHL just loops while the lead is in-stage. Exhaustion is DORMANT, not
+// hard-dead (hard-dead is reserved for opt-out/compliance — ARCHITECTURE §11) — the
+// sr_exhausted tag records WHY it died so a later self-initiated inbound can be
+// distinguished from an opt-out.
+//   - nurture (Roof Guide): never warmed enough → close the Roof Guide opp LOST
+//     (dormant). No dedicated dormant stage exists in Roof Guide, so we resolve-lost
+//     in place; a lost opp leaves the active re-engaging flow.
+//   - revival (Revival): failed to re-engage → move to the Exhausted stage (dormant),
+//     mirroring the Revival booking-stall exhaustion (Sprint 9 Part D).
+async function exhaustReengagement(
+  phase: Phase,
+  lead: Lead,
+  ghlContactId: string,
+  addTag: (ghlContactId: string, tag: string) => Promise<void>,
+): Promise<void> {
+  await addTag(ghlContactId, "sr_exhausted").catch((e) => console.error(e));
+
+  if (phase === "revival") {
+    if (lead.ghlOpportunityId && process.env.GHL_STAGE_EXHAUSTED) {
+      await resolveGhlOpportunity(
+        lead.ghlOpportunityId,
+        process.env.GHL_STAGE_EXHAUSTED,
+        "lost",
+      ).catch((e) => console.error("[reengage/revival] move→Exhausted failed:", e));
+    }
+    await transitionLead(
+      lead.id,
+      ghlContactId,
+      "sr_follow_up",
+      "sr_exhausted",
+      "DEMO_NOT_SOLD",
+      "silent",
+      { sr_status: "DEMO_NOT_SOLD", sr_bot_stage: "silent" },
+      "REENGAGE_EXHAUSTED_REVIVAL",
+    );
+    return;
+  }
+
+  // nurture (and any other Roof-Guide-side mission): close-lost the Roof Guide opp.
+  if (lead.ghlOpportunityId && process.env.GHL_STAGE_NURTURE_REENGAGING) {
+    await resolveGhlOpportunity(
+      lead.ghlOpportunityId,
+      process.env.GHL_STAGE_NURTURE_REENGAGING,
+      "lost",
+    ).catch((e) => console.error("[reengage/nurture] close-lost failed:", e));
+  }
+  await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch(() => null);
+}
+
 // Injectable outward side-effects (mirrors the other handlers) so the harness can
 // drive the full loop against the real DB without sending SMS or calling Claude.
 export interface ReengageIoDeps {
   sendSms?: (ghlContactId: string, message: string) => Promise<void>;
+  // The GHL tag seam (defaults to live addGhlTag). Injected by the harness so the
+  // exhaustion path (which tags sr_exhausted) is drivable without live GHL.
+  addTag?: (ghlContactId: string, tag: string) => Promise<void>;
   // The engine's model seam (defaults to live). Injected by the harness so the
   // hybrid behavior is testable: the mock is called on the context path and MUST
   // NOT be called on the template path.
@@ -102,14 +181,20 @@ export async function handleReengageWebhook(
     lead: Lead;
     srLead: SrLead;
     ghlContactId: string;
-    mission: string | null; // from GHL customData (the guard tag that fired)
-    attempt: number;
+    // Parked-lead fallback only (e.g. a recovery mission still parked in "silent").
+    // The stage-triggered workflows (21/22) send NO mission hint — the mission is
+    // derived from the lead's CURRENT stage. Kept optional for the fallback path.
+    mission: string | null;
+    // DEPRECATED/IGNORED: the webhook no longer carries an attempt number. The
+    // server owns the cumulative count (Conversation.reengageAttempts) below.
+    attempt?: number;
     srDispoContext: string | null;
   },
   deps: ReengageIoDeps = {},
 ): Promise<void> {
-  const { lead, srLead, ghlContactId, mission, attempt, srDispoContext } = ctx;
+  const { lead, srLead, ghlContactId, mission, srDispoContext } = ctx;
   const sendSms = deps.sendSms ?? sendGhlSms;
+  const addTag = deps.addTag ?? addGhlTag;
 
   // ── Resolve the lead's CURRENT mission ───────────────────────────────────────
   // §8: the STAGE is the single source of truth for which mission. The durable
@@ -131,6 +216,19 @@ export async function handleReengageWebhook(
   const phase: Phase = (
     stagePhase ?? (mission && VALID_PHASES.has(mission) ? mission : fromConvo)
   ) as Phase;
+
+  // ── Server-owned attempt tracking + exhaustion (addendum) ────────────────────
+  // The webhook carries no attempt number; the server increments the cumulative
+  // counter on every fire (like bookingPendingAttempts — never reset). THIS nudge
+  // is attempt #N. Once N >= MAX, EXHAUST instead of nudging: move the lead OUT of
+  // its re-engaging stage so the GHL loop ends (its guard sees the lead left), and
+  // return WITHOUT sending another nudge.
+  const attempt = convo.reengageAttempts + 1;
+  await writeSystemFields(ghlContactId, { reengageAttempts: attempt }, { currentPhase: phase });
+  if (reengageExhausted(attempt)) {
+    await exhaustReengagement(phase, lead, ghlContactId, addTag);
+    return;
+  }
 
   const firstName = (lead.customerName ?? "").trim().split(/\s+/)[0] ?? "";
 
