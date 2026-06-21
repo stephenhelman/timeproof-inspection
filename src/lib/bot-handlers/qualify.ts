@@ -32,6 +32,7 @@ import {
 } from "@/src/lib/conversation";
 import { runComposedBotTurn } from "@/src/lib/bot-v2/engine";
 import { qualifyOpenerInstruction } from "@/src/lib/bot-v2/guide-context";
+import { qualifiedGatesMet } from "@/src/lib/bot-v2/qualify-gates";
 import type { Phase, TurnInput } from "@/src/lib/bot-v2/types";
 import type { Lead, SrLead } from "@prisma/client";
 
@@ -156,10 +157,33 @@ export async function handleQualifyWebhook(
 
   // ── Run the engine (tier selection → Sonnet, assembly, repair ladder) ───────
   const result = await runComposedBotTurn(input);
-  const sig = result.signal.type;
 
   // ── Persist model-authored state via the airtight seam ──────────────────────
-  await applyModelStateDelta(ghlContactId, result.stateDelta, { currentPhase: PHASE });
+  // Capture the UPDATED row: the gate booleans accumulate (sticky-true) across
+  // turns here, so this is the authoritative post-turn gate state for the guard.
+  const updatedConvo = await applyModelStateDelta(ghlContactId, result.stateDelta, {
+    currentPhase: PHASE,
+  });
+
+  // ── THREE-GATE GUARD (sprint_4 THREE GATES; ARCHITECTURE §6 QUALIFIED) ───────
+  // QUALIFIED is honored ONLY when all three gates are genuinely true in the
+  // accumulated Conversation state (gateProblem + consequenceSurfaced +
+  // gateDecisionMaker). The prompt asks for this, but enforcement lives in CODE so
+  // it can't be bypassed: a booked inspection without the decision-maker confirmed
+  // is a porch waiting to happen. If the model emits QUALIFIED before gate 3 (or any
+  // gate) is established, DOWNGRADE to continue (null) — Alex keeps the conversation
+  // going (and confirms who decides) rather than handing off to book. The reply was
+  // produced this turn, so a downgraded QUALIFIED falls through to the conversational
+  // send path below (sig === null), never leaving the homeowner hanging.
+  let sig = result.signal.type;
+  if (sig === "QUALIFIED" && !qualifiedGatesMet(updatedConvo)) {
+    console.warn(
+      `[qualify] QUALIFIED suppressed — gates incomplete for contact ${ghlContactId} ` +
+        `(gateProblem=${updatedConvo.gateProblem}, consequenceSurfaced=${updatedConvo.consequenceSurfaced}, ` +
+        `gateDecisionMaker=${updatedConvo.gateDecisionMaker}); continuing instead of handing off to book`,
+    );
+    sig = null;
+  }
 
   // ── Persist system-authored fields (meta + heat clock) ──────────────────────
   const sysFields: Partial<SystemAuthoredFields> = {

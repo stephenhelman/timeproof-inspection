@@ -45,6 +45,7 @@ import { REVIVAL_DISPO_CONTEXT } from "@/src/lib/bot-v2/dispo-context";
 import { planDispo, type DispoPlan } from "@/src/lib/bot-v2/dispo-plan";
 import { guideQualifiedDecision } from "@/src/lib/bot-v2/guide-crossing";
 import { resolveLeadAddress } from "@/src/lib/lead-address";
+import { qualifiedGatesMet } from "@/src/lib/bot-v2/qualify-gates";
 
 let pass = 0;
 let fail = 0;
@@ -168,6 +169,33 @@ check(
 check(
   "no street → null (don't seed a partial; let book ask)",
   resolveLeadAddress({ address: null, streetAddress: "", city: "El Paso", state: "TX" }) === null,
+);
+
+// ── Qualify #4 — three-gate guard (live-run fix) ─────────────────────────────
+// QUALIFIED is honored ONLY when all three gates are genuinely true. The live bug:
+// the model emitted QUALIFIED on pain alone (gate 3 / decision-maker never
+// confirmed). The handler downgrades a premature QUALIFIED to continue using this
+// pure check against the accumulated Conversation gate state.
+section("Qualify #4 — three-gate guard: QUALIFIED only when all three gates true");
+check(
+  "all three gates true → qualified",
+  qualifiedGatesMet({ gateProblem: true, consequenceSurfaced: true, gateDecisionMaker: true }) === true,
+);
+check(
+  "decision-maker NOT confirmed (live bug) → NOT qualified",
+  qualifiedGatesMet({ gateProblem: true, consequenceSurfaced: true, gateDecisionMaker: false }) === false,
+);
+check(
+  "problem missing → NOT qualified",
+  qualifiedGatesMet({ gateProblem: false, consequenceSurfaced: true, gateDecisionMaker: true }) === false,
+);
+check(
+  "consequence missing → NOT qualified",
+  qualifiedGatesMet({ gateProblem: true, consequenceSurfaced: false, gateDecisionMaker: true }) === false,
+);
+check(
+  "no gates → NOT qualified",
+  qualifiedGatesMet({ gateProblem: false, consequenceSurfaced: false, gateDecisionMaker: false }) === false,
 );
 
 // ── Summary ───────────────────────────────────────────────────────────────────

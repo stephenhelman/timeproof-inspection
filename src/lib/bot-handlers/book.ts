@@ -301,9 +301,15 @@ export async function handleBookWebhook(
   let turnMessage: string;
   if (trigger === "qualified_handoff") {
     turnMessage =
-      `[system: the homeowner was just QUALIFIED and handed to you for booking. Send your ` +
-      `booking opener — greet warmly, do NOT re-sell or re-surface consequence, and begin ` +
-      `collecting the service address.]`;
+      `[system: Send your booking opener as a CONTINUATION of the same conversation — you are ` +
+      `the same Alex they were just talking to, not a new greeting. Briefly acknowledge what they ` +
+      `surfaced (reference conversation_state.consequenceSurfaced / motivation in one warm sentence — ` +
+      `"I can understand how [what they said] has you thinking about [what they feel]"), then frame ` +
+      `the inspection as the natural next step ("if it'd help, we can have one of our guys come take a ` +
+      `look — would that be appropriate?"). Do NOT re-sell or re-run the consequence at length — one ` +
+      `acknowledgment, then move to logistics. If conversation_state.address is already present, CONFIRM ` +
+      `it ("I've got you at [address] — still the right spot?") rather than asking for it cold. Never ` +
+      `ask for the address twice.]`;
   } else if (trigger === "stall_followup") {
     turnMessage =
       `[system: booking stalled — the homeowner went quiet without landing a time. Send ONE ` +
