@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   },
 };
 
-const QNTUM_URL = process.env.NEXT_PUBLIC_QNTUM_WEBSITE_URL || "https://qntumroofing.com";
+const QNTUM_URL = process.env.NEXT_PUBLIC_QNTUM_WEBSITE_URL || "https://qntum.com";
 
 const PRODUCTS = [
   {

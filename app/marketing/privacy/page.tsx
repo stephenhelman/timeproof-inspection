@@ -51,8 +51,8 @@ export default function PrivacyPage() {
           reminders, and follow-up communications. Message frequency varies. Message and data rates
           may apply. To opt out at any time, reply <strong>STOP</strong> to any message. For help,
           reply <strong>HELP</strong> or contact us at{" "}
-          <a href="mailto:privacy@qntumroofing.com" className="underline text-gray-700">
-            privacy@qntumroofing.com
+          <a href="mailto:privacy@qntum.com" className="underline text-gray-700">
+            privacy@qntum.com
           </a>
           .
         </p>
@@ -100,8 +100,8 @@ export default function PrivacyPage() {
         <p className="text-gray-600 leading-relaxed">
           You may request access to, correction of, or deletion of your personal information at any
           time. To make a request, contact us at{" "}
-          <a href="mailto:privacy@qntumroofing.com" className="underline text-gray-700">
-            privacy@qntumroofing.com
+          <a href="mailto:privacy@qntum.com" className="underline text-gray-700">
+            privacy@qntum.com
           </a>
           . We will respond within 30 days.
         </p>
@@ -125,8 +125,8 @@ export default function PrivacyPage() {
           <strong>Qntum Roofing</strong>
           <br />
           Email:{" "}
-          <a href="mailto:privacy@qntumroofing.com" className="underline text-gray-700">
-            privacy@qntumroofing.com
+          <a href="mailto:privacy@qntum.com" className="underline text-gray-700">
+            privacy@qntum.com
           </a>
           <br />
           Website:{" "}

@@ -22,7 +22,7 @@ export async function PATCH(req: Request) {
 
   if (!isWorkEmail(email)) {
     return NextResponse.json(
-      { error: "Only @qntumroofing.com email addresses are allowed" },
+      { error: "Only @qntum.com email addresses are allowed" },
       { status: 400 }
     );
   }

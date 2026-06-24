@@ -30,7 +30,7 @@ export async function sendVerificationCode(
   if (purpose !== "2fa" && !isWorkEmail(email)) {
     return {
       success: false,
-      error: "Only @qntumroofing.com email addresses are allowed",
+      error: "Only @qntum.com email addresses are allowed",
     };
   }
 

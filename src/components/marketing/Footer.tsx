@@ -2,7 +2,7 @@
 
 import { useLanguage } from "./LanguageProvider";
 
-const QNTUM_URL = process.env.NEXT_PUBLIC_QNTUM_WEBSITE_URL || "https://qntumroofing.com";
+const QNTUM_URL = process.env.NEXT_PUBLIC_QNTUM_WEBSITE_URL || "https://qntum.com";
 
 const FOOTER_LINKS = [
   { key: "nav.howItWorks", href: "/how-it-works" },
