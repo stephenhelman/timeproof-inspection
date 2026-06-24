@@ -5,6 +5,8 @@ import { upsertGhlContact, createGhlOpportunity } from "@/src/lib/ghl-contacts";
 import { createSrLead } from "@/src/lib/ghl-custom-object";
 import { resolveSource } from "@/src/lib/source-utils";
 import { getZoneForZip } from "@/src/lib/service-zones";
+import { checkRateLimit, getRequestIp } from "@/src/lib/rate-limit";
+import { isPlausiblePhone } from "@/src/lib/spam-filter";
 
 function generateGuideSlug(firstName: string, city: string): string {
   const cleanFirst = firstName.toLowerCase().trim().replace(/[^a-z]/g, '').slice(0, 12);
@@ -22,6 +24,14 @@ function normalizeSource(raw?: string): ValidSource {
 }
 
 export async function POST(request: NextRequest) {
+  const { ok, retryAfter } = checkRateLimit(getRequestIp(request), "guide:intake", 8, 600);
+  if (!ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(retryAfter) } },
+    );
+  }
+
   const body = await request.json().catch(() => ({}));
   const {
     roofType,
@@ -57,6 +67,12 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+  if (!isPlausiblePhone(phone)) {
+    return NextResponse.json(
+      { error: "Please enter a valid phone number" },
+      { status: 400 }
+    );
+  }
 
   const secret         = new TextEncoder().encode(process.env.NEXTAUTH_SECRET!);
   const firstName      = name.trim().split(" ")[0];
@@ -77,7 +93,10 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  if (lead) {
+  // Only update an existing lead in place if it is unclaimed. A lead already
+  // assigned to a rep must not be overwritten by an unauthenticated caller who
+  // only knows the phone number; fall through to creating a fresh lead instead.
+  if (lead && !lead.assignedUserId) {
     lead = await prisma.lead.update({
       where: { id: lead.id },
       data: {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canImportLeads } from "@/src/lib/permissions";
 
 function clean(val: unknown): string {
   if (val === null || val === undefined) return "";
@@ -76,10 +77,9 @@ function parseAddress(val: unknown): {
 }
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
+  if (!canImportLeads(user.role)) return forbidden("Only managers can import leads");
 
   const body = await req.json().catch(() => []);
   if (!Array.isArray(body) || body.length === 0) {
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
       highestEstimateValue: parseFloat2(row["Highest Estimate Value"]),
       jobCompletionDate: parseDate(row["Job Completion Date"]),
       status,
-      assignedUserId: session.user.id,
+      assignedUserId: user.id,
     });
   }
 

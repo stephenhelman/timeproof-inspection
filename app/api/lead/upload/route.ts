@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { uploadFileToR2 } from "@/src/lib/r2";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canEditLead } from "@/src/lib/permissions";
 
 const ALLOWED_FIELDS = ["priorQuoteUrl", "eagleViewUrl"] as const;
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   try {
     const formData = await req.formData();
@@ -29,6 +28,7 @@ export async function POST(req: Request) {
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
+    if (!canEditLead(user.id, user.role, lead)) return forbidden();
 
     const mimeType = file.type || "application/pdf";
     const ext = file.name.split(".").pop() ?? "pdf";

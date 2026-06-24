@@ -24,8 +24,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canEditLead } from "@/src/lib/permissions";
 import { addGhlTag, notifyManager } from "@/src/lib/ghl-sms";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
@@ -115,9 +116,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const session = await auth();
-  if (!session?.user?.id)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const body: Record<string, any> = await req.json().catch(() => null);
@@ -157,6 +157,7 @@ export async function POST(
     },
   });
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canEditLead(user.id, user.role, lead)) return forbidden();
 
   const ghlId = lead.ghlContactId;
   const inspectionOppId = lead.ghlOpportunityId; // the Inspection-pipeline opp

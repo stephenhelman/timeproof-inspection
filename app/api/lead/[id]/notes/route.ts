@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canViewLead } from "@/src/lib/permissions";
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const { id } = await params;
 
@@ -17,6 +16,7 @@ export async function POST(
   if (!lead) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  if (!canViewLead(user.id, user.role, lead)) return forbidden();
 
   const body = await req.json().catch(() => ({}));
   const { content, phase } = body;
@@ -30,8 +30,8 @@ export async function POST(
       leadId: id,
       content: content.trim(),
       phase: phase || null,
-      authorId: session.user.id,
-      authorName: session.user.name || session.user.email || null,
+      authorId: user.id,
+      authorName: user.email || null,
     },
   });
 

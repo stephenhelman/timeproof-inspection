@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canEditLead } from "@/src/lib/permissions";
 
 export async function POST(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const session = await auth();
-  if (!session?.user?.id)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const lead = await prisma.lead.findUnique({
     where: { id: params.id },
@@ -21,6 +21,7 @@ export async function POST(
     },
   });
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canEditLead(user.id, user.role, lead)) return forbidden();
 
   const inspection = lead.inspections[0];
   if (!inspection)

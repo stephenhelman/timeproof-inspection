@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/src/lib/prisma";
-import { getSessionUser, unauthorized } from "@/src/lib/require-permission";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canViewInspection } from "@/src/lib/permissions";
 import { addGhlTag, notifyManager } from "@/src/lib/ghl-sms";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import { moveGhlOpportunityStage } from "@/src/lib/ghl-contacts";
@@ -36,6 +37,7 @@ export async function POST(
   if (!inspection) {
     return NextResponse.json({ error: "Inspection not found" }, { status: 404 });
   }
+  if (!canViewInspection(user.id, user.role, inspection)) return forbidden();
 
   const lead = inspection.lead;
   if (!lead) {

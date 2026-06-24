@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /qualify
+
+Sitemap: https://scopereports.com/sitemap.xml

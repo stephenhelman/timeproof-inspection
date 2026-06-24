@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
-import { getSessionUser, unauthorized } from "@/src/lib/require-permission";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canAssignLeads } from "@/src/lib/permissions";
 import { sendGhlSms } from "@/src/lib/ghl-sms";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 
@@ -31,11 +32,23 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
   const repId: string = (body.repId as string) || user.id;
 
+  // A rep may only claim a lead to themselves. Assigning to another rep, or
+  // taking over a lead already assigned to someone else, requires assign rights.
+  const isReassignment = repId !== user.id;
+  const isTakeover = !!lead.assignedUserId && lead.assignedUserId !== user.id;
+  if ((isReassignment || isTakeover) && !canAssignLeads(user.role)) {
+    return forbidden();
+  }
+
+  // The target rep must exist. Without this an arbitrary id is written as owner.
   const repUser = await prisma.user.findUnique({
     where: { id: repId },
     select: { name: true },
   });
-  const repName = repUser?.name ?? user.email ?? "your rep";
+  if (!repUser) {
+    return NextResponse.json({ error: "Invalid rep" }, { status: 400 });
+  }
+  const repName = repUser.name ?? user.email ?? "your rep";
 
   // 1. Silence the bot
   await updateSrLead(lead.id, { sr_bot_stage: "silent" }).catch((err) =>

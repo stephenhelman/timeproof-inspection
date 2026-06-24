@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
-import { getSessionUser, unauthorized } from "@/src/lib/require-permission";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canEditInspection } from "@/src/lib/permissions";
 
 const SYSTEM_PROMPT = `You are a professional roofing inspector's AI assistant helping to generate a homeowner-facing roof diagnosis. Your role is to produce a personalized, evidence-based analysis that guides the homeowner to understand their own roof's condition — without declaring conclusions for them.
 
@@ -149,6 +150,7 @@ export async function POST(
   if (!inspection) {
     return NextResponse.json({ error: "Inspection not found" }, { status: 404 });
   }
+  if (!canEditInspection(user.id, user.role, inspection)) return forbidden();
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {

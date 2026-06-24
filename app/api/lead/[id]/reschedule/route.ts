@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { sendGhlSms } from "@/src/lib/ghl-sms";
-import { auth } from "@/src/lib/auth";
+import { getSessionUser, unauthorized, forbidden } from "@/src/lib/require-permission";
+import { canEditLead } from "@/src/lib/permissions";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const session = await auth();
-  if (!session?.user?.id)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = await getSessionUser();
+  if (!user) return unauthorized();
 
   const body = await req.json().catch(() => null);
   if (!body?.newDatetime || !body?.reason) {
@@ -30,6 +30,7 @@ export async function POST(
     },
   });
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canEditLead(user.id, user.role, lead)) return forbidden();
 
   const newDate = new Date(body.newDatetime);
   if (isNaN(newDate.getTime())) {

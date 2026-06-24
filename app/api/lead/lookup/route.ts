@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { getSessionUser, unauthorized } from "@/src/lib/require-permission";
+import { buildLeadScope } from "@/src/lib/permissions";
 
 export async function GET(req: Request) {
   const user = await getSessionUser();
@@ -17,8 +18,10 @@ export async function GET(req: Request) {
   const digits = phone.replace(/\D/g, "");
   const suffix = digits.slice(-10);
 
+  // Scope to leads the caller is allowed to see (managers see all; reps/setters
+  // only their own). Matches the scoping already applied to the lead list.
   const leads = await prisma.lead.findMany({
-    where: { phone: { contains: suffix } },
+    where: { phone: { contains: suffix }, ...buildLeadScope(user.id, user.role) },
     include: {
       assignedUser: { select: { id: true, name: true } },
       srLead: { select: { srBotStage: true } },

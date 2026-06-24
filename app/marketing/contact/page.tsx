@@ -25,6 +25,7 @@ export default function ContactPage() {
     cityZip: "",
     message: "",
     hearAbout: "",
+    website: "", // honeypot: hidden from real users, only bots fill it
   });
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -34,7 +35,8 @@ export default function ContactPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  const canSubmit = form.name.trim() && !loading;
+  const canSubmit =
+    form.name.trim() && (form.phone.trim() || form.email.trim()) && !loading;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -91,6 +93,21 @@ export default function ContactPage() {
                 onSubmit={handleSubmit}
                 className="border border-border bg-bg-base rounded-2xl p-6 sm:p-8 space-y-4"
               >
+                {/* Honeypot: off-screen and hidden from assistive tech. A filled
+                    value means the submitter is a bot, and the server rejects it. */}
+                <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", width: 1, height: 1, overflow: "hidden" }}>
+                  <label>
+                    Website
+                    <input
+                      type="text"
+                      tabIndex={-1}
+                      autoComplete="off"
+                      value={form.website}
+                      onChange={(e) => set("website", e.target.value)}
+                    />
+                  </label>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-text-secondary mb-1.5">
                     Name <span className="text-accent-red">*</span>

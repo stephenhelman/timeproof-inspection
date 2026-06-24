@@ -3,13 +3,36 @@ import { prisma } from "@/src/lib/prisma";
 import { upsertGhlContact } from "@/src/lib/ghl-contacts";
 import { createSrLead } from "@/src/lib/ghl-custom-object";
 import { addGhlTag } from "@/src/lib/ghl-sms";
+import { checkRateLimit, getRequestIp } from "@/src/lib/rate-limit";
+import { isPlausibleEmail } from "@/src/lib/spam-filter";
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
-  const { name, email, zip } = body as { name?: string; email?: string; zip?: string };
+  const { ok, retryAfter } = checkRateLimit(getRequestIp(request), "qualify:waitlist", 5, 600);
+  if (!ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(retryAfter) } },
+    );
+  }
 
-  if (!name || !email || !zip) {
-    return NextResponse.json({ error: "name, email, and zip are required" }, { status: 400 });
+  const body = await request.json().catch(() => ({}));
+  const { name: rawName, email: rawEmail, zip: rawZip } = body as { name?: string; email?: string; zip?: string };
+  const name = (rawName ?? "").trim();
+  const email = (rawEmail ?? "").trim();
+  const zip = (rawZip ?? "").trim();
+
+  // Name and email are the point of a waitlist signup; zip is supplementary
+  // (the lead is already out_of_area). Do not reject a real signup over a missing
+  // zip. Log which fields were missing so genuine failures are distinguishable
+  // from bot noise. Field names only, never the values (PII).
+  if (!name || !email) {
+    const missing = [!name && "name", !email && "email"].filter(Boolean);
+    console.warn("[qualify/waitlist] 400 missing fields:", missing.join(", "));
+    return NextResponse.json({ error: "name and email are required" }, { status: 400 });
+  }
+  if (!isPlausibleEmail(email)) {
+    console.warn("[qualify/waitlist] 400 invalid email format");
+    return NextResponse.json({ error: "Please enter a valid email address" }, { status: 400 });
   }
 
   const lead = await prisma.lead.create({

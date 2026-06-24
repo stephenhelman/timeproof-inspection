@@ -13,11 +13,14 @@ export const authConfig: NextAuthConfig = {
       const isLoggedIn = !!auth?.user;
       const pathname = nextUrl.pathname;
 
-      // Always allow: NextAuth internals, public report, report API, business card, GHL webhooks
+      // Always allow: NextAuth internals, public report, report API, business card,
+      // GHL webhooks, and the public marketing gallery feed (served to the ISR
+      // gallery page, which fetches it server-side without a session).
       if (
         pathname.startsWith("/api/auth") ||
         pathname.startsWith("/summary") ||
         pathname.startsWith("/api/report") ||
+        pathname.startsWith("/api/gallery") ||
         pathname.startsWith("/card") ||
         pathname.startsWith("/api/webhooks") ||
         (pathname.startsWith("/api/user/") && pathname.endsWith("/card"))
