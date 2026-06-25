@@ -1,0 +1,34 @@
+{
+  "name": "book-evening-pref-label",
+  "phase": "book",
+  "ghlContactId": "test-contact-b-evening",
+  "conversationState": {
+    "currentPhase": "book",
+    "sourceType": "guide",
+    "gateProblem": true,
+    "consequenceSurfaced": true,
+    "gateDecisionMaker": true,
+    "address": "4820 Mesa Hills Dr, El Paso, TX 79912",
+    "timePrefs": { "days": [], "windows": ["evening"] }
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Got you at 4820 Mesa Hills Dr — still the right spot for the inspection?" },
+    { "role": "lead", "content": "yep that's the place" }
+  ],
+  "inboundMessage": "evenings are best for me",
+  "availableSlots": [
+    { "date": "2026-06-25", "time": "17:00", "label": "Thursday, June 25 at 5:00 pm" },
+    { "date": "2026-06-25", "time": "19:00", "label": "Thursday, June 25 at 7:00 pm" }
+  ],
+  "mockResponse": "{ \"reply\": \"Perfect. I've got Thursday, June 25 at 5:00 pm or Thursday, June 25 at 7:00 pm open — which works better?\", \"signal\": { \"type\": null, \"confidence\": null, \"reason\": \"offering evening times that match their preference\" }, \"state\": { \"timePrefs\": { \"days\": [], \"windows\": [\"evening\"] } } }",
+  "expect": {
+    "tierSelected": "haiku",
+    "signalType": null,
+    "parseFailed": false,
+    "assembledPromptIncludes": [
+      "available_slots",
+      "Thursday, June 25 at 7:00 pm",
+      "use that slot's `label` VERBATIM"
+    ]
+  }
+}

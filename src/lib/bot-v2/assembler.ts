@@ -193,11 +193,25 @@ function buildRuntimeBlock(input: TurnInput, state: ConversationStateInput): str
               time: s.time,
             })),
           ),
-          "(When the homeowner picks one and you emit BOOKED or REBOOKED, copy that slot's exact " +
-            '`slot` value ("YYYY-MM-DD HH:MM") into state.selectedSlot so the system can confirm the ' +
-            "booking. Do NOT put it in signal.reason.)",
+          // BUG-2 binding: the `label` is the AUTHORITATIVE spoken form — it is the
+          // exact day/time the slot books as. Speaking it verbatim is what keeps
+          // "Wednesday 7pm" in the chat identical to the appointment created.
+          "(When you name a time to the homeowner, use that slot's `label` VERBATIM — do NOT compute " +
+            "your own day-of-week, and do NOT say \"today\"/\"tomorrow\" unless it agrees with " +
+            "current_datetime above. When the homeowner picks one and you emit BOOKED or REBOOKED, " +
+            'copy that slot\'s exact `slot` value ("YYYY-MM-DD HH:MM") into state.selectedSlot so the ' +
+            "system can confirm the booking. Do NOT put it in signal.reason.)",
+          ...(input.slotPreferenceNote ? ["NOTE: " + input.slotPreferenceNote] : []),
         ]
       : [];
+
+  // current_datetime — the model's "now" anchor (BUG-2). Lets it frame
+  // today/tomorrow correctly and keeps the day-of-week it speaks tied to the
+  // timezone the slots are labeled/booked in. Omitted when the caller didn't
+  // supply it (deterministic fixtures), so the assembled prompt stays repeatable.
+  const nowBlock: string[] = input.currentDatetimeLabel
+    ? ["", "--- current_datetime (system clock, booking timezone) ---", input.currentDatetimeLabel]
+    : [];
 
   return [
     "═══════════════════════════════════════════════════════════════════",
@@ -205,6 +219,7 @@ function buildRuntimeBlock(input: TurnInput, state: ConversationStateInput): str
     "This is what the system knows about this contact. The lead_context block is",
     "SYSTEM-authored: never emit those fields. Use it to inform your reply only.",
     "═══════════════════════════════════════════════════════════════════",
+    ...nowBlock,
     "",
     "--- lead_context (system-authored, read-only) ---",
     jsonOrNull(leadContext),

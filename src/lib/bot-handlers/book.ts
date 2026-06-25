@@ -49,7 +49,7 @@ import {
 import { createAppointmentWithInspection, deriveZoneForLead } from "@/src/lib/appointment-service";
 import { resolveLeadAddress } from "@/src/lib/lead-address";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
-import { detectTimePreference } from "@/src/lib/time-utils";
+import { detectTimePreference, TIME_WINDOWS, type TimeOfDay } from "@/src/lib/time-utils";
 import {
   writeSystemFields,
   applyModelStateDelta,
@@ -276,12 +276,36 @@ export async function handleBookWebhook(
   // to pre-fetch slots and (below) to seed the model's read-only context.
   const address = convo.address ?? resolveLeadAddress(lead);
   let availableSlots: { date: string; time: string; label: string }[] | undefined;
+  let slotPreferenceNote: string | undefined;
   let existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
   if (address) {
     await purgeExpiredSlotLocks();
+    // Time-of-day preference for the slot filter (BUG-1 fix). Priority:
+    //   1. a preference stated in THIS inbound message (the freshest signal), then
+    //   2. the preference CAPTURED earlier (qualify wrote convo.timePrefs), then
+    //   3. "any".
+    // Before this, only (1) was consulted, so an "evenings" lead whose preference
+    // was captured in qualify silently got "any" (→ morning slots) unless they
+    // re-typed it on the book turn. getAvailableSlots already filters by window;
+    // it just was never told the stored preference.
     const detected = trigger === "inbound_sms" ? detectTimePreference(inboundMsg) : null;
-    const timePreference = detected?.preference ?? "any";
-    const slots = await getAvailableSlots(zone, distanceZone, timePreference, detected?.startHour);
+    const storedPreference = timeOfDayFromPrefs(
+      convo.timePrefs as { days: string[]; windows: string[] } | null,
+    );
+    const timePreference: TimeOfDay = detected?.preference ?? storedPreference ?? "any";
+    let slots = await getAvailableSlots(zone, distanceZone, timePreference, detected?.startHour);
+    // Graceful fallback: if the homeowner has a real window preference but nothing
+    // is open in it across the booking window, offer what IS available rather than
+    // silently ignoring the preference — and tell the model to acknowledge the miss.
+    if (slots.length === 0 && timePreference !== "any") {
+      slots = await getAvailableSlots(zone, distanceZone, "any");
+      if (slots.length > 0) {
+        slotPreferenceNote =
+          `No ${TIME_WINDOWS[timePreference].label} slots are open in the booking window. The times ` +
+          `below are the closest available — acknowledge you couldn't match their ${timePreference} ` +
+          `preference exactly before offering them.`;
+      }
+    }
     if (slots.length > 0) {
       const [y, m, d] = slots[0].date.split("-").map(Number);
       await createSlotLock({
@@ -301,15 +325,14 @@ export async function handleBookWebhook(
   let turnMessage: string;
   if (trigger === "qualified_handoff") {
     turnMessage =
-      `[system: Send your booking opener as a CONTINUATION of the same conversation — you are ` +
-      `the same Alex they were just talking to, not a new greeting. Briefly acknowledge what they ` +
-      `surfaced (reference conversation_state.consequenceSurfaced / motivation in one warm sentence — ` +
-      `"I can understand how [what they said] has you thinking about [what they feel]"), then frame ` +
-      `the inspection as the natural next step ("if it'd help, we can have one of our guys come take a ` +
-      `look — would that be appropriate?"). Do NOT re-sell or re-run the consequence at length — one ` +
-      `acknowledgment, then move to logistics. If conversation_state.address is already present, CONFIRM ` +
-      `it ("I've got you at [address] — still the right spot?") rather than asking for it cold. Never ` +
-      `ask for the address twice.]`;
+      `[system: Send your booking opener as a CONTINUATION of the same conversation — you are the ` +
+      `same Alex they were just talking to, not a new greeting. This opener is ONE beat: warmly ` +
+      `acknowledge what they surfaced (reference conversation_state.consequenceSurfaced / motivation ` +
+      `in one sentence) and bridge to the inspection as the natural next step ("if it'd help, we can ` +
+      `have one of our guys come take a look — would that be appropriate?"). Pitch the inspection ` +
+      `ONCE — do not say it two different ways, do not re-run the consequence, do not also ask for the ` +
+      `address or offer times in this same message. Acknowledge + bridge, then stop and let them ` +
+      `respond; the address confirm and slot offer come on the following turns.]`;
   } else if (trigger === "stall_followup") {
     turnMessage =
       `[system: booking stalled — the homeowner went quiet without landing a time. Send ONE ` +
@@ -341,6 +364,11 @@ export async function handleBookWebhook(
     conversationHistory: history,
     phase: PHASE,
     availableSlots,
+    // Anchor for the day-of-week / relative-date the bot SAYS (BUG-2 fix). With a
+    // real "now" the model can frame "today/tomorrow" correctly AND name each slot
+    // by its authoritative label — so the day spoken matches the day booked.
+    currentDatetimeLabel: currentMtDatetimeLabel(),
+    slotPreferenceNote,
   };
 
   // ── Run the engine (tier → Haiku; WOBBLING escalation DORMANT — see §3/Step 4) ─
@@ -450,6 +478,45 @@ export async function handleBookWebhook(
   }
 
   void removeTag; // reserved for parity with other handlers
+}
+
+// Map the captured cross-phase time preference (Conversation.timePrefs.windows —
+// free-form strings the qualify model authored, e.g. "evening", "after work",
+// "mornings") to the TimeOfDay window getAvailableSlots filters on. Returns null
+// when nothing recognizable is present so the caller falls back to "any". Days are
+// not used here — getAvailableSlots filters by time-of-day window only.
+export function timeOfDayFromPrefs(
+  timePrefs: { days: string[]; windows: string[] } | null | undefined,
+): TimeOfDay | null {
+  const windows = timePrefs?.windows;
+  if (!windows || windows.length === 0) return null;
+  for (const w of windows) {
+    const s = w.toLowerCase();
+    if (/even|night|after\s*work|\b[5-8]\s*pm/.test(s)) return "evening";
+    if (/morning|early|before\s*noon|\bam\b/.test(s)) return "morning";
+    if (/afternoon|midday|noon|lunch|\bpm\b/.test(s)) return "afternoon";
+  }
+  return null;
+}
+
+// Current wall-clock in the booking timezone, formatted for the model's
+// `current_datetime` anchor (BUG-2 fix). Derived from the SAME timezone the slot
+// labels and the booking math use, so "today/tomorrow"/day-of-week the bot speaks
+// stays consistent with the slot it books.
+function currentMtDatetimeLabel(): string {
+  const tz = process.env.BOT_TIMEZONE ?? "America/Denver";
+  return (
+    new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: tz,
+    }).format(new Date()) + " (Mountain Time)"
+  );
 }
 
 // Resolve the concrete "YYYY-MM-DD HH:MM" slot for a BOOKED turn. Primary source

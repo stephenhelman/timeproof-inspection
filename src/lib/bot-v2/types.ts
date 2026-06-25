@@ -172,6 +172,19 @@ export interface TurnInput {
   // (and on book turns before an address is collected) — the Book mission treats
   // absent/empty as "not at the slot-offering step yet".
   availableSlots?: { date: string; time: string; label: string }[];
+
+  // Current wall-clock in the booking timezone (e.g. "Wednesday, June 24, 2026,
+  // 3:42 PM (Mountain Time)"), supplied by the live handler. Rendered into the
+  // runtime block as the model's `current_datetime` anchor so any day-of-week /
+  // "today/tomorrow" framing it speaks is correct AND matches the slot it books.
+  // Undefined in deterministic fixtures (kept out of the prompt for repeatability).
+  currentDatetimeLabel?: string;
+
+  // Optional one-line note the assembler appends to the available_slots block when
+  // the homeowner's captured time preference could not be matched (the offered
+  // slots are a graceful fallback). Tells the model to acknowledge the miss rather
+  // than silently offering off-preference times.
+  slotPreferenceNote?: string;
 }
 
 // SPRINT 6: Anthropic usage fields, captured per model call for prompt-cache +
