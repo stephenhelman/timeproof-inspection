@@ -31,7 +31,6 @@ import {
   transitionLead,
   isCancellation,
   purgeExpiredSlotLocks,
-  getAvailableSlots,
   createSlotLock,
   validateSlotBeforeConfirm,
   confirmBooking,
@@ -49,7 +48,7 @@ import {
 import { createAppointmentWithInspection, deriveZoneForLead } from "@/src/lib/appointment-service";
 import { resolveLeadAddress } from "@/src/lib/lead-address";
 import { getZoneForZip, isDistanceZone } from "@/src/lib/service-zones";
-import { detectTimePreference, TIME_WINDOWS, type TimeOfDay } from "@/src/lib/time-utils";
+import { fetchOfferableSlots, currentMtDatetimeLabel } from "@/src/lib/bot-v2/slot-offer";
 import {
   writeSystemFields,
   applyModelStateDelta,
@@ -280,32 +279,19 @@ export async function handleBookWebhook(
   let existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
   if (address) {
     await purgeExpiredSlotLocks();
-    // Time-of-day preference for the slot filter (BUG-1 fix). Priority:
-    //   1. a preference stated in THIS inbound message (the freshest signal), then
-    //   2. the preference CAPTURED earlier (qualify wrote convo.timePrefs), then
-    //   3. "any".
-    // Before this, only (1) was consulted, so an "evenings" lead whose preference
-    // was captured in qualify silently got "any" (→ morning slots) unless they
-    // re-typed it on the book turn. getAvailableSlots already filters by window;
-    // it just was never told the stored preference.
-    const detected = trigger === "inbound_sms" ? detectTimePreference(inboundMsg) : null;
-    const storedPreference = timeOfDayFromPrefs(
-      convo.timePrefs as { days: string[]; windows: string[] } | null,
-    );
-    const timePreference: TimeOfDay = detected?.preference ?? storedPreference ?? "any";
-    let slots = await getAvailableSlots(zone, distanceZone, timePreference, detected?.startHour);
-    // Graceful fallback: if the homeowner has a real window preference but nothing
-    // is open in it across the booking window, offer what IS available rather than
-    // silently ignoring the preference — and tell the model to acknowledge the miss.
-    if (slots.length === 0 && timePreference !== "any") {
-      slots = await getAvailableSlots(zone, distanceZone, "any");
-      if (slots.length > 0) {
-        slotPreferenceNote =
-          `No ${TIME_WINDOWS[timePreference].label} slots are open in the booking window. The times ` +
-          `below are the closest available — acknowledge you couldn't match their ${timePreference} ` +
-          `preference exactly before offering them.`;
-      }
-    }
+    // Time-of-day preference + graceful no-availability fallback now live in the
+    // shared slot-offer engine (BUG-1 fix), so Alex's book flow and Jordan's
+    // rebooking resolve slots IDENTICALLY — one engine, all callers. Precedence:
+    // stated-this-turn → captured (convo.timePrefs) → "any"; if nothing is open in a
+    // real window, fall back to "any" + a note telling the model to own the miss.
+    const offer = await fetchOfferableSlots({
+      zone,
+      isDistanceZone: distanceZone,
+      inboundMessage: trigger === "inbound_sms" ? inboundMsg : null,
+      storedTimePrefs: convo.timePrefs as { days: string[]; windows: string[] } | null,
+    });
+    const slots = offer.slots;
+    slotPreferenceNote = offer.slotPreferenceNote;
     if (slots.length > 0) {
       const [y, m, d] = slots[0].date.split("-").map(Number);
       await createSlotLock({
@@ -480,44 +466,8 @@ export async function handleBookWebhook(
   void removeTag; // reserved for parity with other handlers
 }
 
-// Map the captured cross-phase time preference (Conversation.timePrefs.windows —
-// free-form strings the qualify model authored, e.g. "evening", "after work",
-// "mornings") to the TimeOfDay window getAvailableSlots filters on. Returns null
-// when nothing recognizable is present so the caller falls back to "any". Days are
-// not used here — getAvailableSlots filters by time-of-day window only.
-export function timeOfDayFromPrefs(
-  timePrefs: { days: string[]; windows: string[] } | null | undefined,
-): TimeOfDay | null {
-  const windows = timePrefs?.windows;
-  if (!windows || windows.length === 0) return null;
-  for (const w of windows) {
-    const s = w.toLowerCase();
-    if (/even|night|after\s*work|\b[5-8]\s*pm/.test(s)) return "evening";
-    if (/morning|early|before\s*noon|\bam\b/.test(s)) return "morning";
-    if (/afternoon|midday|noon|lunch|\bpm\b/.test(s)) return "afternoon";
-  }
-  return null;
-}
-
-// Current wall-clock in the booking timezone, formatted for the model's
-// `current_datetime` anchor (BUG-2 fix). Derived from the SAME timezone the slot
-// labels and the booking math use, so "today/tomorrow"/day-of-week the bot speaks
-// stays consistent with the slot it books.
-function currentMtDatetimeLabel(): string {
-  const tz = process.env.BOT_TIMEZONE ?? "America/Denver";
-  return (
-    new Intl.DateTimeFormat("en-US", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-      timeZone: tz,
-    }).format(new Date()) + " (Mountain Time)"
-  );
-}
+// timeOfDayFromPrefs + currentMtDatetimeLabel moved to bot-v2/slot-offer.ts — the
+// shared slot-offer engine both Alex (book) and Jordan (rebooking) now call.
 
 // Resolve the concrete "YYYY-MM-DD HH:MM" slot for a BOOKED turn. Primary source
 // is the model-authored state.selectedSlot (the canonical home for the chosen

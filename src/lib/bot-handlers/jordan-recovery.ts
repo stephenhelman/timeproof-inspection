@@ -112,6 +112,38 @@ function deriveConsequenceLikelySurfaced(
   return hasProblem && hasConsequence;
 }
 
+// Merge the system-authored recovery seed (inspection findings + prior objection)
+// INTO whatever funnelConcerns the lead already carries — instead of skipping the
+// seed whenever funnelConcerns is non-empty (the Bug-A defect). A demo-not-sold lead
+// that arrived via the guide already has funnelConcerns (the guide's flagged
+// concerns), so the old `if (!funnelConcerns)` guard dropped the dispo objection and
+// Jordan opened generically. Merge rules:
+//   - nothing to seed → return existing unchanged.
+//   - no existing → return the seed object.
+//   - existing is an array (e.g. guide concern list) → preserve it under `concerns`
+//     and attach the recovery facts so the objection still reaches the model.
+//   - existing is an object → fill priorObjection/inspectionFindings ONLY where
+//     absent/empty (never clobber a guide- or model-authored value).
+export function mergeFunnelConcernsSeed(
+  existing: unknown[] | Record<string, unknown> | null | undefined,
+  seed: { inspectionFindings?: string | null; priorObjection?: string | null },
+): unknown[] | Record<string, unknown> | null {
+  const inspectionFindings = seed.inspectionFindings ?? null;
+  const priorObjection = seed.priorObjection ?? null;
+  if (inspectionFindings === null && priorObjection === null) return existing ?? null;
+
+  if (existing == null) return { inspectionFindings, priorObjection };
+
+  if (Array.isArray(existing)) {
+    return { concerns: existing, inspectionFindings, priorObjection };
+  }
+
+  const merged: Record<string, unknown> = { ...existing };
+  if (priorObjection !== null && !merged.priorObjection) merged.priorObjection = priorObjection;
+  if (inspectionFindings !== null && !merged.inspectionFindings) merged.inspectionFindings = inspectionFindings;
+  return merged;
+}
+
 // rescheduleSubCase — derived from (stage + sr_dispo_context), ARCHITECTURE §8/§7.
 // PRIMARY source is sr_dispo_context (the structured rep-set nuance): the dispo
 // handler wrote no_show | door | soft | simple, and door→porched_door /

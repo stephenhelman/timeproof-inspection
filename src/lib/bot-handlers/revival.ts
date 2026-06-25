@@ -48,9 +48,15 @@ export async function handleRevivalWebhook(
       // "read the DB context" / "the leak that got you on the schedule" lands on
       // real facts instead of a re-ask. priorObjection comes from sr_dispo_context
       // (the objection that led here, §8), falling back to the dispo field.
+      // §8 fallback order: the webhook-supplied sr_dispo_context (Sprint 8 customData),
+      // then the durable Lead.srDispoContext mirror (defense-in-depth while the GHL
+      // field/webhook roll out), then the legacy dispoPrimaryObjection. Reschedule
+      // already falls through the mirror (deriveRescheduleSubCase); revival now matches
+      // so the dispo nuance reaches Jordan's opener regardless of which carrier is live.
       readSeed: {
         inspectionFindings: recovery.inspectionFindings,
-        priorObjection: srDispoContext ?? recovery.dispoPrimaryObjection,
+        priorObjection:
+          srDispoContext ?? lead.srDispoContext ?? recovery.dispoPrimaryObjection,
       },
     },
     {

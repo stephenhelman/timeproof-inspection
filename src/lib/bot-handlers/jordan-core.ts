@@ -25,13 +25,14 @@ import {
   appendMessage,
   transitionLead,
   purgeExpiredSlotLocks,
-  getAvailableSlots,
   createSlotLock,
   validateSlotBeforeConfirm,
   confirmBooking,
   formatAppointmentDatetime,
   notifyRep,
 } from "@/src/lib/bot-engine";
+import { fetchOfferableSlots, currentMtDatetimeLabel } from "@/src/lib/bot-v2/slot-offer";
+import { mergeFunnelConcernsSeed } from "@/src/lib/bot-handlers/jordan-recovery";
 import { updateSrLead } from "@/src/lib/ghl-custom-object";
 import {
   moveGhlOpportunityStage,
@@ -138,8 +139,24 @@ export async function runJordanTurn(
   // pre-fetch on every turn (no address gate — the appointment address is already
   // on file). The model offers ONLY these and echoes the chosen one into
   // state.selectedSlot (the contract-clean carrier — ARCHITECTURE §5).
+  //
+  // BUG-B fix: route through the SAME shared slot-offer engine Alex's book flow
+  // uses — preference resolution (stated-this-turn → captured convo.timePrefs →
+  // "any") + the graceful no-availability fallback. Previously Jordan called
+  // getAvailableSlots(zone, distance) with NO preference and NO fallback, so a lead
+  // who said "I can't do mornings, evenings work better" was re-offered the very
+  // mornings they rejected, and — finding nothing in the wanted window — Jordan
+  // promised a phantom evening slot it could never confirm. Now an unmatched
+  // preference yields slotPreferenceNote (offer the honest closest times) instead.
   await purgeExpiredSlotLocks();
-  const slots = await getAvailableSlots(zone, distanceZone);
+  const offer = await fetchOfferableSlots({
+    zone,
+    isDistanceZone: distanceZone,
+    inboundMessage: isRealInbound ? inboundMsg : null,
+    storedTimePrefs: convo.timePrefs as { days: string[]; windows: string[] } | null,
+  });
+  const slots = offer.slots;
+  const slotPreferenceNote = offer.slotPreferenceNote;
   if (slots.length > 0) {
     const existingLock = await prisma.slotLock.findUnique({ where: { leadId: lead.id } });
     if (!existingLock) {
@@ -185,11 +202,14 @@ export async function runJordanTurn(
   // the address seed above; not written back, model stays non-author) so Jordan can
   // reference what's known instead of re-collecting it. Only when the Conversation
   // doesn't already carry funnelConcerns.
-  if (!stateInput.funnelConcerns && (ctx.readSeed?.inspectionFindings || ctx.readSeed?.priorObjection)) {
-    stateInput.funnelConcerns = {
-      inspectionFindings: ctx.readSeed.inspectionFindings ?? null,
-      priorObjection: ctx.readSeed.priorObjection ?? null,
-    };
+  if (ctx.readSeed?.inspectionFindings || ctx.readSeed?.priorObjection) {
+    // MERGE into existing funnelConcerns (Bug-A fix) so the dispo objection reaches
+    // the opener even when the lead already carries guide/model-authored concerns —
+    // the old `if (!funnelConcerns)` guard dropped the seed and Jordan opened generic.
+    stateInput.funnelConcerns = mergeFunnelConcernsSeed(stateInput.funnelConcerns, {
+      inspectionFindings: ctx.readSeed.inspectionFindings,
+      priorObjection: ctx.readSeed.priorObjection,
+    });
   }
 
   const input: TurnInput = {
@@ -199,6 +219,12 @@ export async function runJordanTurn(
     conversationHistory: history,
     phase: config.phase,
     availableSlots,
+    // BUG-B parity with Alex's book flow: the "now" anchor (so Jordan frames
+    // today/tomorrow/day-of-week against the booking timezone, not invented), and
+    // the honest no-availability note (acknowledge the missed preference before
+    // offering the closest real times — never a phantom slot).
+    currentDatetimeLabel: currentMtDatetimeLabel(),
+    slotPreferenceNote,
   };
 
   // ── Run the engine (tier → Sonnet for all three Jordan missions) ────────────

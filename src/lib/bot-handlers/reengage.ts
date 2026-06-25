@@ -41,7 +41,7 @@ import {
   normalizePhase,
   type SystemAuthoredFields,
 } from "@/src/lib/conversation";
-import { loadRecoveryContext } from "@/src/lib/bot-handlers/jordan-recovery";
+import { loadRecoveryContext, mergeFunnelConcernsSeed } from "@/src/lib/bot-handlers/jordan-recovery";
 import { runComposedBotTurn } from "@/src/lib/bot-v2/engine";
 import type { ClaudeCaller } from "@/src/lib/bot-v2/claude-call";
 import type { Phase, TurnInput } from "@/src/lib/bot-v2/types";
@@ -281,12 +281,14 @@ export async function handleReengageWebhook(
     // objection instead of re-asking. Pure in-memory seed — model stays non-author.
     if (isJordan && recovery) {
       if (!stateInput.address && lead.address) stateInput.address = lead.address;
-      if (!stateInput.funnelConcerns && (recovery.inspectionFindings || srDispoContext || recovery.dispoPrimaryObjection)) {
-        stateInput.funnelConcerns = {
-          inspectionFindings: recovery.inspectionFindings ?? null,
-          priorObjection: srDispoContext ?? recovery.dispoPrimaryObjection ?? null,
-        };
-      }
+      // MERGE the recovery seed into existing funnelConcerns (Bug-A fix; mirrors
+      // jordan-core) so the dispo objection reaches the nudge even when the lead
+      // already carries guide concerns. Fallback order matches revival: webhook
+      // sr_dispo_context → durable Lead.srDispoContext mirror → legacy objection.
+      stateInput.funnelConcerns = mergeFunnelConcernsSeed(stateInput.funnelConcerns, {
+        inspectionFindings: recovery.inspectionFindings,
+        priorObjection: srDispoContext ?? lead.srDispoContext ?? recovery.dispoPrimaryObjection,
+      });
     }
 
     const input: TurnInput = {

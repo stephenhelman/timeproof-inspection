@@ -14,6 +14,7 @@
     "bot:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/bot-test.ts",
     "conversation:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/conversation-seam-test.ts",
     "dispo:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/dispo-routing-test.ts",
+    "slot:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/slot-preference-test.ts",
     "activation:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/activation-routing-test.ts",
     "reengage:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/reengage-test.ts",
     "sprint9:test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local --import ./harness/load-ts.mjs harness/sprint9-test.ts",

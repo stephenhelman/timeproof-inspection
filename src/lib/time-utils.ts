@@ -106,13 +106,35 @@ export function toUnixMs(dateStr: string, hourMT: number): number {
 
 // Detect time-of-day preference from a homeowner message.
 // Returns null if no preference is detectable.
+//
+// NEGATION-AWARE (Bug-B fix): a homeowner who says "I can't do mornings" is
+// stating an ANTI-preference, not a preference. The old version matched the bare
+// word `morning` and returned { preference: 'morning' } — so an evenings-only lead
+// who opened with "can't do mornings" was handed morning slots, the exact
+// re-offered-rejected-mornings symptom. We now (1) detect negated windows and
+// exclude them, and (2) when exactly one window remains after exclusion, infer it
+// as the preference. A window is "negated" when a negation token (can't / cannot /
+// no / not / never / unable / hate / avoid) precedes the window word within a short
+// span.
 export function detectTimePreference(
   message: string
 ): { preference: TimeOfDay; startHour?: number } | null {
   const lower = message.toLowerCase()
 
-  // "after X [am/pm]" — extract explicit hour
-  const afterMatch = lower.match(/after\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/)
+  // Which windows are explicitly ruled OUT ("can't do mornings", "no afternoons").
+  const NEG = `(?:can'?t|cannot|can not|won'?t|wont|no|not|never|unable to|don'?t|do not|avoid|hate|rather not|prefer not)`
+  // The negated window may sit at the head of an "or"/"and"/comma-joined list — one
+  // negation distributes across it ("no afternoons or evenings", "can't do mornings
+  // or afternoons"). The LIST prefix consumes the intervening window words.
+  const LIST = `(?:\\w+\\s+(?:or|and|,)\\s+)*`
+  const negated = (window: string): boolean =>
+    new RegExp(`${NEG}\\s+(?:do\\s+|make\\s+)?(?:the\\s+)?${LIST}${window}`).test(lower)
+  const negMorning   = negated('mornings?')   || negated('early')
+  const negAfternoon = negated('afternoons?') || negated('middays?') || negated('noon')
+  const negEvening   = negated('evenings?')   || negated('nights?') || negated('late')
+
+  // "after X [am/pm]" — explicit hour (only if not part of a negation like "not after 5").
+  const afterMatch = lower.match(/(?<!not\s)(?<!no\s)after\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/)
   if (afterMatch) {
     let hour       = parseInt(afterMatch[1], 10)
     const ampm     = afterMatch[3]
@@ -120,22 +142,50 @@ export function detectTimePreference(
     if (ampm === 'am' && hour === 12) hour = 0
     // Default to PM for ambiguous low numbers (1–8 with no ampm)
     if (!ampm && hour >= 1 && hour <= 8) hour += 12
-    return { preference: 'afternoon', startHour: hour }
+    // "after 5pm" is an evening floor; "after 12/2pm" stays afternoon.
+    return { preference: hour >= 17 ? 'evening' : 'afternoon', startHour: hour }
   }
 
-  // Morning signals
-  if (/\bmorning\b|early|before noon|before 12|\bam\b/.test(lower)) {
+  // Bare clock time — "6pm", "5 or 6pm", "at 7 pm". `\bpm\b` can't catch the attached
+  // form ("6pm"), so match the digit+meridiem directly. A stated PM hour maps to its
+  // window (≥5pm → evening, noon–4pm → afternoon); a stated AM hour → morning. Take
+  // the LAST such mention so "5 or 6pm" lands on 6pm (the firmer ask).
+  const clockMatches = [...lower.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/g)]
+  if (clockMatches.length > 0) {
+    const m = clockMatches[clockMatches.length - 1]
+    let hour = parseInt(m[1], 10)
+    const ampm = m[3]
+    if (ampm === 'pm' && hour < 12) hour += 12
+    if (ampm === 'am' && hour === 12) hour = 0
+    if (hour >= 17) return { preference: 'evening', startHour: hour }
+    if (hour >= 12) return { preference: 'afternoon', startHour: hour }
     return { preference: 'morning' }
   }
 
-  // Afternoon signals
-  if (/\bafternoon\b|after noon|after 12|\bpm\b|lunchtime/.test(lower)) {
+  // POSITIVE signals — but only when that window is NOT negated. "can't do mornings"
+  // must not trip the morning branch even though the word "morning" appears.
+  if (!negMorning && /\bmorning\b|\bmornings\b|early|before noon|before 12|\bam\b/.test(lower)) {
+    return { preference: 'morning' }
+  }
+  if (!negAfternoon && /\bafternoon\b|\bafternoons\b|after noon|after 12|\bpm\b|lunchtime/.test(lower)) {
     return { preference: 'afternoon' }
   }
-
-  // Evening signals
-  if (/\bevening\b|after (work|5)|late afternoon/.test(lower)) {
+  if (!negEvening && /\bevening\b|\bevenings\b|after work|after 5|late afternoon|\bnight\b|\bnights\b/.test(lower)) {
     return { preference: 'evening' }
+  }
+
+  // No positive signal, but a negation narrowed it to a single remaining window →
+  // infer that window. "I can't do mornings" → evening OR afternoon are both open;
+  // only infer when exactly ONE window survives the exclusions.
+  const anyNeg = negMorning || negAfternoon || negEvening
+  if (anyNeg) {
+    const survivors: TimeOfDay[] = []
+    if (!negMorning) survivors.push('morning')
+    if (!negAfternoon) survivors.push('afternoon')
+    if (!negEvening) survivors.push('evening')
+    if (survivors.length === 1) return { preference: survivors[0] }
+    // Multiple windows still open — let the caller fall back to stored prefs / "any"
+    // rather than guessing. (Don't return 'morning' for a "can't do mornings" lead.)
   }
 
   // Flexible / any-time signals
