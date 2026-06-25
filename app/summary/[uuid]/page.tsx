@@ -6,6 +6,25 @@ import SectionTracker from "@/src/components/report/SectionTracker";
 import PhotoSlideshow from "@/src/components/report/PhotoSlideshow";
 import { parseDiagnosisText } from "@/src/lib/diagnosis-parser";
 import type { ParsedZone } from "@/src/lib/diagnosis-parser";
+import GuidedWalkthrough from "@/src/components/report/GuidedWalkthrough";
+import type { WalkthroughStep } from "@/src/components/report/GuidedWalkthrough";
+
+interface RawWalkthroughStep {
+  findingRef?: string;
+  observation?: string;
+  question?: string;
+  photoRef?: string | null;
+}
+
+interface DiagnosisWalkthrough {
+  walkthroughSteps?: RawWalkthroughStep[];
+  closingQuestion?: string;
+}
+
+interface HomeownerWalkthroughAnswers {
+  steps?: Array<{ stepRef?: string; answer?: string }>;
+  closingAnswer?: string | null;
+}
 
 interface DiagnosisFinding {
   id: string;
@@ -17,21 +36,7 @@ interface DiagnosisFinding {
   matchedAtticTags: string[];
 }
 
-interface StructuredZone {
-  zone: string;
-  findingType: string;
-  severity: "high" | "medium" | "low";
-  confidence: number;
-  referencedWarningSign: string | null;
-}
-
-interface StructuredDiagnosis {
-  zones?: StructuredZone[];
-  overallSeverity?: "high" | "medium" | "low";
-  primaryConcern?: string;
-  homeownerAdmissions?: string[];
-}
-
+// Legacy diagnosis[] findings styling (old inspections only).
 const OLD_SEVERITY_STYLES: Record<string, string> = {
   critical: "bg-red-50 border-red-200 text-red-700",
   high:     "bg-amber-50 border-amber-200 text-amber-700",
@@ -43,22 +48,6 @@ const OLD_SEVERITY_BADGE: Record<string, string> = {
   high:     "bg-amber-100 text-amber-700",
   medium:   "bg-yellow-100 text-yellow-700",
 };
-
-const STRUCTURED_SEVERITY_BADGE: Record<string, string> = {
-  high:   "bg-red-100 text-red-700",
-  medium: "bg-amber-100 text-amber-700",
-  low:    "bg-green-100 text-green-700",
-};
-
-const OVERALL_SEVERITY_STYLES: Record<string, string> = {
-  high:   "bg-red-50 border-red-200 text-red-700",
-  medium: "bg-amber-50 border-amber-200 text-amber-700",
-  low:    "bg-green-50 border-green-200 text-green-700",
-};
-
-function toTitleCase(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 // Renders zone cards from parsed diagnosis text — no "Ask them:" labels
 function ReportZoneCard({ zone }: { zone: ParsedZone }) {
@@ -153,12 +142,49 @@ export default async function SummaryPage({
     photoSection: p.photoSection,
   }));
 
-  // --- Section: AI Diagnosis ---
+  // --- Section: AI Diagnosis (homeowner view) ---
+  // The homeowner sees the GUIDED NEPQ WALKTHROUGH only. All clinical data
+  // (severity, confidence, finding-types, the acknowledged list) is rep + Jordan
+  // only and is intentionally NOT read here.
   const aiDiagnosisDescription = inspection.aiDiagnosisDescription ?? null;
-  const aiDiagnosisStructured = (inspection.aiDiagnosisStructured as StructuredDiagnosis | null) ?? null;
-  const parsedZones = aiDiagnosisDescription ? parseDiagnosisText(aiDiagnosisDescription) : [];
+  const walkthrough = (inspection.aiDiagnosisWalkthrough as DiagnosisWalkthrough | null) ?? null;
+  const walkthroughAnswers =
+    (inspection.homeownerWalkthroughAnswers as HomeownerWalkthroughAnswers | null) ?? null;
 
-  const overallSev = aiDiagnosisStructured?.overallSeverity;
+  // Resolve each step's photos by zone (never expose the full photo set blindly).
+  function resolveStepPhotos(step: RawWalkthroughStep): string[] {
+    const ref = (step.photoRef || step.findingRef || "").toLowerCase().trim();
+    if (!ref) return [];
+    return allPhotos
+      .filter((p) => {
+        const z = (p.zone ?? "").toLowerCase().trim();
+        return z.length > 0 && (z.includes(ref) || ref.includes(z));
+      })
+      .slice(0, 3)
+      .map((p) => p.r2Url);
+  }
+
+  const walkthroughSteps: WalkthroughStep[] = (walkthrough?.walkthroughSteps ?? [])
+    .filter((s) => s && (s.observation || s.question))
+    .slice(0, 2)
+    .map((s) => ({
+      findingRef: s.findingRef ?? "",
+      observation: s.observation ?? "",
+      question: s.question ?? "",
+      photoRef: s.photoRef ?? null,
+      photos: resolveStepPhotos(s),
+    }));
+
+  const closingQuestion =
+    walkthrough?.closingQuestion?.trim() ||
+    "Based on everything you've seen today, what do you think the root issue might be?";
+
+  // Backward-compat: legacy inspections have no walkthrough. Fall back to the
+  // prose zones (questions stripped), still WITHOUT any clinical cards.
+  const legacyZones: ParsedZone[] =
+    walkthroughSteps.length === 0 && aiDiagnosisDescription
+      ? parseDiagnosisText(aiDiagnosisDescription)
+      : [];
 
   // --- Section: Post-diagnosis admission ---
   const intakePass2 = inspection.intakePass2 as Record<string, unknown> | null;
@@ -325,99 +351,31 @@ export default async function SummaryPage({
             </ReportSection>
           )}
 
-          {/* Section 5 — What We Found */}
-          {(parsedZones.length > 0 || aiDiagnosisStructured) && (
-            <ReportSection sectionKey="what-we-found" title="What We Found">
-              <div className="flex flex-col gap-4">
-
-                {/* Parsed zone cards */}
-                {parsedZones.length > 0 && (
-                  <div className="flex flex-col gap-3">
-                    {parsedZones.map((zone, i) => (
-                      <ReportZoneCard key={i} zone={zone} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Structured findings */}
-                {aiDiagnosisStructured && (
-                  <div className="flex flex-col gap-3">
-
-                    {/* Overall severity */}
-                    {overallSev && (
-                      <div
-                        className={`border rounded-xl px-4 py-3 ${OVERALL_SEVERITY_STYLES[overallSev] ?? OVERALL_SEVERITY_STYLES.medium}`}
-                      >
-                        <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5 opacity-70">
-                          Overall Severity
-                        </p>
-                        <p className="text-base font-bold">
-                          Overall:{" "}
-                          {overallSev.charAt(0).toUpperCase() + overallSev.slice(1)} Severity
-                        </p>
-                        {aiDiagnosisStructured.primaryConcern && (
-                          <p className="text-xs mt-0.5 opacity-80">
-                            Primary concern: {toTitleCase(aiDiagnosisStructured.primaryConcern)}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Zone finding cards */}
-                    {aiDiagnosisStructured.zones && aiDiagnosisStructured.zones.length > 0 && (
-                      <div className="flex flex-col gap-2">
-                        {aiDiagnosisStructured.zones.map((z, i) => (
-                          <div
-                            key={i}
-                            className="bg-report-surface border border-report-border rounded-xl p-4 flex flex-col gap-2"
-                          >
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <p className="text-report-text font-semibold text-sm">{z.zone}</p>
-                              <span
-                                className={`text-xs font-bold px-2 py-0.5 rounded-full capitalize ${STRUCTURED_SEVERITY_BADGE[z.severity] ?? STRUCTURED_SEVERITY_BADGE.medium}`}
-                              >
-                                {z.severity}
-                              </span>
-                            </div>
-                            <p className="text-gray-600 text-sm">{toTitleCase(z.findingType)}</p>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {z.confidence > 0 && (
-                                <span className="text-gray-400 text-xs">
-                                  {Math.round(z.confidence * 100)}% confidence
-                                </span>
-                              )}
-                              {z.referencedWarningSign && (
-                                <span className="bg-white border border-report-border rounded-full px-2 py-0.5 text-gray-500 text-xs">
-                                  {z.referencedWarningSign.replace(/_/g, " ")}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Homeowner admissions */}
-                    {aiDiagnosisStructured.homeownerAdmissions &&
-                      aiDiagnosisStructured.homeownerAdmissions.length > 0 && (
-                        <div className="bg-report-surface border border-report-border rounded-xl p-4 flex flex-col gap-3">
-                          <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold">
-                            What you acknowledged
-                          </p>
-                          <ul className="flex flex-col gap-2">
-                            {aiDiagnosisStructured.homeownerAdmissions.map((admission, i) => (
-                              <li key={i} className="flex items-start gap-2 text-report-text text-sm">
-                                <span className="text-[#2a6db5] shrink-0 mt-0.5">&ldquo;</span>
-                                <span className="italic leading-relaxed">{admission}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                  </div>
-                )}
-              </div>
+          {/* Section 5 — Let's Walk Through It (guided NEPQ — homeowner-facing).
+              No severity, no confidence, no finding-type labels, no acknowledged
+              checklist. The homeowner reaches the conclusion and types it. */}
+          {walkthroughSteps.length > 0 ? (
+            <ReportSection sectionKey="walkthrough" title="Let's Walk Through It">
+              <p className="text-gray-500 text-sm">
+                A few things stood out today. Take them one at a time, and tell us what you make of each.
+              </p>
+              <GuidedWalkthrough
+                uuid={uuid}
+                steps={walkthroughSteps}
+                closingQuestion={closingQuestion}
+                initialAnswers={walkthroughAnswers}
+              />
             </ReportSection>
+          ) : (
+            legacyZones.length > 0 && (
+              <ReportSection sectionKey="what-we-found" title="What We Found">
+                <div className="flex flex-col gap-3">
+                  {legacyZones.map((zone, i) => (
+                    <ReportZoneCard key={i} zone={zone} />
+                  ))}
+                </div>
+              </ReportSection>
+            )
           )}
 
           {/* Section 6 — After Reviewing the Findings */}

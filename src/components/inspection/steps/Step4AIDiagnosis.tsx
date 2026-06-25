@@ -19,6 +19,18 @@ interface StructuredDiagnosis {
   homeownerAdmissions?: string[];
 }
 
+interface WalkthroughStep {
+  findingRef?: string;
+  observation?: string;
+  question?: string;
+  photoRef?: string | null;
+}
+
+interface DiagnosisWalkthrough {
+  walkthroughSteps?: WalkthroughStep[];
+  closingQuestion?: string;
+}
+
 interface Props {
   inspectionId: string;
   initialData?: Record<string, unknown>;
@@ -97,6 +109,9 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
   const [structured, setStructured] = useState<StructuredDiagnosis | null>(
     (initialData?.aiDiagnosisStructured as StructuredDiagnosis | null) ?? null,
   );
+  const [walkthrough, setWalkthrough] = useState<DiagnosisWalkthrough | null>(
+    (initialData?.aiDiagnosisWalkthrough as DiagnosisWalkthrough | null) ?? null,
+  );
   const [manualNotes, setManualNotes] = useState("");
   const [savingManual, setSavingManual] = useState(false);
   const [manualSaved, setManualSaved] = useState(false);
@@ -109,6 +124,8 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
         if (data?.aiDiagnosisDescription) setDescription(data.aiDiagnosisDescription);
         if (data?.aiDiagnosisStructured)
           setStructured(data.aiDiagnosisStructured as StructuredDiagnosis);
+        if (data?.aiDiagnosisWalkthrough)
+          setWalkthrough(data.aiDiagnosisWalkthrough as DiagnosisWalkthrough);
       })
       .catch(() => {});
   }, [inspectionId, description]);
@@ -202,6 +219,47 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
           <ZoneCard key={i} zone={zone} />
         ))}
       </div>
+
+      {/* Guided walkthrough preview — the homeowner's NEPQ sequence (talk track).
+          This is what the homeowner is led through on their report. */}
+      {walkthrough?.walkthroughSteps && walkthrough.walkthroughSteps.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <p className="text-text-hint text-xs uppercase tracking-wider font-semibold">
+            Guided Walkthrough — Homeowner Sequence
+          </p>
+          {walkthrough.walkthroughSteps.map((step, i) => (
+            <div
+              key={i}
+              className="bg-bg-surface border border-border rounded-2xl p-5 flex flex-col gap-3"
+            >
+              {step.findingRef && (
+                <p className="text-text-primary font-bold text-base">{step.findingRef}</p>
+              )}
+              {step.observation && (
+                <p className="text-text-secondary text-sm leading-relaxed">{step.observation}</p>
+              )}
+              {step.question && (
+                <div className="mt-1 pt-3 border-t border-border/50 flex flex-col gap-1">
+                  <p className="text-text-accent text-[10px] font-semibold uppercase tracking-wider">
+                    Ask them:
+                  </p>
+                  <p className="text-brand-blue text-sm font-medium italic">{step.question}</p>
+                </div>
+              )}
+            </div>
+          ))}
+          {walkthrough.closingQuestion && (
+            <div className="bg-brand-blue/5 border border-brand-blue/20 rounded-2xl p-5 flex flex-col gap-1">
+              <p className="text-text-accent text-[10px] font-semibold uppercase tracking-wider">
+                Closing question
+              </p>
+              <p className="text-brand-blue text-sm font-medium italic">
+                {walkthrough.closingQuestion}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Structured findings section */}
       {structured && (

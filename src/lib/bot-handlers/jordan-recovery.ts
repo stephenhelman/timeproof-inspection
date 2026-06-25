@@ -23,6 +23,27 @@ export interface RecoveryDbContext {
   dispoPrimaryObjection: string | null;
 }
 
+// The homeowner's own-words answers from the diagnosis walkthrough, formatted
+// as a compact block for Jordan's recovery context. Returns null if none.
+function formatWalkthroughAnswers(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as {
+    steps?: Array<{ stepRef?: string; answer?: string }>;
+    closingAnswer?: string | null;
+  };
+  const lines: string[] = [];
+  for (const s of data.steps ?? []) {
+    const answer = typeof s?.answer === "string" ? s.answer.trim() : "";
+    if (!answer) continue;
+    const ref = typeof s?.stepRef === "string" && s.stepRef.trim() ? `${s.stepRef.trim()}: ` : "";
+    lines.push(`- ${ref}"${answer}"`);
+  }
+  const closing = typeof data.closingAnswer === "string" ? data.closingAnswer.trim() : "";
+  if (closing) lines.push(`- Root issue (their words): "${closing}"`);
+  if (lines.length === 0) return null;
+  return `HOMEOWNER OWN-WORDS (typed during the diagnosis walkthrough):\n${lines.join("\n")}`;
+}
+
 // Load + derive the recovery context shared by all three Jordan missions.
 export async function loadRecoveryContext(lead: Lead): Promise<RecoveryDbContext> {
   const lastInspection = await prisma.inspection.findFirst({
@@ -34,13 +55,21 @@ export async function loadRecoveryContext(lead: Lead): Promise<RecoveryDbContext
   // human-readable description, then the legacy fields for old inspections
   // (audit #5). The old read used findingsNotes/diagnosis, which the modern
   // wizard never writes — so Jordan referenced nothing specific.
-  const inspectionFindings =
+  const clinicalFindings =
     (lastInspection?.aiDiagnosisStructured
       ? JSON.stringify(lastInspection.aiDiagnosisStructured)
       : null) ??
     lastInspection?.aiDiagnosisDescription ??
     lastInspection?.findingsNotes ??
     (lastInspection?.diagnosis ? JSON.stringify(lastInspection.diagnosis) : null);
+
+  // Premium revival fuel: what the homeowner typed IN THEIR OWN WORDS at each
+  // step of the guided diagnosis walkthrough. Jordan can quote these back during
+  // recovery ("you said it looked worse than you expected at the East Slope").
+  const ownWords = formatWalkthroughAnswers(lastInspection?.homeownerWalkthroughAnswers);
+
+  const inspectionFindings =
+    [clinicalFindings, ownWords].filter(Boolean).join("\n\n") || null;
   const daysSinceAppointment = lastInspection?.createdAt
     ? Math.floor((Date.now() - lastInspection.createdAt.getTime()) / 86400000)
     : null;

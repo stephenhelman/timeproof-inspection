@@ -248,6 +248,19 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
   const aiDiagnosisDescription: string | null = inspection.aiDiagnosisDescription ?? null;
   const aiDiagnosisStructured = (inspection.aiDiagnosisStructured as StructuredDiagnosis | null) ?? null;
 
+  // Homeowner's own-words answers from the guided walkthrough (rep copy fuel).
+  const walkthroughAnswers = (inspection.homeownerWalkthroughAnswers as {
+    steps?: Array<{ stepRef?: string; answer?: string }>;
+    closingAnswer?: string | null;
+  } | null) ?? null;
+  const ownWordsSteps = (walkthroughAnswers?.steps ?? []).filter(
+    (s) => typeof s?.answer === "string" && s.answer.trim(),
+  );
+  const ownWordsClosing =
+    typeof walkthroughAnswers?.closingAnswer === "string" && walkthroughAnswers.closingAnswer.trim()
+      ? walkthroughAnswers.closingAnswer.trim()
+      : null;
+
   const intakePass2 = inspection.intakePass2 as Record<string, unknown> | null;
   const postDiagnosisAdmission: string | null =
     typeof intakePass2?.postDiagnosisAdmission === "string"
@@ -321,8 +334,8 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
           </View>
         )}
 
-        {/* Roof Diagnosis */}
-        {(parsedZones.length > 0 || aiDiagnosisStructured || postDiagnosisAdmission) && (
+        {/* Roof Diagnosis — customer-facing narrative only (no clinical data) */}
+        {(parsedZones.length > 0 || postDiagnosisAdmission) && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Roof Diagnosis</Text>
 
@@ -357,80 +370,9 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
               </View>
             ))}
 
-            {/* Structured findings */}
-            {aiDiagnosisStructured && (
-              <View style={{ marginTop: parsedZones.length > 0 ? 8 : 0 }}>
-
-                {/* Overall severity */}
-                {overallSev && (
-                  <View
-                    style={[
-                      styles.overallSeverityBox,
-                      { borderColor: overallColor, backgroundColor: overallColor + "18" },
-                    ]}
-                  >
-                    <Text style={[styles.overallSeverityLabel, { color: overallColor }]}>
-                      OVERALL SEVERITY
-                    </Text>
-                    <Text style={[styles.overallSeverityText, { color: overallColor }]}>
-                      Overall: {overallSev.charAt(0).toUpperCase() + overallSev.slice(1)} Severity
-                    </Text>
-                    {aiDiagnosisStructured.primaryConcern && (
-                      <Text style={[styles.label, { marginTop: 2, color: overallColor }]}>
-                        Primary concern: {toTitleCase(aiDiagnosisStructured.primaryConcern)}
-                      </Text>
-                    )}
-                  </View>
-                )}
-
-                {/* Zone finding cards */}
-                {aiDiagnosisStructured.zones &&
-                  aiDiagnosisStructured.zones.length > 0 &&
-                  aiDiagnosisStructured.zones.map((z, i) => {
-                    const sevColor = SEV_COLOR[z.severity] ?? ACCENT;
-                    return (
-                      <View key={i} style={styles.zoneFindingCard}>
-                        <View style={styles.zoneFindingRow}>
-                          <Text style={styles.zoneFindingName}>{z.zone}</Text>
-                          <Text style={{ fontSize: 8, color: sevColor, fontFamily: "Helvetica-Bold" }}>
-                            [{z.severity.toUpperCase()}]
-                          </Text>
-                        </View>
-                        <Text style={styles.zoneFindingType}>
-                          {toTitleCase(z.findingType)}
-                        </Text>
-                        <View style={{ flexDirection: "row", gap: 8 }}>
-                          {z.confidence > 0 && (
-                            <Text style={styles.zoneFindingMeta}>
-                              {Math.round(z.confidence * 100)}% confidence
-                            </Text>
-                          )}
-                          {z.referencedWarningSign && (
-                            <Text style={styles.zoneFindingMeta}>
-                              {z.referencedWarningSign.replace(/_/g, " ")}
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                    );
-                  })}
-
-                {/* Homeowner admissions */}
-                {aiDiagnosisStructured.homeownerAdmissions &&
-                  aiDiagnosisStructured.homeownerAdmissions.length > 0 && (
-                    <View style={styles.admissionsSection}>
-                      <Text style={styles.admissionsSectionTitle}>
-                        WHAT THE HOMEOWNER ACKNOWLEDGED
-                      </Text>
-                      {aiDiagnosisStructured.homeownerAdmissions.map((admission, i) => (
-                        <Text key={i} style={styles.admissionItem}>
-                          {"• “"}{admission}{"”"}
-                        </Text>
-                      ))}
-                    </View>
-                  )}
-              </View>
-            )}
+            {/* NOTE: clinical structured findings (severity / confidence /
+                finding-types / acknowledged list) are intentionally NOT on this
+                customer-facing page. They live on the Internal — Rep Copy page. */}
 
             {/* Post-diagnosis admission */}
             {postDiagnosisAdmission && (
@@ -561,6 +503,99 @@ export async function generateInspectionPDF(inspection: any): Promise<Buffer> {
                 )}
               </View>
             ))}
+          </View>
+        )}
+
+        {/* AI Clinical Diagnosis — REP ONLY (moved off the customer page) */}
+        {aiDiagnosisStructured && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>AI Clinical Diagnosis (Internal)</Text>
+
+            {overallSev && (
+              <View
+                style={[
+                  styles.overallSeverityBox,
+                  { borderColor: overallColor, backgroundColor: overallColor + "18" },
+                ]}
+              >
+                <Text style={[styles.overallSeverityLabel, { color: overallColor }]}>
+                  OVERALL SEVERITY
+                </Text>
+                <Text style={[styles.overallSeverityText, { color: overallColor }]}>
+                  Overall: {overallSev.charAt(0).toUpperCase() + overallSev.slice(1)} Severity
+                </Text>
+                {aiDiagnosisStructured.primaryConcern && (
+                  <Text style={[styles.label, { marginTop: 2, color: overallColor }]}>
+                    Primary concern: {toTitleCase(aiDiagnosisStructured.primaryConcern)}
+                  </Text>
+                )}
+              </View>
+            )}
+
+            {aiDiagnosisStructured.zones &&
+              aiDiagnosisStructured.zones.length > 0 &&
+              aiDiagnosisStructured.zones.map((z, i) => {
+                const sevColor = SEV_COLOR[z.severity] ?? ACCENT;
+                return (
+                  <View key={i} style={styles.zoneFindingCard}>
+                    <View style={styles.zoneFindingRow}>
+                      <Text style={styles.zoneFindingName}>{z.zone}</Text>
+                      <Text style={{ fontSize: 8, color: sevColor, fontFamily: "Helvetica-Bold" }}>
+                        [{z.severity.toUpperCase()}]
+                      </Text>
+                    </View>
+                    <Text style={styles.zoneFindingType}>{toTitleCase(z.findingType)}</Text>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      {z.confidence > 0 && (
+                        <Text style={styles.zoneFindingMeta}>
+                          {Math.round(z.confidence * 100)}% confidence
+                        </Text>
+                      )}
+                      {z.referencedWarningSign && (
+                        <Text style={styles.zoneFindingMeta}>
+                          {z.referencedWarningSign.replace(/_/g, " ")}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+
+            {aiDiagnosisStructured.homeownerAdmissions &&
+              aiDiagnosisStructured.homeownerAdmissions.length > 0 && (
+                <View style={styles.admissionsSection}>
+                  <Text style={styles.admissionsSectionTitle}>
+                    WHAT THE HOMEOWNER ACKNOWLEDGED
+                  </Text>
+                  {aiDiagnosisStructured.homeownerAdmissions.map((admission, i) => (
+                    <Text key={i} style={styles.admissionItem}>
+                      {"• “"}{admission}{"”"}
+                    </Text>
+                  ))}
+                </View>
+              )}
+          </View>
+        )}
+
+        {/* Homeowner's own words from the guided walkthrough — REP ONLY */}
+        {(ownWordsSteps.length > 0 || ownWordsClosing) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Homeowner&apos;s Words (Walkthrough)</Text>
+            <Text style={[styles.label, { marginBottom: 6, fontSize: 9 }]}>
+              {"What the homeowner typed at each step of the guided diagnosis — their own words."}
+            </Text>
+            {ownWordsSteps.map((s, i) => (
+              <View key={i} style={{ marginBottom: 6 }}>
+                {s.stepRef && <Text style={styles.label}>{s.stepRef}</Text>}
+                <Text style={styles.admissionItem}>{"“"}{(s.answer ?? "").trim()}{"”"}</Text>
+              </View>
+            ))}
+            {ownWordsClosing && (
+              <View style={{ marginTop: 2 }}>
+                <Text style={styles.label}>Root issue (their words)</Text>
+                <Text style={styles.admissionItem}>{"“"}{ownWordsClosing}{"”"}</Text>
+              </View>
+            )}
           </View>
         )}
 

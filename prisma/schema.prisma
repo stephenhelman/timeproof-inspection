@@ -370,8 +370,10 @@ model Inspection {
   // Appointment fields (new — structured JSON storage for wizard passes)
   intakePass1              Json?      // pre-diagnosis homeowner awareness
   warningSignResponses     Json?      // warning sign checklist responses
-  aiDiagnosisDescription   String?    // human-readable Claude output
-  aiDiagnosisStructured    Json?      // machine-readable Claude output for Jordan
+  aiDiagnosisDescription   String?    // human-readable Claude output (legacy/fallback)
+  aiDiagnosisStructured    Json?      // machine-readable Claude output for rep + Jordan (clinical)
+  aiDiagnosisWalkthrough   Json?      // NEPQ guided homeowner walkthrough: { walkthroughSteps[], closingQuestion }
+  homeownerWalkthroughAnswers Json?   // homeowner's own-words answers typed during the walkthrough: { steps[], closingAnswer }
   aiGeneratedAt            DateTime?  // when the Claude call fired
   intakePass2              Json?      // post-diagnosis homeowner admission
 
