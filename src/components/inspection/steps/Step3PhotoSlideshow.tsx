@@ -27,10 +27,53 @@ interface Props {
   onDiagnosisReady: () => void;
 }
 
+interface SavedAnswers {
+  steps?: Array<{ stepRef?: string; answer?: string }>;
+  closingAnswer?: string | null;
+}
+
+interface DiagnosisWalkthrough {
+  walkthroughSteps?: RawWalkthroughStep[];
+  closingQuestion?: string;
+}
+
 type SlideState = "slideshow" | "analyzing" | "walkthrough" | "done";
 
 const DEFAULT_CLOSING_QUESTION =
   "Based on everything you've seen today, what do you think the root issue might be?";
+
+// Resolve a walkthrough step's photos by matching its zone ref against the loaded
+// photos (mirrors the summary page's server-side resolver). Pure so it can run in a
+// state initializer and inside the restore effect, not just in render.
+function resolvePhotosFor(step: RawWalkthroughStep, photos: PhotoRecord[]): string[] {
+  const ref = (step.photoRef || step.findingRef || "").toLowerCase().trim();
+  if (!ref) return [];
+  return photos
+    .filter((p) => {
+      const z = (p.zone ?? "").toLowerCase().trim();
+      return z.length > 0 && (z.includes(ref) || ref.includes(z));
+    })
+    .slice(0, 3)
+    .map((p) => p.r2Url);
+}
+
+// Build the (max 2) walkthrough steps the homeowner is led through, from the raw
+// diagnosis output + the photos available to resolve each step's images.
+function buildWalkthroughSteps(
+  rawSteps: RawWalkthroughStep[],
+  photos: PhotoRecord[],
+): WalkthroughStep[] {
+  return rawSteps
+    .filter((s) => s && (s.observation || s.question))
+    .slice(0, 2)
+    .map((s) => ({
+      findingRef: s.findingRef ?? "",
+      observation: s.observation ?? "",
+      question: s.question ?? "",
+      photoRef: s.photoRef ?? null,
+      photos: resolvePhotosFor(s, photos),
+    }));
+}
 
 function LoadingAnimation() {
   const [dotCount, setDotCount] = useState(0);
@@ -79,33 +122,80 @@ function LoadingAnimation() {
 }
 
 export default function Step3PhotoSlideshow({ inspectionId, initialData, reportUuid, onDiagnosisReady }: Props) {
-  const [photos, setPhotos] = useState<PhotoRecord[]>(
-    (initialData?.photos as PhotoRecord[] | undefined) ?? []
-  );
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [slideState, setSlideState] = useState<SlideState>("slideshow");
-  const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
-  const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
-  const [closingQuestion, setClosingQuestion] = useState<string>(DEFAULT_CLOSING_QUESTION);
+  const initialPhotos = (initialData?.photos as PhotoRecord[] | undefined) ?? [];
 
-  // Fetch fresh photos on mount (captures any uploads done in Step 0)
+  // FIX 4 — synchronous restore from the server snapshot. If a diagnosis was already
+  // generated for this inspection (page was reloaded after generating), come up in
+  // the completed walkthrough state, NOT the "Get Diagnosis" slideshow. The async
+  // effect below covers the within-session back-navigation case (where initialData
+  // predates the generation).
+  const initialWalkthrough = initialData?.aiDiagnosisWalkthrough as DiagnosisWalkthrough | undefined;
+  const initialRawSteps = initialWalkthrough?.walkthroughSteps ?? [];
+  const initialHasDiagnosis =
+    !!(initialData?.aiDiagnosisDescription as string | undefined) || initialRawSteps.length > 0;
+  const canRestoreWalkthrough = initialRawSteps.length > 0 && !!reportUuid;
+
+  const [photos, setPhotos] = useState<PhotoRecord[]>(initialPhotos);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [slideState, setSlideState] = useState<SlideState>(
+    canRestoreWalkthrough ? "walkthrough" : "slideshow",
+  );
+  const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
+  const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>(
+    canRestoreWalkthrough ? buildWalkthroughSteps(initialRawSteps, initialPhotos) : [],
+  );
+  const [closingQuestion, setClosingQuestion] = useState<string>(
+    initialWalkthrough?.closingQuestion?.trim() || DEFAULT_CLOSING_QUESTION,
+  );
+  const [savedAnswers, setSavedAnswers] = useState<SavedAnswers | null>(
+    (initialData?.homeownerWalkthroughAnswers as SavedAnswers | null) ?? null,
+  );
+  // A diagnosis already exists → never re-generate or re-prompt (FIX 4). Even when
+  // there are no walkthrough steps to restore (legacy/no-UUID), the final slide
+  // advances instead of re-running diagnosis.
+  const [diagnosisExists, setDiagnosisExists] = useState(initialHasDiagnosis);
+
+  // Fetch fresh inspection data on mount: captures any photos uploaded in Step 0 AND
+  // restores an already-generated diagnosis on back-navigation (FIX 4 — the within-
+  // session case, where initialData was loaded BEFORE the diagnosis was generated).
   useEffect(() => {
+    let cancelled = false;
     fetch(`/api/inspection/${inspectionId}`)
       .then((r) => r.json())
       .then((data) => {
-        if (data?.photos?.length) {
-          // Sort by zone then photoNumber
-          const sorted = (data.photos as PhotoRecord[]).sort((a, b) => {
-            const zoneA = a.zone ?? "zzz";
-            const zoneB = b.zone ?? "zzz";
-            if (zoneA !== zoneB) return zoneA.localeCompare(zoneB);
-            return a.photoNumber - b.photoNumber;
-          });
-          setPhotos(sorted);
+        if (cancelled || !data) return;
+
+        // Sort by zone then photoNumber
+        const sorted: PhotoRecord[] = data.photos?.length
+          ? (data.photos as PhotoRecord[]).sort((a, b) => {
+              const zoneA = a.zone ?? "zzz";
+              const zoneB = b.zone ?? "zzz";
+              if (zoneA !== zoneB) return zoneA.localeCompare(zoneB);
+              return a.photoNumber - b.photoNumber;
+            })
+          : [];
+        if (sorted.length) setPhotos(sorted);
+
+        // Restore an existing diagnosis instead of re-prompting "Get Diagnosis".
+        const wt = data.aiDiagnosisWalkthrough as DiagnosisWalkthrough | null;
+        const rawSteps = wt?.walkthroughSteps ?? [];
+        const hasDiagnosis = !!data.aiDiagnosisDescription || rawSteps.length > 0;
+        if (hasDiagnosis) setDiagnosisExists(true);
+
+        if (rawSteps.length > 0 && reportUuid) {
+          setWalkthroughSteps(buildWalkthroughSteps(rawSteps, sorted));
+          setClosingQuestion(wt?.closingQuestion?.trim() || DEFAULT_CLOSING_QUESTION);
+          setSavedAnswers((data.homeownerWalkthroughAnswers as SavedAnswers | null) ?? null);
+          // Only force-restore from the initial slideshow; never yank the rep out of
+          // an in-progress analysis or a walkthrough they're already viewing.
+          setSlideState((s) => (s === "slideshow" ? "walkthrough" : s));
         }
       })
       .catch(() => {});
-  }, [inspectionId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [inspectionId, reportUuid]);
 
   const totalSlides = photos.length + 1; // photos + final "Get Diagnosis" slide
 
@@ -128,23 +218,6 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, reportU
     setTouchStartX(null);
   };
 
-  // Resolve a walkthrough step's photos client-side by matching its zone ref
-  // against the loaded photos (mirrors the summary page's server-side resolver).
-  const resolveStepPhotos = useCallback(
-    (step: RawWalkthroughStep): string[] => {
-      const ref = (step.photoRef || step.findingRef || "").toLowerCase().trim();
-      if (!ref) return [];
-      return photos
-        .filter((p) => {
-          const z = (p.zone ?? "").toLowerCase().trim();
-          return z.length > 0 && (z.includes(ref) || ref.includes(z));
-        })
-        .slice(0, 3)
-        .map((p) => p.r2Url);
-    },
-    [photos],
-  );
-
   const runDiagnosis = useCallback(async () => {
     setSlideState("analyzing");
     setDiagnosisError(null);
@@ -164,16 +237,8 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, reportU
       };
 
       const rawSteps = data.aiDiagnosisWalkthrough?.walkthroughSteps ?? [];
-      const steps: WalkthroughStep[] = rawSteps
-        .filter((s) => s && (s.observation || s.question))
-        .slice(0, 2)
-        .map((s) => ({
-          findingRef: s.findingRef ?? "",
-          observation: s.observation ?? "",
-          question: s.question ?? "",
-          photoRef: s.photoRef ?? null,
-          photos: resolveStepPhotos(s),
-        }));
+      const steps = buildWalkthroughSteps(rawSteps, photos);
+      setDiagnosisExists(true);
 
       // Play the guided walkthrough as the continuation of the homeowner-facing
       // slideshow — live, rep-guided, answers captured. Needs the report UUID to
@@ -192,7 +257,7 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, reportU
       setSlideState("done");
       onDiagnosisReady();
     }
-  }, [inspectionId, reportUuid, resolveStepPhotos, onDiagnosisReady]);
+  }, [inspectionId, reportUuid, photos, onDiagnosisReady]);
 
   if (slideState === "analyzing") {
     return (
@@ -216,11 +281,16 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, reportU
           </p>
         </div>
 
-        <div className="bg-report-bg border border-report-border rounded-2xl p-4 sm:p-5">
+        {/* Dark wizard chrome (FIX 2): the walkthrough reads as part of the dark
+            inspection page, not a washed-out light card. Answers restore on
+            back-navigation via initialAnswers (FIX 4). */}
+        <div className="bg-bg-surface/40 border border-border rounded-2xl p-4 sm:p-5">
           <GuidedWalkthrough
             uuid={reportUuid!}
             steps={walkthroughSteps}
             closingQuestion={closingQuestion}
+            initialAnswers={savedAnswers}
+            theme="dark"
           />
         </div>
 
@@ -251,10 +321,10 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, reportU
           </p>
           <button
             type="button"
-            onClick={runDiagnosis}
+            onClick={diagnosisExists ? onDiagnosisReady : runDiagnosis}
             className="bg-brand-blue hover:bg-accent-blue-hover text-text-primary rounded-2xl px-8 min-h-14 text-base font-semibold transition-all"
           >
-            Get Diagnosis Anyway →
+            {diagnosisExists ? "Continue →" : "Get Diagnosis Anyway →"}
           </button>
         </div>
       </div>
@@ -305,13 +375,18 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, reportU
             </div>
           </>
         ) : (
-          // Final slide — Get Diagnosis
+          // Final slide — Get Diagnosis (or, if one already exists, resume it —
+          // FIX 4: never re-generate/re-prompt when a diagnosis is on file).
           <div className="flex flex-col items-center justify-center gap-6 p-8 h-full" style={{ minHeight: "56vw" }}>
             <div className="text-center">
               <div className="text-5xl mb-4">🔬</div>
-              <h3 className="text-text-primary text-xl font-bold mb-2">Ready for Diagnosis</h3>
+              <h3 className="text-text-primary text-xl font-bold mb-2">
+                {diagnosisExists ? "Diagnosis Ready" : "Ready for Diagnosis"}
+              </h3>
               <p className="text-text-secondary text-sm leading-relaxed max-w-xs mx-auto">
-                We&apos;ve reviewed all {photos.length} photo{photos.length !== 1 ? "s" : ""}. Tap the button below to generate your personalized roof diagnosis.
+                {diagnosisExists
+                  ? "This roof has already been diagnosed. Continue to review it — no need to run it again."
+                  : `We've reviewed all ${photos.length} photo${photos.length !== 1 ? "s" : ""}. Tap the button below to generate your personalized roof diagnosis.`}
               </p>
             </div>
             {diagnosisError && (
@@ -319,14 +394,14 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, reportU
             )}
             <button
               type="button"
-              onClick={runDiagnosis}
+              onClick={diagnosisExists ? onDiagnosisReady : runDiagnosis}
               className="w-full max-w-xs bg-brand-blue hover:bg-accent-blue-hover text-text-primary rounded-2xl min-h-16 text-lg font-bold transition-all shadow-lg shadow-brand-blue/30 flex items-center justify-center gap-3"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
-              Get Diagnosis
+              {diagnosisExists ? "Continue →" : "Get Diagnosis"}
             </button>
           </div>
         )}
