@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import GuidedWalkthrough from "@/src/components/report/GuidedWalkthrough";
+import type { WalkthroughStep } from "@/src/components/report/GuidedWalkthrough";
 
 interface PhotoRecord {
   id: string;
@@ -11,13 +13,24 @@ interface PhotoRecord {
   photoSection: string;
 }
 
+interface RawWalkthroughStep {
+  findingRef?: string;
+  observation?: string;
+  question?: string;
+  photoRef?: string | null;
+}
+
 interface Props {
   inspectionId: string;
   initialData?: Record<string, unknown>;
+  reportUuid?: string;
   onDiagnosisReady: () => void;
 }
 
-type SlideState = "slideshow" | "analyzing" | "done";
+type SlideState = "slideshow" | "analyzing" | "walkthrough" | "done";
+
+const DEFAULT_CLOSING_QUESTION =
+  "Based on everything you've seen today, what do you think the root issue might be?";
 
 function LoadingAnimation() {
   const [dotCount, setDotCount] = useState(0);
@@ -65,13 +78,15 @@ function LoadingAnimation() {
   );
 }
 
-export default function Step3PhotoSlideshow({ inspectionId, initialData, onDiagnosisReady }: Props) {
+export default function Step3PhotoSlideshow({ inspectionId, initialData, reportUuid, onDiagnosisReady }: Props) {
   const [photos, setPhotos] = useState<PhotoRecord[]>(
     (initialData?.photos as PhotoRecord[] | undefined) ?? []
   );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [slideState, setSlideState] = useState<SlideState>("slideshow");
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
+  const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
+  const [closingQuestion, setClosingQuestion] = useState<string>(DEFAULT_CLOSING_QUESTION);
 
   // Fetch fresh photos on mount (captures any uploads done in Step 0)
   useEffect(() => {
@@ -113,6 +128,23 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, onDiagn
     setTouchStartX(null);
   };
 
+  // Resolve a walkthrough step's photos client-side by matching its zone ref
+  // against the loaded photos (mirrors the summary page's server-side resolver).
+  const resolveStepPhotos = useCallback(
+    (step: RawWalkthroughStep): string[] => {
+      const ref = (step.photoRef || step.findingRef || "").toLowerCase().trim();
+      if (!ref) return [];
+      return photos
+        .filter((p) => {
+          const z = (p.zone ?? "").toLowerCase().trim();
+          return z.length > 0 && (z.includes(ref) || ref.includes(z));
+        })
+        .slice(0, 3)
+        .map((p) => p.r2Url);
+    },
+    [photos],
+  );
+
   const runDiagnosis = useCallback(async () => {
     setSlideState("analyzing");
     setDiagnosisError(null);
@@ -126,6 +158,33 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, onDiagn
         onDiagnosisReady();
         return;
       }
+
+      const data = (await res.json().catch(() => ({}))) as {
+        aiDiagnosisWalkthrough?: { walkthroughSteps?: RawWalkthroughStep[]; closingQuestion?: string };
+      };
+
+      const rawSteps = data.aiDiagnosisWalkthrough?.walkthroughSteps ?? [];
+      const steps: WalkthroughStep[] = rawSteps
+        .filter((s) => s && (s.observation || s.question))
+        .slice(0, 2)
+        .map((s) => ({
+          findingRef: s.findingRef ?? "",
+          observation: s.observation ?? "",
+          question: s.question ?? "",
+          photoRef: s.photoRef ?? null,
+          photos: resolveStepPhotos(s),
+        }));
+
+      // Play the guided walkthrough as the continuation of the homeowner-facing
+      // slideshow — live, rep-guided, answers captured. Needs the report UUID to
+      // persist answers. If we have no steps (or no UUID), skip to the wizard.
+      if (steps.length > 0 && reportUuid) {
+        setWalkthroughSteps(steps);
+        setClosingQuestion(data.aiDiagnosisWalkthrough?.closingQuestion?.trim() || DEFAULT_CLOSING_QUESTION);
+        setSlideState("walkthrough");
+        return;
+      }
+
       setSlideState("done");
       onDiagnosisReady();
     } catch {
@@ -133,12 +192,48 @@ export default function Step3PhotoSlideshow({ inspectionId, initialData, onDiagn
       setSlideState("done");
       onDiagnosisReady();
     }
-  }, [inspectionId, onDiagnosisReady]);
+  }, [inspectionId, reportUuid, resolveStepPhotos, onDiagnosisReady]);
 
   if (slideState === "analyzing") {
     return (
       <div className="flex flex-col" style={{ minHeight: "60vh" }}>
         <LoadingAnimation />
+      </div>
+    );
+  }
+
+  // ── Guided walkthrough — the back half of the homeowner slideshow ──────────
+  // Homeowner-facing, rep-guided, live. Light "report" surface so it reads as
+  // the homeowner's view (distinct from the dark rep wizard chrome). Answers are
+  // captured to the report as the homeowner types.
+  if (slideState === "walkthrough") {
+    return (
+      <div className="flex flex-col gap-5">
+        <div>
+          <h2 className="text-text-primary text-2xl font-semibold">Let&apos;s Walk Through It</h2>
+          <p className="text-text-secondary text-base mt-1">
+            A few things stood out. Take them one at a time — tell us what you make of each.
+          </p>
+        </div>
+
+        <div className="bg-report-bg border border-report-border rounded-2xl p-4 sm:p-5">
+          <GuidedWalkthrough
+            uuid={reportUuid!}
+            steps={walkthroughSteps}
+            closingQuestion={closingQuestion}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setSlideState("done");
+            onDiagnosisReady();
+          }}
+          className="w-full bg-brand-blue hover:bg-accent-blue-hover text-text-primary rounded-2xl min-h-14 text-base font-semibold transition-all flex items-center justify-center gap-2"
+        >
+          Continue inspection →
+        </button>
       </div>
     );
   }

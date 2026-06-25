@@ -149,7 +149,8 @@ export default function DispoModal({
   // Shared notes
   const [notes, setNotes] = useState("");
 
-  const soldLocked = currentWizardStep < 6;
+  // Sold is unlocked once the rep reaches the final Review & Share step (index 5).
+  const soldLocked = currentWizardStep < 5;
 
   function selectOutcome(id: OutcomeId) {
     if (id === "sold" && soldLocked) return;

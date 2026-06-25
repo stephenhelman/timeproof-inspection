@@ -4,21 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import { parseDiagnosisText } from "@/src/lib/diagnosis-parser";
 import type { ParsedZone } from "@/src/lib/diagnosis-parser";
 
-interface StructuredZone {
-  zone: string;
-  findingType: string;
-  severity: "high" | "medium" | "low";
-  confidence: number;
-  referencedWarningSign: string | null;
-}
-
-interface StructuredDiagnosis {
-  zones?: StructuredZone[];
-  overallSeverity?: "high" | "medium" | "low";
-  primaryConcern?: string;
-  homeownerAdmissions?: string[];
-}
-
 interface WalkthroughStep {
   findingRef?: string;
   observation?: string;
@@ -31,25 +16,14 @@ interface DiagnosisWalkthrough {
   closingQuestion?: string;
 }
 
+interface WalkthroughAnswers {
+  steps?: Array<{ stepRef?: string; answer?: string }>;
+  closingAnswer?: string | null;
+}
+
 interface Props {
   inspectionId: string;
   initialData?: Record<string, unknown>;
-}
-
-const SEVERITY_BADGE: Record<string, string> = {
-  high: "bg-red-500/20 text-red-300 border border-red-500/30",
-  medium: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
-  low: "bg-green-500/20 text-green-300 border border-green-500/30",
-};
-
-const OVERALL_SEVERITY_STYLES: Record<string, string> = {
-  high: "bg-accent-red/10 border-accent-red/30 text-accent-red",
-  medium: "bg-amber-500/10 border-amber-500/30 text-amber-300",
-  low: "bg-green-500/10 border-green-500/30 text-green-400",
-};
-
-function toTitleCase(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function ZoneCard({ zone }: { zone: ParsedZone }) {
@@ -106,11 +80,11 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
   const [description, setDescription] = useState<string | null>(
     (initialData?.aiDiagnosisDescription as string | null) ?? null,
   );
-  const [structured, setStructured] = useState<StructuredDiagnosis | null>(
-    (initialData?.aiDiagnosisStructured as StructuredDiagnosis | null) ?? null,
-  );
   const [walkthrough, setWalkthrough] = useState<DiagnosisWalkthrough | null>(
     (initialData?.aiDiagnosisWalkthrough as DiagnosisWalkthrough | null) ?? null,
+  );
+  const [answers, setAnswers] = useState<WalkthroughAnswers | null>(
+    (initialData?.homeownerWalkthroughAnswers as WalkthroughAnswers | null) ?? null,
   );
   const [manualNotes, setManualNotes] = useState("");
   const [savingManual, setSavingManual] = useState(false);
@@ -122,10 +96,10 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
       .then((r) => r.json())
       .then((data) => {
         if (data?.aiDiagnosisDescription) setDescription(data.aiDiagnosisDescription);
-        if (data?.aiDiagnosisStructured)
-          setStructured(data.aiDiagnosisStructured as StructuredDiagnosis);
         if (data?.aiDiagnosisWalkthrough)
           setWalkthrough(data.aiDiagnosisWalkthrough as DiagnosisWalkthrough);
+        if (data?.homeownerWalkthroughAnswers)
+          setAnswers(data.homeownerWalkthroughAnswers as WalkthroughAnswers);
       })
       .catch(() => {});
   }, [inspectionId, description]);
@@ -154,6 +128,10 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
     () => (description ? parseDiagnosisText(description) : []),
     [description],
   );
+
+  const answeredSteps = (answers?.steps ?? []).filter((s) => (s.answer ?? "").trim());
+  const closingAnswer = (answers?.closingAnswer ?? "").trim();
+  const hasCapturedAnswers = answeredSteps.length > 0 || !!closingAnswer;
 
   if (!description) {
     return (
@@ -197,10 +175,6 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
     );
   }
 
-  const overallStyle =
-    OVERALL_SEVERITY_STYLES[structured?.overallSeverity ?? ""] ??
-    OVERALL_SEVERITY_STYLES.medium;
-
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -210,7 +184,49 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
         </p>
       </div>
 
-      {/* Zone analysis — parsed from description */}
+      {/* Clinical analytics pointer — severity/confidence live in a separate
+          rep-only view, never in front of the homeowner. */}
+      <div className="bg-brand-navy/40 border border-brand-blue/30 rounded-xl px-4 py-3 flex items-start gap-2.5">
+        <span className="text-base leading-none mt-0.5">🔬</span>
+        <p className="text-text-secondary text-xs leading-relaxed">
+          Severity, confidence, and finding types are in the{" "}
+          <span className="text-text-accent font-semibold">Inspection Analytics</span> panel
+          (sidebar) — rep &amp; Jordan only, never shown to the homeowner.
+        </p>
+      </div>
+
+      {/* What the homeowner said during the live walkthrough — captured answers */}
+      {hasCapturedAnswers && (
+        <div className="flex flex-col gap-3">
+          <p className="text-text-hint text-xs uppercase tracking-wider font-semibold">
+            What the homeowner said
+          </p>
+          {answeredSteps.map((s, i) => (
+            <div key={i} className="bg-bg-surface border border-border rounded-2xl p-4 flex flex-col gap-1.5">
+              {s.stepRef && (
+                <p className="text-text-hint text-[10px] uppercase tracking-wider font-semibold">
+                  {s.stepRef}
+                </p>
+              )}
+              <p className="text-text-primary text-sm italic leading-relaxed">
+                &ldquo;{(s.answer ?? "").trim()}&rdquo;
+              </p>
+            </div>
+          ))}
+          {closingAnswer && (
+            <div className="bg-brand-blue/5 border border-brand-blue/20 rounded-2xl p-4 flex flex-col gap-1.5">
+              <p className="text-text-accent text-[10px] uppercase tracking-wider font-semibold">
+                Root issue — their words
+              </p>
+              <p className="text-text-primary text-sm italic leading-relaxed">
+                &ldquo;{closingAnswer}&rdquo;
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Zone analysis — parsed narrative */}
       <div className="flex flex-col gap-4">
         <p className="text-text-hint text-xs uppercase tracking-wider font-semibold">
           Zone Analysis
@@ -220,8 +236,7 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
         ))}
       </div>
 
-      {/* Guided walkthrough preview — the homeowner's NEPQ sequence (talk track).
-          This is what the homeowner is led through on their report. */}
+      {/* Guided walkthrough talk-track — what the homeowner is led through. */}
       {walkthrough?.walkthroughSteps && walkthrough.walkthroughSteps.length > 0 && (
         <div className="flex flex-col gap-3">
           <p className="text-text-hint text-xs uppercase tracking-wider font-semibold">
@@ -258,95 +273,6 @@ export default function Step4AIDiagnosis({ inspectionId, initialData }: Props) {
               </p>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Structured findings section */}
-      {structured && (
-        <div className="flex flex-col gap-3">
-          <p className="text-text-hint text-xs uppercase tracking-wider font-semibold">
-            Findings Summary
-          </p>
-
-          {/* Overall severity — prominent, sets tone */}
-          {structured.overallSeverity && (
-            <div className={`border rounded-xl px-4 py-3 ${overallStyle}`}>
-              <p className="text-[10px] font-semibold uppercase tracking-wider mb-0.5 opacity-70">
-                Overall Severity
-              </p>
-              <p className="text-lg font-bold">
-                Overall:{" "}
-                {structured.overallSeverity.charAt(0).toUpperCase() +
-                  structured.overallSeverity.slice(1)}{" "}
-                Severity
-              </p>
-              {structured.primaryConcern && (
-                <p className="text-xs mt-0.5 opacity-80">
-                  Primary concern: {toTitleCase(structured.primaryConcern)}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Zone finding cards */}
-          {structured.zones && structured.zones.length > 0 && (
-            <div className="flex flex-col gap-2">
-              {structured.zones.map((z, i) => (
-                <div
-                  key={i}
-                  className="bg-bg-surface border border-border rounded-xl p-4 flex flex-col gap-2"
-                >
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <p className="text-text-primary font-semibold text-sm">
-                      {z.zone}
-                    </p>
-                    <span
-                      className={`text-xs font-bold px-2 py-0.5 rounded-full capitalize ${SEVERITY_BADGE[z.severity] ?? SEVERITY_BADGE.medium}`}
-                    >
-                      {z.severity}
-                    </span>
-                  </div>
-                  <p className="text-text-secondary text-sm">
-                    {toTitleCase(z.findingType)}
-                  </p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {z.confidence > 0 && (
-                      <span className="text-text-hint text-xs">
-                        {Math.round(z.confidence * 100)}% confidence
-                      </span>
-                    )}
-                    {z.referencedWarningSign && (
-                      <span className="bg-bg-elevated border border-border rounded-full px-2 py-0.5 text-text-hint text-xs">
-                        {z.referencedWarningSign.replace(/_/g, " ")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Homeowner admissions */}
-          {structured.homeownerAdmissions &&
-            structured.homeownerAdmissions.length > 0 && (
-              <div className="bg-bg-surface border border-border rounded-2xl p-4 flex flex-col gap-3">
-                <p className="text-text-hint text-xs uppercase tracking-wider font-semibold">
-                  What the homeowner acknowledged
-                </p>
-                <ul className="flex flex-col gap-2">
-                  {structured.homeownerAdmissions.map((admission, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <span className="text-brand-blue text-base leading-none mt-0.5 shrink-0">
-                        &ldquo;
-                      </span>
-                      <span className="text-text-secondary text-sm italic leading-relaxed">
-                        {admission}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
         </div>
       )}
     </div>

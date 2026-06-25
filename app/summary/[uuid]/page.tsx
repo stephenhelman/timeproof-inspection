@@ -6,7 +6,6 @@ import SectionTracker from "@/src/components/report/SectionTracker";
 import PhotoSlideshow from "@/src/components/report/PhotoSlideshow";
 import { parseDiagnosisText } from "@/src/lib/diagnosis-parser";
 import type { ParsedZone } from "@/src/lib/diagnosis-parser";
-import GuidedWalkthrough from "@/src/components/report/GuidedWalkthrough";
 import type { WalkthroughStep } from "@/src/components/report/GuidedWalkthrough";
 
 interface RawWalkthroughStep {
@@ -178,6 +177,13 @@ export default async function SummaryPage({
   const closingQuestion =
     walkthrough?.closingQuestion?.trim() ||
     "Based on everything you've seen today, what do you think the root issue might be?";
+
+  // Read-only record: the homeowner's captured answers, shown back to them.
+  const stepAnswerAt = (i: number): string =>
+    (walkthroughAnswers?.steps?.[i]?.answer ?? "").trim();
+  const closingAnswer = (walkthroughAnswers?.closingAnswer ?? "").trim();
+  const hasAnyAnswer =
+    closingAnswer.length > 0 || walkthroughSteps.some((_, i) => stepAnswerAt(i).length > 0);
 
   // Backward-compat: legacy inspections have no walkthrough. Fall back to the
   // prose zones (questions stripped), still WITHOUT any clinical cards.
@@ -351,20 +357,82 @@ export default async function SummaryPage({
             </ReportSection>
           )}
 
-          {/* Section 5 — Let's Walk Through It (guided NEPQ — homeowner-facing).
-              No severity, no confidence, no finding-type labels, no acknowledged
-              checklist. The homeowner reaches the conclusion and types it. */}
+          {/* Section 5 — What We Walked Through (READ-ONLY record).
+              Photos + narrative + the homeowner's captured answers shown back.
+              No interactive form, no clinical data. Graceful when no answers. */}
           {walkthroughSteps.length > 0 ? (
-            <ReportSection sectionKey="walkthrough" title="Let's Walk Through It">
+            <ReportSection sectionKey="walkthrough" title="What We Walked Through">
               <p className="text-gray-500 text-sm">
-                A few things stood out today. Take them one at a time, and tell us what you make of each.
+                {hasAnyAnswer
+                  ? "Here's what stood out during your inspection, and what you said as we walked through it together."
+                  : "Here's what stood out during your inspection as we walked through it together."}
               </p>
-              <GuidedWalkthrough
-                uuid={uuid}
-                steps={walkthroughSteps}
-                closingQuestion={closingQuestion}
-                initialAnswers={walkthroughAnswers}
-              />
+
+              <div className="flex flex-col gap-5">
+                {walkthroughSteps.map((step, i) => {
+                  const answer = stepAnswerAt(i);
+                  return (
+                    <div
+                      key={i}
+                      className="bg-report-surface border border-report-border rounded-2xl p-5 flex flex-col gap-4"
+                    >
+                      {step.observation && (
+                        <p className="text-report-text text-[15px] leading-relaxed">
+                          {step.observation}
+                        </p>
+                      )}
+
+                      {step.photos.length > 0 && (
+                        <div className="flex gap-2 overflow-x-auto -mx-1 px-1">
+                          {step.photos.map((url, pi) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={pi}
+                              src={url}
+                              alt={`${step.findingRef} photo ${pi + 1}`}
+                              className="h-44 w-auto rounded-xl border border-report-border object-cover shrink-0"
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {step.question && (
+                        <p className="text-report-text text-base font-semibold leading-snug">
+                          {step.question}
+                        </p>
+                      )}
+
+                      {answer && (
+                        <div className="border-l-4 border-[#2a6db5] bg-[#eef3fb] rounded-r-xl px-4 py-3">
+                          <p className="text-gray-500 text-[10px] font-semibold uppercase tracking-wider mb-1">
+                            You said
+                          </p>
+                          <p className="text-report-text text-sm italic leading-relaxed">
+                            &ldquo;{answer}&rdquo;
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Closing — only when they answered it */}
+                {closingAnswer && (
+                  <div className="bg-[#eef3fb] border border-[#c8d8f0] rounded-2xl p-5 flex flex-col gap-3">
+                    <p className="text-report-text text-base font-semibold leading-snug">
+                      {closingQuestion}
+                    </p>
+                    <div className="border-l-4 border-[#2a6db5] bg-white/70 rounded-r-xl px-4 py-3">
+                      <p className="text-gray-500 text-[10px] font-semibold uppercase tracking-wider mb-1">
+                        You said
+                      </p>
+                      <p className="text-report-text text-sm italic leading-relaxed">
+                        &ldquo;{closingAnswer}&rdquo;
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </ReportSection>
           ) : (
             legacyZones.length > 0 && (

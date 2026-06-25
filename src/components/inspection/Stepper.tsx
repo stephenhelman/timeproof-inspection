@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import DispoModal from "./DispoModal";
 import TasksPanel from "@/src/components/tasks/TasksPanel";
 import ReportVisitPanel from "./ReportVisitPanel";
+import InspectionAnalytics from "./InspectionAnalytics";
 import Step0Photos from "./steps/Step0Photos";
 import Step1IntakeForm from "./steps/Step5IntakeForm";
 import Step2WarningSigns from "./steps/Step6WarningSigns";
 import Step3PhotoSlideshow from "./steps/Step3PhotoSlideshow";
 import Step4AIDiagnosis from "./steps/Step4AIDiagnosis";
-import Step5IntakePass2 from "./steps/Step5IntakePass2";
 import Step6ReviewShare from "./steps/Step7ReviewShare";
 
 // PRESERVED — not active in Qntum build
@@ -29,19 +29,17 @@ const STEPS = [
   { id: "warning-signs", label: "Warning Signs", icon: "⚠️" },
   { id: "slideshow", label: "Slideshow", icon: "🖼" },
   { id: "diagnosis", label: "Diagnosis", icon: "🔬" },
-  { id: "intake-pass-2", label: "Pass 2", icon: "✍️" },
   { id: "review", label: "Review", icon: "✅" },
 ];
 
-// Step 6 (Review & Share) uses shared stepData; all other steps manage their own saves.
+// Step 5 (Review & Share) uses shared stepData; all other steps manage their own saves.
 const STEP_FIELDS: Record<number, string[]> = {
   0: [],
   1: [],
   2: [],
   3: [],
   4: [],
-  5: [],
-  6: ["status"],
+  5: ["status"],
 };
 
 interface StepperProps {
@@ -84,7 +82,7 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
   const [stepData, setStepData] =
     useState<Record<number, Record<string, any>>>(buildInitialStepData);
   const isComplete = initialData?.status === "complete";
-  const [currentStep, setCurrentStep] = useState(isComplete ? 6 : 0);
+  const [currentStep, setCurrentStep] = useState(isComplete ? 5 : 0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -145,6 +143,8 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
 
   // Analytics drawer state
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  // Inspection (clinical diagnosis) analytics drawer — rep + Jordan only.
+  const [inspectionAnalyticsOpen, setInspectionAnalyticsOpen] = useState(false);
 
   // Escalate state
   const [escalateOpen, setEscalateOpen] = useState(false);
@@ -155,7 +155,7 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
 
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => {
     if (initialData?.status === "complete") {
-      return new Set([0, 1, 2, 3, 4, 5, 6]);
+      return new Set([0, 1, 2, 3, 4, 5]);
     }
     const initial = buildInitialStepData();
     return new Set(
@@ -213,7 +213,7 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "complete" }),
       });
-      setCompletedSteps(new Set([0, 1, 2, 3, 4, 5, 6]));
+      setCompletedSteps(new Set([0, 1, 2, 3, 4, 5]));
     } finally {
       setSaving(false);
     }
@@ -304,6 +304,7 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
       key={3}
       inspectionId={inspectionId}
       initialData={initialData}
+      reportUuid={initialData?.reportUuid as string | undefined}
       onDiagnosisReady={() => {
         setCompletedSteps((prev) => new Set([...Array.from(prev), 3]));
         setCurrentStep(4);
@@ -313,12 +314,10 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
     // Step 4 — AI Diagnosis (Claude output)
     <Step4AIDiagnosis key={4} inspectionId={inspectionId} initialData={initialData} />,
 
-    // Step 5 — Intake Pass 2 (read-only Pass 1 + postDiagnosisAdmission)
-    <Step5IntakePass2 key={5} inspectionId={inspectionId} initialData={initialData} />,
-
-    // Step 6 — Review & Share
+    // Step 5 — Review & Share. (Pass 2 removed — the walkthrough's closing
+    // question already captures the homeowner's post-diagnosis admission.)
     <Step6ReviewShare
-      key={6}
+      key={5}
       {...stepProps}
       reportUuid={initialData?.reportUuid as string | undefined}
     />,
@@ -387,6 +386,27 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
             </div>
             <div className="overflow-y-auto flex-1">
               <ReportVisitPanel visits={reportVisits as Parameters<typeof ReportVisitPanel>[0]["visits"]} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Inspection Analytics drawer (clinical diagnosis — rep + Jordan only) ── */}
+      {inspectionAnalyticsOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-bg-surface border border-border rounded-2xl w-full max-w-sm max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+              <h3 className="text-text-primary font-semibold text-sm">Inspection Analytics</h3>
+              <button
+                type="button"
+                onClick={() => setInspectionAnalyticsOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <InspectionAnalytics inspectionId={inspectionId} initialData={initialData} />
             </div>
           </div>
         </div>
@@ -557,7 +577,7 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
             {sidebarOpen ? "Tasks" : "T"}
           </button>
 
-          {/* Analytics button — report visit pre-appointment intel */}
+          {/* Visit Analytics button — report visit pre-appointment intel */}
           <button
             type="button"
             onClick={() => setAnalyticsOpen(true)}
@@ -566,7 +586,20 @@ export default function Stepper({ inspectionId, initialData, lead, appointment, 
               sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
             }`}
           >
-            {sidebarOpen ? "Analytics" : "📊"}
+            {sidebarOpen ? "Visit Analytics" : "📊"}
+          </button>
+
+          {/* Inspection Analytics button — clinical diagnosis (rep + Jordan only),
+              deliberately separate from the homeowner-facing step flow */}
+          <button
+            type="button"
+            onClick={() => setInspectionAnalyticsOpen(true)}
+            title={!sidebarOpen ? "Inspection Analytics" : undefined}
+            className={`flex items-center justify-center gap-2 rounded-xl min-h-10 text-sm font-medium transition-colors bg-bg-elevated hover:bg-bg-elevated/80 border border-border text-text-secondary hover:text-text-primary ${
+              sidebarOpen ? "w-full px-3" : "w-10 mx-auto"
+            }`}
+          >
+            {sidebarOpen ? "Inspection Analytics" : "🔬"}
           </button>
 
           {/* Escalate button — below Analytics, always visible */}
