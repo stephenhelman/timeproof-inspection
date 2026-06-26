@@ -1,0 +1,34 @@
+{
+  "name": "nurture-commit-qualified-crossing",
+  "phase": "nurture",
+  "ghlContactId": "test-contact-commit-cross",
+  "conversationState": {
+    "currentPhase": "nurture",
+    "heatState": "warming",
+    "heatPeakReached": true,
+    "sourceType": "guide",
+    "sourceChannel": "rep_door",
+    "repName": "Marcus",
+    "nepqPhase": "consequence",
+    "consequenceSurfaced": true,
+    "motivation": ["shingles blew off in the windstorm, worried about the next big rain"],
+    "funnelConcerns": { "damageSigns": ["missing shingles"], "roofAge": "15 years" }
+  },
+  "conversationHistory": [
+    { "role": "bot", "content": "Wind damage tends to get worse fast once water finds the gap. Worth having someone actually take a look before the next storm — it's free and there's no obligation. Want me to get that set up for you?" }
+  ],
+  "turns": [
+    {
+      "inboundMessage": "yeah that sounds like a deal, free to find out what's wrong",
+      "mockResponse": "{ \"reply\": \"Perfect — let me get you squared away.\", \"signal\": { \"type\": \"QUALIFIED\", \"confidence\": \"solid\", \"reason\": \"warmed guide lead committed to the free inspection after consequence surfaced\" }, \"state\": { \"nepqPhase\": \"commitment\", \"consequenceSurfaced\": true, \"summary\": { \"situation\": \"15yr roof, shingles blew off in a recent windstorm\", \"problem\": \"missing shingles / exposed spots\", \"consequence\": \"worried about leaks in the next big rain\", \"openObjection\": null, \"nextStep\": \"cross to inspection — service-area check then qualify\" } } }",
+      "expect": {
+        "tierSelected": "sonnet",
+        "signalType": "QUALIFIED",
+        "assembledPromptIncludes": [
+          "You do NOT book in nurture.",
+          "Emit\n  signal type QUALIFIED. This is your HANDOFF"
+        ]
+      }
+    }
+  ]
+}
