@@ -127,11 +127,19 @@ check("GUIDE_CONTEXT.ZIP_CLEARED === 'zip_cleared'", GUIDE_CONTEXT.ZIP_CLEARED =
 check("isZipCleared('zip_cleared') → true", isZipCleared("zip_cleared"));
 check("isZipCleared(null) → false (empty is safe)", !isZipCleared(null));
 check("qualifyOpenerKind(zip_cleared) → zip_cleared", qualifyOpenerKind("zip_cleared") === "zip_cleared");
-check("qualifyOpenerKind(empty) → normal", qualifyOpenerKind(null) === "normal");
-const heldOpener = qualifyOpenerInstruction("zip_cleared");
-const normalOpener = qualifyOpenerInstruction(null);
-check("held opener mentions 'good news' + 'service your area'", /good news/i.test(heldOpener) && /service your area/i.test(heldOpener));
-check("normal opener is the source-aware opener (no zip acknowledgment)", !/good news/i.test(normalOpener) && /source-aware/i.test(normalOpener));
+check("qualifyOpenerKind(empty, guide) → warmed_handoff", qualifyOpenerKind(null, "guide") === "warmed_handoff");
+check("qualifyOpenerKind(empty, inspection) → fresh", qualifyOpenerKind(null, "inspection") === "fresh");
+check("qualifyOpenerKind(empty, no sourceType) → fresh", qualifyOpenerKind(null) === "fresh");
+const heldOpener = qualifyOpenerInstruction("zip_cleared", "guide");
+const warmedOpener = qualifyOpenerInstruction(null, "guide");
+const freshOpener = qualifyOpenerInstruction(null, "inspection");
+check("held opener mentions 'good news' + continues (not a fresh greeting)", /good news/i.test(heldOpener) && /CONTINUATION/i.test(heldOpener));
+check("warmed_handoff opener continues (same Alex, no 'no prior conversation')", /SAME Alex/i.test(warmedOpener) && !/no prior conversation/i.test(warmedOpener));
+check("warmed_handoff opener does NOT re-ask what prompted the guide", /do NOT re-ask what prompted the guide/i.test(warmedOpener));
+check("warmed_handoff opener asks an inspection-framed open question (paces beat 1)", /take a look at while they're up there/i.test(warmedOpener));
+check("warmed_handoff opener defers decision-maker to the NEXT beat (not in opener)", /do NOT also ask the decision-maker question in this same message/i.test(warmedOpener));
+check("warmed_handoff opener still reaches the decision-maker gate (next beat)", /spouse or partner/i.test(warmedOpener));
+check("fresh opener is the source-aware discovery opener (no prior conversation)", /source-aware/i.test(freshOpener) && /No prior conversation/i.test(freshOpener));
 
 // ── Bug B — guide zip auto-approve (live-run fix) ────────────────────────────
 // In-area zip must auto-approve (cross); manual_only/out-of-area/missing hold. The

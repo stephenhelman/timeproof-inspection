@@ -97,32 +97,38 @@ export async function handleQualifyWebhook(
   const isRealInbound =
     trigger === "inbound_sms" && !!inboundMsg && inboundMsg !== "new_lead";
 
+  // ── Source derivation (also drives opener routing) ──────────────────────────
+  // ARCHITECTURE §8/§9 routing: a lead with a guide source is a WARMED nurture lead
+  // (sourceType "guide" — it reached qualify only by qualifying out of nurture);
+  // otherwise this is a direct inspection/facebook/waitlist requester who entered
+  // qualify on Sonnet (sourceType "inspection") with no prior conversation. Computed
+  // here (not just below) because the opener routes on sourceType: a guide lead gets
+  // the continuation opener, an inspection lead the fresh discovery opener.
+  const guideSource = (rawLead.guideSource as string | null) ?? null;
+  const sourceType = guideSource ? "guide" : "inspection";
+  const sourceChannel =
+    guideSource === "door" ? "rep_door" : guideSource === "card" ? "rep_card" : "organic";
+
   let turnMessage: string;
   if (isRealInbound) {
     turnMessage = inboundMsg;
   } else {
     // new_inspection_lead / scheduling_approved / first-contact → source-aware opener.
     // Sprint 9 Part G: a held-then-cleared expansion-zone lead (sr_guide_context =
-    // zip_cleared) gets the "good news, we service your area" opener; otherwise the
-    // normal source-aware opener. The re-engagement IS the qualify opener — there is
+    // zip_cleared) gets the continuation + "good news, we service your area" opener.
+    // A warmed guide crossing gets the CONTINUATION opener (acknowledge what nurture
+    // surfaced, go to the open decision-maker gate); a fresh inspection requester
+    // gets the discovery opener. The re-engagement IS the qualify opener — there is
     // no separate clearance message. Prefer the webhook nuance, fall back to the
     // Lead.srGuideContext mirror written by the crossing.
     const guideCtx =
       ctx.srGuideContext ?? ((lead as unknown as { srGuideContext?: string | null }).srGuideContext ?? null);
-    turnMessage = qualifyOpenerInstruction(guideCtx);
+    turnMessage = qualifyOpenerInstruction(guideCtx, sourceType);
   }
 
   // ── System-authored source fields → Conversation (app-written, durable) ─────
-  // ARCHITECTURE §8 routing: a lead with a guide source is a warmed nurture lead
-  // (sourceType "guide"); otherwise this is a direct inspection requester who
-  // entered qualify on Sonnet (sourceType "inspection"). Warm a guide lead's
-  // sourceChannel from guideSource; an inspection lead is "organic". repName is
-  // looked up for rep_door/rep_card. Also ensures the Conversation row exists and
-  // returns the CURRENT (pre-turn) state.
-  const guideSource = (rawLead.guideSource as string | null) ?? null;
-  const sourceType = guideSource ? "guide" : "inspection";
-  const sourceChannel =
-    guideSource === "door" ? "rep_door" : guideSource === "card" ? "rep_card" : "organic";
+  // repName is looked up for rep_door/rep_card so the opener can reference the rep.
+  // Also ensures the Conversation row exists and returns the CURRENT (pre-turn) state.
 
   let repName: string | null = null;
   if ((guideSource === "door" || guideSource === "card") && lead.assignedUserId) {
